@@ -8,7 +8,7 @@
  * or DB call is needed here.
  */
 import { NextResponse, type NextRequest } from 'next/server';
-import { AGENT_SESSION_COOKIE, verifyAgentSessionEdge } from './lib/agentPortalAuth';
+import { AGENT_SESSION_COOKIE, verifyAgentSessionEdge } from './lib/agentSessionEdge';
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;

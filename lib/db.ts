@@ -3,14 +3,36 @@
  * Uses the neon-http adapter — works in Vercel serverless functions without
  * connection-pool issues (no WebSocket).
  */
-import { drizzle } from 'drizzle-orm/neon-http';
+import { drizzle, type NeonHttpDatabase } from 'drizzle-orm/neon-http';
 import { neon } from '@neondatabase/serverless';
 import { validateEnv } from './env';
 import * as schema from '../drizzle/schema';
 
-validateEnv();
+/**
+ * Lazily-initialized Drizzle client. We defer creating the neon() connection
+ * until the first query so that `next build` page-data collection (which imports
+ * modules without a DATABASE_URL available) does not throw at import time.
+ */
+let _db: NeonHttpDatabase<typeof schema> | null = null;
 
-const sql = neon(process.env.DATABASE_URL!);
-export const db = drizzle(sql, { schema });
+function getDb(): NeonHttpDatabase<typeof schema> {
+  if (_db) return _db;
+  validateEnv();
+  const sql = neon(process.env.DATABASE_URL!);
+  _db = drizzle(sql, { schema });
+  return _db;
+}
+
+/**
+ * Proxy that forwards all Drizzle method access to the lazily-created client.
+ * Lets callers keep using `db.select()...` while init stays deferred.
+ */
+export const db = new Proxy({} as NeonHttpDatabase<typeof schema>, {
+  get(_target, prop, receiver) {
+    const real = getDb();
+    const value = Reflect.get(real as object, prop, receiver);
+    return typeof value === 'function' ? value.bind(real) : value;
+  },
+});
 
 export { schema };

@@ -41,7 +41,7 @@ export default function SellerGuideSection({ locationSlug, guideUrl }: SellerGui
       });
       if (!res.ok) throw new Error('We could not process your request. Please try again.');
       setDone(true);
-      window.open(guideUrl, '_blank', 'noopener,noreferrer');
+      if (guideUrl) window.open(guideUrl, '_blank', 'noopener,noreferrer');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong. Please try again.');
     } finally {
