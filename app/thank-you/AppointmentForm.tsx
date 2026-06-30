@@ -3,14 +3,20 @@
 import * as React from 'react';
 import { Button, Input, Label, Card, CardBody, CardHeader } from '@/components/ui';
 import { dataLayerPush } from '@/lib/clientAnalytics';
+import { fireAppointmentRequestConversion } from '@/lib/googleAdsConversions';
+import { getLeadAttribution } from '@/lib/attribution';
 
 /** Optional appointment-request form on the thank-you page (Section 22.7). */
 export default function AppointmentForm({
   initialName = '',
   initialPhone = '',
+  initialEmail = '',
+  leadId = null,
 }: {
   initialName?: string;
   initialPhone?: string;
+  initialEmail?: string;
+  leadId?: number | null;
 }) {
   const [name, setName] = React.useState(initialName);
   const [phone, setPhone] = React.useState(initialPhone);
@@ -37,10 +43,19 @@ export default function AppointmentForm({
       const res = await fetch('/api/appointments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, phone, preferredTime }),
+        body: JSON.stringify({
+          name,
+          phone,
+          email: initialEmail || undefined,
+          preferredTime,
+          leadId: leadId ?? undefined,
+          ...getLeadAttribution(),
+        }),
       });
       if (!res.ok) throw new Error('We could not submit your request. Please try again.');
       dataLayerPush('appointment_requested');
+      // Google Ads appointment conversion — fire after the confirmed save (§B.4 / §K.6).
+      fireAppointmentRequestConversion(leadId, initialEmail || undefined);
       setDone(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong. Please try again.');

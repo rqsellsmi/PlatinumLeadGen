@@ -3,9 +3,10 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { appointmentRequests } from '@/drizzle/schema';
+import { appointmentRequests, leadEvents } from '@/drizzle/schema';
 import { appointmentSchema } from '@/lib/validation';
 import { sendEmail, appointmentNotificationEmail } from '@/lib/email';
+import { attributionColumns } from '@/lib/attributionServer';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -27,7 +28,21 @@ export async function POST(req: NextRequest) {
       preferredTime: input.preferredTime ?? null,
       notes: input.notes ?? null,
       source: 'thank-you',
+      ...attributionColumns(input),
     });
+
+    // Lead event timeline (§D.4) — link the appointment to its originating lead.
+    if (input.leadId != null) {
+      try {
+        await db.insert(leadEvents).values({
+          leadId: input.leadId,
+          eventType: 'appointment_requested',
+          note: input.preferredTime ? `Preferred: ${input.preferredTime}` : null,
+        });
+      } catch (err) {
+        console.error('[api/appointments] lead event failed:', err);
+      }
+    }
 
     try {
       await sendEmail(

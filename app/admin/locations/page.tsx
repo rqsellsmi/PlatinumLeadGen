@@ -4,7 +4,7 @@ import { db } from '@/lib/db';
 import { locations } from '@/drizzle/schema';
 import { Card, CardHeader, CardBody, Button, Input, Label, Badge } from '@/components/ui';
 import { requireAdmin } from '@/components/admin/requireAdmin';
-import { createLocation, toggleLocationActive } from './actions';
+import { createLocation, toggleLocationActive, updateLocationDistrict } from './actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -64,6 +64,7 @@ export default async function LocationsPage() {
                 <th className="px-4 py-2 text-left font-semibold">Name</th>
                 <th className="px-4 py-2 text-left font-semibold">Slug</th>
                 <th className="px-4 py-2 text-left font-semibold">State</th>
+                <th className="px-4 py-2 text-left font-semibold">School District</th>
                 <th className="px-4 py-2 text-left font-semibold">Status</th>
                 <th className="px-4 py-2 text-left font-semibold">Editors</th>
                 <th className="px-4 py-2 text-right font-semibold">Actions</th>
@@ -72,7 +73,7 @@ export default async function LocationsPage() {
             <tbody className="divide-y divide-slate-100">
               {list.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-6 text-center text-slate-500">
+                  <td colSpan={7} className="px-4 py-6 text-center text-slate-500">
                     No locations yet.
                   </td>
                 </tr>
@@ -82,6 +83,21 @@ export default async function LocationsPage() {
                   <td className="px-4 py-2 font-medium text-slate-800">{loc.name}</td>
                   <td className="px-4 py-2 text-slate-500">{loc.slug}</td>
                   <td className="px-4 py-2 text-slate-600">{loc.state}</td>
+                  <td className="px-4 py-2">
+                    <form action={updateLocationDistrict} className="flex items-center gap-1">
+                      <input type="hidden" name="locationId" value={loc.id} />
+                      <Input
+                        name="schoolDistrict"
+                        defaultValue={loc.schoolDistrict ?? ''}
+                        placeholder="District"
+                        className="h-8 w-40 text-xs"
+                        aria-label="School District — used to match closings to this city"
+                      />
+                      <Button type="submit" size="sm" variant="outline">
+                        Save
+                      </Button>
+                    </form>
+                  </td>
                   <td className="px-4 py-2">
                     {loc.isActive ? (
                       <Badge className="bg-green-100 text-green-700">Active</Badge>

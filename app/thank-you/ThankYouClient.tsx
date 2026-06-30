@@ -28,6 +28,8 @@ export default function ThankYouClient() {
   const params = useSearchParams();
   const [name, setName] = React.useState('');
   const [phone, setPhone] = React.useState('');
+  const [email, setEmail] = React.useState('');
+  const [leadId, setLeadId] = React.useState<number | null>(null);
   const [copied, setCopied] = React.useState(false);
   const [responseMsg, setResponseMsg] = React.useState('within 3 hours');
 
@@ -35,19 +37,22 @@ export default function ThankYouClient() {
     const type = params.get('type') ?? 'valuation';
     const city = params.get('city') ?? '';
     const variant = params.get('variant') ?? 'seo';
-    const email = sessionStorage.getItem('lead_email') ?? '';
+    const em = sessionStorage.getItem('lead_email') ?? '';
     const ph = sessionStorage.getItem('lead_phone') ?? '';
+    const lid = sessionStorage.getItem('lead_id');
     setName(sessionStorage.getItem('lead_name') ?? '');
     setPhone(ph);
+    setEmail(em);
+    setLeadId(lid ? Number(lid) : null);
     setResponseMsg(withinOfferWindow() ? 'within 3 hours' : 'first thing tomorrow morning');
 
-    // PRIMARY conversion event (Section 21.3).
+    // PRIMARY conversion event (Section 21.3) — feeds GA4 via dataLayer.
     dataLayerPush('lead_conversion', {
       lead_type: type,
       city,
       page_variant: variant,
       value: 50,
-      email,
+      email: em,
       phone: ph,
     });
   }, [params]);
@@ -93,7 +98,12 @@ export default function ThankYouClient() {
       </div>
 
       <div className="mt-12">
-        <AppointmentForm initialName={name} initialPhone={phone} />
+        <AppointmentForm
+          initialName={name}
+          initialPhone={phone}
+          initialEmail={email}
+          leadId={leadId}
+        />
       </div>
 
       <div className="mt-10">

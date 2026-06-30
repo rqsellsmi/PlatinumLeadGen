@@ -516,3 +516,155 @@ export function adminAlertEmail(subject: string, message: string): SendEmailArgs
   const html = shell(subject, `<p style="font-size:15px;line-height:1.5;">${escapeHtml(message)}</p>`);
   return { to: adminEmail(), subject, html, text: message, templateName: 'admin_alert' };
 }
+
+// ---------------------------------------------------------------------------
+// 8. Lead resubmitted — to the agent working the lead (v1.6 §D.2)
+// ---------------------------------------------------------------------------
+export interface LeadResubmittedEmailData {
+  to: string;
+  agentName: string;
+  leadName: string;
+  propertyAddress: string | null;
+  email: string | null;
+  phone: string | null;
+  relatedLeadId?: number;
+  relatedAgentId?: number;
+}
+
+export function leadResubmittedEmail(d: LeadResubmittedEmailData): SendEmailArgs {
+  const html = shell(
+    'A lead you are working resubmitted',
+    `<h1 style="margin:0 0 12px;font-size:22px;color:${BRAND_BLUE};">Lead resubmitted</h1>
+     <p style="font-size:15px;line-height:1.5;">Hi ${escapeHtml(d.agentName)}, <strong>${escapeHtml(d.leadName)}</strong>${
+       d.propertyAddress ? ` at ${escapeHtml(d.propertyAddress)}` : ''
+     } submitted again. Their contact info may have updated:</p>
+     <table style="font-size:15px;line-height:1.8;margin:12px 0;">
+       <tr><td style="color:#64748b;padding-right:12px;">Email</td><td>${escapeHtml(d.email ?? '—')}</td></tr>
+       <tr><td style="color:#64748b;padding-right:12px;">Phone</td><td>${escapeHtml(d.phone ?? '—')}</td></tr>
+     </table>`,
+  );
+  const text = `Lead resubmitted: ${d.leadName}${d.propertyAddress ? ` at ${d.propertyAddress}` : ''}.
+Email: ${d.email ?? '—'} | Phone: ${d.phone ?? '—'}`;
+  return {
+    to: d.to,
+    subject: `Lead resubmitted — ${d.leadName}`,
+    html,
+    text,
+    templateName: 'lead_resubmitted',
+    relatedLeadId: d.relatedLeadId,
+    relatedAgentId: d.relatedAgentId,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 9. Stale lead warning (36h / 12h-to-penalty) — to the agent (v1.6 §E.6)
+// ---------------------------------------------------------------------------
+export interface StaleWarningEmailData {
+  to: string;
+  agentName: string;
+  leadName: string;
+  address: string | null;
+  penaltyInHours: number;
+  portalUrl: string;
+  relatedLeadId?: number;
+  relatedAgentId?: number;
+}
+
+export function staleLeadWarningEmail(d: StaleWarningEmailData): SendEmailArgs {
+  const html = shell(
+    'Status update needed',
+    `<h1 style="margin:0 0 12px;font-size:22px;color:#DC1C2E;">Status update due in ${d.penaltyInHours} hours</h1>
+     <p style="font-size:15px;line-height:1.5;">Hi ${escapeHtml(d.agentName)}, please submit a status update on <strong>${escapeHtml(
+       d.leadName,
+     )}</strong>${d.address ? ` at ${escapeHtml(d.address)}` : ''} within ${d.penaltyInHours} hours to avoid a score penalty.</p>
+     <p style="margin:24px 0;">${button(d.portalUrl, 'Update This Lead')}</p>`,
+  );
+  const text = `Status update due in ${d.penaltyInHours} hours for ${d.leadName}${
+    d.address ? ` at ${d.address}` : ''
+  }. Portal: ${d.portalUrl}`;
+  return {
+    to: d.to,
+    subject: `Action needed: Status update due in ${d.penaltyInHours} hours`,
+    html,
+    text,
+    templateName: 'stale_warning',
+    relatedLeadId: d.relatedLeadId,
+    relatedAgentId: d.relatedAgentId,
+  };
+}
+
+/** 6-day recurring warning (24h-to-penalty) — to the agent (v1.6 §E.6). */
+export function stale6DayWarningEmail(d: Omit<StaleWarningEmailData, 'penaltyInHours'>): SendEmailArgs {
+  const html = shell(
+    'Recurring status update needed',
+    `<h1 style="margin:0 0 12px;font-size:22px;color:#DC1C2E;">Recurring penalty in 24 hours</h1>
+     <p style="font-size:15px;line-height:1.5;">Hi ${escapeHtml(d.agentName)}, <strong>${escapeHtml(
+       d.leadName,
+     )}</strong>${d.address ? ` at ${escapeHtml(d.address)}` : ''} still needs a status update. A recurring score penalty applies in 24 hours.</p>
+     <p style="margin:24px 0;">${button(d.portalUrl, 'Update This Lead')}</p>`,
+  );
+  const text = `Recurring penalty in 24 hours for ${d.leadName}. Portal: ${d.portalUrl}`;
+  return {
+    to: d.to,
+    subject: 'Reminder: Recurring status update penalty in 24 hours',
+    html,
+    text,
+    templateName: 'stale_6day_warning',
+    relatedLeadId: d.relatedLeadId,
+    relatedAgentId: d.relatedAgentId,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 10. Lead deleted — penalties reversed (v1.6 §E.7) — to the agent
+// ---------------------------------------------------------------------------
+export interface LeadDeletedEmailData {
+  to: string;
+  agentName: string;
+  leadName: string;
+  note?: string | null;
+  relatedLeadId?: number;
+  relatedAgentId?: number;
+}
+
+export function leadDeletedNotificationEmail(d: LeadDeletedEmailData): SendEmailArgs {
+  const html = shell(
+    'A lead was removed',
+    `<h1 style="margin:0 0 12px;font-size:22px;color:${BRAND_BLUE};">A lead was removed</h1>
+     <p style="font-size:15px;line-height:1.5;">Hi ${escapeHtml(d.agentName)}, the lead <strong>${escapeHtml(
+       d.leadName,
+     )}</strong> has been removed by your broker. Any score penalties related to this lead have been reversed.</p>
+     ${d.note ? `<p style="font-size:13px;color:#64748b;">${escapeHtml(d.note)}</p>` : ''}`,
+  );
+  const text = `The lead ${d.leadName} was removed. Any related score penalties have been reversed.`;
+  return {
+    to: d.to,
+    subject: `Lead removed — ${d.leadName}`,
+    html,
+    text,
+    templateName: 'lead_deleted',
+    relatedLeadId: d.relatedLeadId,
+    relatedAgentId: d.relatedAgentId,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 11. RentCast monthly quota alert (40/50) — to admin (v1.6 §H.3)
+// ---------------------------------------------------------------------------
+export function rentcastQuotaAlertEmail(used: number, limit: number): SendEmailArgs {
+  const html = shell(
+    'RentCast API usage',
+    `<h1 style="margin:0 0 12px;font-size:22px;color:#DC1C2E;">RentCast: ${used}/${limit} free calls used</h1>
+     <p style="font-size:15px;line-height:1.5;">You have used <strong>${used}</strong> of your <strong>${limit}</strong> free RentCast API calls this month (${Math.round(
+       (used / limit) * 100,
+     )}%). Consider upgrading before you hit the limit.</p>`,
+  );
+  const text = `RentCast: ${used}/${limit} free calls used this month.`;
+  return {
+    to: adminEmail(),
+    subject: `RentCast API: ${used}/${limit} free calls used this month`,
+    html,
+    text,
+    templateName: 'rentcast_quota_alert',
+  };
+}

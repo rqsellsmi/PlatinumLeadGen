@@ -9,6 +9,9 @@ import { webhookLeadSchema } from '@/lib/validation';
 import { verifyApiKey } from '@/lib/apiKeys';
 import { checkPreset, clientIp } from '@/lib/rateLimit';
 import { autoOfferLead } from '@/lib/autoOffer';
+import { attributionColumns } from '@/lib/attributionServer';
+import { normalizedAddressKey } from '@/lib/leadDedup';
+import { logLeadEvent } from '@/lib/leadEvents';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -55,8 +58,10 @@ export async function POST(req: NextRequest) {
       estimatedValue: input.estimatedValue ?? null,
       priceRangeLow: input.priceRangeLow ?? null,
       priceRangeHigh: input.priceRangeHigh ?? null,
+      normalizedAddress: normalizedAddressKey(input.propertyAddress),
       locationId,
       source: input.source ?? 'webhook',
+      ...attributionColumns(input),
       updatedAt: now,
     };
 
@@ -77,6 +82,8 @@ export async function POST(req: NextRequest) {
         .returning({ id: leads.id });
       leadId = inserted[0].id;
     }
+
+    await logLeadEvent(leadId, 'valuation_submitted', input.source ?? 'webhook');
 
     try {
       await autoOfferLead(leadId);

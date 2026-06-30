@@ -8,6 +8,7 @@ import { db } from '@/lib/db';
 import { leadOffers } from '@/drizzle/schema';
 import { applyScore } from '@/lib/scoring';
 import { reassignLead } from '@/lib/autoOffer';
+import { logLeadEvent } from '@/lib/leadEvents';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -48,6 +49,8 @@ export async function GET(req: NextRequest) {
           leadId: offer.leadId,
           leadOfferId: offer.id,
         });
+
+        await logLeadEvent(offer.leadId, 'offer_expired', null);
 
         await reassignLead(offer.leadId);
         expired += 1;

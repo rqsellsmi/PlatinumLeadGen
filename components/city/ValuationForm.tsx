@@ -9,6 +9,11 @@ import {
   LEAD_SUBMITTED_FLAG,
   PREFILL_ADDRESS_KEY,
 } from '@/lib/clientAnalytics';
+import {
+  fireSellerValuationConversion,
+  fireHeroSellerLeadConversion,
+} from '@/lib/googleAdsConversions';
+import { getLeadAttribution } from '@/lib/attribution';
 
 interface ValuationFormProps {
   locationSlug: string;
@@ -145,6 +150,7 @@ export default function ValuationForm({ locationSlug, cityName, pageVariant = 's
             propertyLng: data.propertyLng,
             locationSlug,
             pageVariant,
+            ...getLeadAttribution(),
           }),
         });
       } catch {
@@ -236,13 +242,26 @@ export default function ValuationForm({ locationSlug, cityName, pageVariant = 's
           locationSlug,
           leadType: 'valuation',
           pageVariant,
+          ...getLeadAttribution(),
         }),
       });
       if (!res.ok) throw new Error('We could not submit your request. Please try again.');
+      const data = (await res.json().catch(() => ({}))) as { leadId?: number };
+      const fullName = `${firstName} ${lastName}`.trim();
+
+      // Fire the Google Ads conversion IMMEDIATELY after the confirmed save,
+      // before the redirect (§B.4) — value/transaction_id depend on page type.
+      if (data.leadId != null) {
+        const ud = { email, phone, name: fullName };
+        if (pageVariant === 'ads') fireHeroSellerLeadConversion(data.leadId, ud);
+        else fireSellerValuationConversion(data.leadId, ud);
+      }
+
       // Handoff for the thank-you conversion event (Section 21.3) + CRO flags.
       sessionStorage.setItem('lead_email', email);
       sessionStorage.setItem('lead_phone', phone);
-      sessionStorage.setItem('lead_name', `${firstName} ${lastName}`.trim());
+      sessionStorage.setItem('lead_name', fullName);
+      if (data.leadId != null) sessionStorage.setItem('lead_id', String(data.leadId));
       sessionStorage.setItem(LEAD_SUBMITTED_FLAG, '1');
       window.location.href = `/thank-you?type=valuation&city=${encodeURIComponent(locationSlug)}&variant=${pageVariant}`;
     } catch (e) {

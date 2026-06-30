@@ -28,6 +28,18 @@ export async function createLocation(formData: FormData) {
   revalidatePath('/admin/locations');
 }
 
+export async function updateLocationDistrict(formData: FormData) {
+  await requireAdmin();
+  const id = Number(formData.get('locationId'));
+  if (!id) throw new Error('Invalid location');
+  const raw = String(formData.get('schoolDistrict') ?? '').trim();
+  await db
+    .update(locations)
+    .set({ schoolDistrict: raw || null, updatedAt: new Date() })
+    .where(eq(locations.id, id));
+  revalidatePath('/admin/locations');
+}
+
 export async function toggleLocationActive(formData: FormData) {
   await requireAdmin();
   const id = Number(formData.get('locationId'));

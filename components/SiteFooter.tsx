@@ -14,6 +14,12 @@ export default function SiteFooter() {
           <Link href="/sell" className="hover:text-platinum-blue">
             Michigan Cities
           </Link>
+          <Link href="/privacy" className="hover:text-platinum-blue">
+            Privacy
+          </Link>
+          <Link href="/terms" className="hover:text-platinum-blue">
+            Terms
+          </Link>
         </nav>
         <div className="text-mute-light">
           &copy; {new Date().getFullYear()} RE/MAX Platinum. All rights reserved.

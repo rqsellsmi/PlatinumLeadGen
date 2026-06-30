@@ -2,6 +2,7 @@ import { Card, CardHeader, CardBody } from '@/components/ui';
 import { requireAdmin } from '@/components/admin/requireAdmin';
 import {
   leadsBySource,
+  leadsByUtmSource,
   conversionByVariant,
   agentResponseMetrics,
   leadCountSince,
@@ -15,8 +16,9 @@ export default async function AnalyticsPage() {
   await requireAdmin();
 
   const since30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-  const [sources, conversion, agentMetrics, leadsLast30] = await Promise.all([
+  const [sources, utmSources, conversion, agentMetrics, leadsLast30] = await Promise.all([
     leadsBySource(),
+    leadsByUtmSource(),
     conversionByVariant(),
     agentResponseMetrics(),
     leadCountSince(since30),
@@ -83,6 +85,44 @@ export default async function AnalyticsPage() {
               ))}
               {sources.length === 0 && <li className="text-mute">No leads yet.</li>}
             </ul>
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <h2 className="font-bold text-charcoal">Lead sources (UTM)</h2>
+            <p className="mt-1 text-xs text-mute-light">Which ad campaign source generated each lead.</p>
+          </CardHeader>
+          <CardBody>
+            <table className="min-w-full text-sm">
+              <thead className="text-left text-xs uppercase tracking-wide text-mute-light">
+                <tr>
+                  <th className="py-2">Source</th>
+                  <th className="py-2">Leads</th>
+                  <th className="py-2">Closed</th>
+                  <th className="py-2">Rate</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line-hair">
+                {utmSources.map((s) => (
+                  <tr key={s.source}>
+                    <td className="py-2.5 text-charcoal">{s.source}</td>
+                    <td className="py-2.5 font-numeric">{s.leads}</td>
+                    <td className="py-2.5 font-numeric">{s.closed}</td>
+                    <td className="py-2.5 font-numeric">
+                      {s.leads ? ((s.closed / s.leads) * 100).toFixed(1) : '0.0'}%
+                    </td>
+                  </tr>
+                ))}
+                {utmSources.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="py-6 text-center text-mute">
+                      No leads yet.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </CardBody>
         </Card>
 

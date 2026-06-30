@@ -10,13 +10,14 @@ import { reassignLead } from '@/lib/autoOffer';
 import { agentAcceptanceEmail, sendEmail } from '@/lib/email';
 import { setAgentSessionCookie } from '@/lib/agentSession';
 import { checkPreset, clientIp } from '@/lib/rateLimit';
+import { logLeadEvent } from '@/lib/leadEvents';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+const FIFTEEN_MIN_MS = 15 * 60 * 1000;
 const THIRTY_MIN_MS = 30 * 60 * 1000;
 const ONE_HOUR_MS = 60 * 60 * 1000;
-const THREE_HOURS_MS = 3 * 60 * 60 * 1000;
 
 function siteUrl(): string {
   return process.env.SITE_URL ?? 'https://remax-platinumonline.com';
@@ -76,6 +77,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
         .where(eq(leadOffers.id, offer.id));
 
       try {
+        // Decline penalty is -3.00 (§E.4 / §J), defined in SCORE_DELTAS.
         await applyScore({
           agentId: offer.agentId,
           reason: 'system_decline',
@@ -85,6 +87,8 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
       } catch (err) {
         console.error('[api/offer] decline applyScore failed:', err);
       }
+
+      await logLeadEvent(offer.leadId, 'offer_declined', null);
 
       try {
         await reassignLead(offer.leadId);
@@ -118,26 +122,39 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
         .set({ acceptedAt: now, lastStatusChangedAt: now, updatedAt: now })
         .where(eq(leads.id, offer.leadId));
 
-      // Response-time score based on how quickly the agent accepted after send.
-      if (offer.offerSentAt) {
-        const elapsed = now.getTime() - offer.offerSentAt.getTime();
-        let reason: ScoreReason | null = null;
-        if (elapsed <= THIRTY_MIN_MS) reason = 'system_response_fast';
-        else if (elapsed <= ONE_HOUR_MS) reason = 'system_response_good';
-        else if (elapsed <= THREE_HOURS_MS) reason = 'system_response_slow';
-        if (reason) {
-          try {
-            await applyScore({
-              agentId: offer.agentId,
-              reason,
-              leadId: offer.leadId,
-              leadOfferId: offer.id,
-            });
-          } catch (err) {
-            console.error('[api/offer] accept applyScore failed:', err);
+      // Response-time score, 4 bands (§E.3). A null offerSentAt (queued offer
+      // dispatched asynchronously) is treated as the top tier — not the agent's
+      // fault the timestamp was missing.
+      {
+        let reason: ScoreReason = 'system_response_fast';
+        let explicitDelta: number | undefined;
+        if (offer.offerSentAt) {
+          const elapsed = now.getTime() - offer.offerSentAt.getTime();
+          if (elapsed < FIFTEEN_MIN_MS) {
+            reason = 'system_response_fast'; // +10
+          } else if (elapsed <= THIRTY_MIN_MS) {
+            reason = 'system_response_fast';
+            explicitDelta = 7.65; // 15–30 min tier
+          } else if (elapsed <= ONE_HOUR_MS) {
+            reason = 'system_response_good'; // +5
+          } else {
+            reason = 'system_response_slow'; // +2 (>= 60 min)
           }
         }
+        try {
+          await applyScore({
+            agentId: offer.agentId,
+            reason,
+            delta: explicitDelta,
+            leadId: offer.leadId,
+            leadOfferId: offer.id,
+          });
+        } catch (err) {
+          console.error('[api/offer] accept applyScore failed:', err);
+        }
       }
+
+      await logLeadEvent(offer.leadId, 'offer_accepted', null);
 
       // Send the agent the full contact details.
       try {

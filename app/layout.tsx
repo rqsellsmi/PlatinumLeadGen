@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { fontVariables } from '@/lib/fonts';
 import Analytics from '@/components/Analytics';
+import AttributionCapture from '@/components/AttributionCapture';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -18,6 +19,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={fontVariables}>
       <body className="font-sans text-ink antialiased">
         <Analytics />
+        <AttributionCapture />
         {children}
       </body>
     </html>

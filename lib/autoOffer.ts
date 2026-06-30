@@ -13,9 +13,11 @@ import {
   notificationSettings,
 } from '../drizzle/schema';
 import { recommendAgents, type RoutingAgent } from './routing';
+import { getRoutingQueue, persistQueuePointer } from './queue';
 import { isWithinOfferWindow } from './offerWindow';
 import { sendEmail, agentLeadOfferEmail, agentAcceptanceEmail, adminAlertEmail } from './email';
 import { generateMagicLinkToken, magicLinkExpiry } from './agentPortalAuth';
+import { logLeadEvent } from './leadEvents';
 
 /** Format a price range for emails, e.g. "$398K–$442K". */
 function formatRange(low: number | null, high: number | null): string | null {
@@ -34,7 +36,7 @@ function siteUrl(): string {
 }
 
 /** Load active agents with effective coordinates (own preferred, office fallback). */
-async function getActiveRoutingAgents(): Promise<RoutingAgent[]> {
+export async function getActiveRoutingAgents(): Promise<RoutingAgent[]> {
   const rows = await db
     .select({
       id: agents.id,
@@ -107,12 +109,17 @@ export async function autoOfferLead(
   const settings = await getSettings();
   const routingAgents = await getActiveRoutingAgents();
 
+  // Use the persisted rotation (honors admin reorder; auto-rebuilds on roster
+  // change) — §G.
+  const queue = await getRoutingQueue(routingAgents);
+
   const result = recommendAgents({
     agents: routingAgents,
     propertyLat: lead.propertyLat,
     propertyLng: lead.propertyLng,
     radiusMiles: settings.proximityRadiusMiles ?? 20,
-    queuePointer: settings.queuePointer ?? 0,
+    queuePointer: queue.pointer,
+    rotationList: queue.rotationList,
     excludedAgentIds: opts.excludeAgentIds ?? [],
   });
 
@@ -125,7 +132,9 @@ export async function autoOfferLead(
     return { ok: false, sent: false, reason: 'no-agent' };
   }
 
-  // Persist the advanced queue pointer (Step 6).
+  // Persist the advanced queue pointer (Step 6) to agent_queue + keep the
+  // settings pointer in sync for the admin Overview snapshot.
+  await persistQueuePointer(result.newQueuePointer);
   await db
     .update(notificationSettings)
     .set({ queuePointer: result.newQueuePointer, updatedAt: new Date() })
@@ -226,6 +235,8 @@ export async function dispatchOfferEmail(offerId: number): Promise<boolean> {
     })
     .where(eq(leadOffers.id, offerId));
 
+  await logLeadEvent(lead.id, 'offer_sent', `Offered to ${agent.firstName} ${agent.lastName}`.trim());
+
   return true;
 }
 
@@ -314,6 +325,8 @@ export async function manualReassignLead(
     .update(leads)
     .set({ acceptedAt: now, lastStatusChangedAt: now, updatedAt: now })
     .where(eq(leads.id, leadId));
+
+  await logLeadEvent(leadId, 'manually_assigned', `Assigned to ${agent.firstName} ${agent.lastName}`.trim());
 
   // 5. Notify the new agent it was a direct admin assignment (full lead info).
   const leadName = `${lead.firstName ?? ''} ${lead.lastName ?? ''}`.trim() || 'New lead';

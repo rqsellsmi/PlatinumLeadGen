@@ -34,6 +34,24 @@ export async function leadsBySource(): Promise<{ source: string; leads: number }
   return rows.map((r) => ({ source: r.source ?? 'unknown', leads: Number(r.count) }));
 }
 
+/** Lead counts grouped by UTM source (ad campaign source) with close rate (§C.4). */
+export async function leadsByUtmSource(): Promise<
+  { source: string; leads: number; closed: number }[]
+> {
+  const rows = await db
+    .select({
+      source: sql<string>`coalesce(nullif(${leads.utmSource}, ''), 'direct/none')`,
+      total: sql<number>`count(*)::int`,
+      closed: sql<number>`sum(case when ${leads.status} = 'closed' then 1 else 0 end)::int`,
+    })
+    .from(leads)
+    .where(eq(leads.isDeleted, false))
+    .groupBy(sql`coalesce(nullif(${leads.utmSource}, ''), 'direct/none')`);
+  return rows
+    .map((r) => ({ source: r.source, leads: Number(r.total), closed: Number(r.closed) }))
+    .sort((a, b) => b.leads - a.leads);
+}
+
 /** Conversion = leads that reached closed, per variant. */
 export async function conversionByVariant(): Promise<
   { variant: string; total: number; closed: number; rate: number }[]

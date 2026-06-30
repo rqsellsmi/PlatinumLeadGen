@@ -1,8 +1,8 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { asc, eq } from 'drizzle-orm';
+import { asc, desc, eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { leads, leadOffers, agents, offices } from '@/drizzle/schema';
+import { leads, leadOffers, agents, offices, leadEvents } from '@/drizzle/schema';
 import { Card, CardHeader, CardBody, Button, Select, Label, Badge, statusTone } from '@/components/ui';
 import { formatCurrency } from '@/lib/utils';
 import { requireAdmin } from '@/components/admin/requireAdmin';
@@ -68,6 +68,23 @@ export default async function LeadDetailPage({ params }: { params: { id: string 
     city: a.officeCity ?? null,
     isAvailable: a.isAvailable,
   }));
+
+  // Lead activity timeline (§D.4), newest first.
+  const eventRows = await db
+    .select()
+    .from(leadEvents)
+    .where(eq(leadEvents.leadId, id))
+    .orderBy(desc(leadEvents.createdAt));
+
+  const hasAttribution = Boolean(
+    lead.utmSource ||
+      lead.utmMedium ||
+      lead.utmCampaign ||
+      lead.gclid ||
+      lead.referrer ||
+      lead.landingPageUrl ||
+      lead.deviceType,
+  );
 
   const fullName = [lead.firstName, lead.lastName].filter(Boolean).join(' ') || 'Unnamed lead';
 
@@ -177,8 +194,69 @@ export default async function LeadDetailPage({ params }: { params: { id: string 
           <OfferHistory leadId={lead.id} offers={offers} agents={agentOptions} />
         </CardBody>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <h2 className="font-bold text-charcoal">Attribution</h2>
+        </CardHeader>
+        <CardBody>
+          {hasAttribution ? (
+            <dl className="grid grid-cols-1 gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
+              <Field label="Source" value={lead.utmSource} />
+              <Field label="Medium" value={lead.utmMedium} />
+              <Field label="Campaign" value={lead.utmCampaign} />
+              <Field label="Content" value={lead.utmContent} />
+              <Field label="Term" value={lead.utmTerm} />
+              <Field label="Device" value={lead.deviceType} />
+              <Field label="gclid" value={lead.gclid} />
+              <Field label="Referrer" value={lead.referrer} />
+              <Field label="Landing page" value={lead.landingPageUrl} />
+              <Field
+                label="First seen"
+                value={lead.firstSeenAt ? new Date(lead.firstSeenAt).toLocaleString('en-US') : null}
+              />
+              <Field
+                label="Last seen"
+                value={lead.lastSeenAt ? new Date(lead.lastSeenAt).toLocaleString('en-US') : null}
+              />
+            </dl>
+          ) : (
+            <p className="text-sm text-mute">No attribution captured for this lead.</p>
+          )}
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <h2 className="font-bold text-charcoal">Activity timeline</h2>
+        </CardHeader>
+        <CardBody>
+          {eventRows.length === 0 ? (
+            <p className="text-sm text-mute">No activity recorded yet.</p>
+          ) : (
+            <ul className="space-y-3">
+              {eventRows.map((e) => (
+                <li key={e.id} className="flex items-start gap-3 text-sm">
+                  <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-platinum-blue" />
+                  <div>
+                    <p className="font-semibold text-charcoal">{formatEventType(e.eventType)}</p>
+                    {e.note ? <p className="text-mute">{e.note}</p> : null}
+                    <p className="text-xs text-mute-light">
+                      {e.createdAt ? new Date(e.createdAt).toLocaleString('en-US') : ''}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardBody>
+      </Card>
     </div>
   );
+}
+
+function formatEventType(t: string): string {
+  return t.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function Field({ label, value }: { label: string; value: string | null | undefined }) {

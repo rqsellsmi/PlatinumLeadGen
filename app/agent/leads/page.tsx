@@ -8,6 +8,7 @@ import AgentDashboard, {
   type AgentKpi,
   type LeadStatus,
 } from '@/components/agent/AgentDashboard';
+import ScorePanel from '@/components/agent/ScorePanel';
 import { formatPriceRange, relativeTime } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
@@ -100,11 +101,14 @@ export default async function AgentLeadsPage() {
   ];
 
   return (
-    <AgentDashboard
-      greeting={greetingFor(agent.firstName)}
-      subline={`${active} active lead${active === 1 ? '' : 's'} · ${toContact} to contact`}
-      kpis={kpis}
-      items={items}
-    />
+    <div className="space-y-6">
+      <ScorePanel />
+      <AgentDashboard
+        greeting={greetingFor(agent.firstName)}
+        subline={`${active} active lead${active === 1 ? '' : 's'} · ${toContact} to contact`}
+        kpis={kpis}
+        items={items}
+      />
+    </div>
   );
 }
