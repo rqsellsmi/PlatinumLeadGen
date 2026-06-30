@@ -11,6 +11,7 @@ import Logo from '@/components/Logo';
 const NAV = [
   { href: '/admin', label: 'Overview' },
   { href: '/admin/leads', label: 'Leads' },
+  { href: '/admin/round-robin', label: 'Round-Robin' },
   { href: '/admin/agents', label: 'Agents' },
   { href: '/admin/offices', label: 'Offices' },
   { href: '/admin/locations', label: 'Locations' },
