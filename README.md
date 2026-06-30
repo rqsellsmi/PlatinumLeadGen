@@ -5,7 +5,7 @@ routing/agent-management backend, and an admin dashboard — all on one domain
 (`remax-platinumonline.com`). Launch cities: Brighton, Ann Arbor, Fenton, Grand Blanc.
 
 **Stack:** Next.js 14 (App Router, SSR + ISR) · Neon PostgreSQL + Drizzle ORM ·
-Upstash Redis · Resend · RentCast · Google Maps Places · Vercel.
+Microsoft Graph Mail · RentCast · Google Maps Places · Vercel.
 
 ## Quick start
 
@@ -60,8 +60,8 @@ lib/
   offerWindow.ts                7am-8pm ET window               <- tested
   autoOffer.ts                  autoOfferLead / reassignLead
   scoring.ts                    Agent score system
-  email.ts                      Resend + 7 templates
-  redis.ts                      Upstash cache + rate limiters
+  email.ts                      Microsoft Graph + 7 templates
+  rateLimit.ts                  Neon-backed rate limiters
   seo.ts                        JSON-LD (LocalBusiness, FAQPage)
   agentPortalAuth.ts, agentSession.ts, apiKeys.ts, rentcast.ts, validation.ts, env.ts
 drizzle/

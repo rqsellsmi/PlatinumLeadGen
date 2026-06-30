@@ -6,7 +6,7 @@ import { db } from '@/lib/db';
 import { apiUsageLogs } from '@/drizzle/schema';
 import { valuationSchema } from '@/lib/validation';
 import { getValuation } from '@/lib/rentcast';
-import { valuationRateLimit, clientIp } from '@/lib/redis';
+import { valuationRateLimit, clientIp } from '@/lib/rateLimit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(req: NextRequest) {
   try {
     const ip = clientIp(req.headers);
-    const { success } = await valuationRateLimit.limit(ip);
+    const { success } = await valuationRateLimit(ip);
     if (!success) {
       return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
     }

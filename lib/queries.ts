@@ -1,6 +1,6 @@
 /**
  * Server-side data loading for public pages (Section 4.2).
- * City page data is fetched at render time and cached in Upstash.
+ * City page data is fetched at render time. Next.js ISR caches the rendered page.
  */
 import { eq, and, desc, asc } from 'drizzle-orm';
 import { db } from './db';
@@ -19,7 +19,6 @@ import {
   type NeighborhoodLink,
   type TrackingScript,
 } from '../drizzle/schema';
-import { getCached, setCached, locationCacheKey } from './redis';
 
 export interface CityPageData {
   location: Location;
@@ -29,7 +28,6 @@ export interface CityPageData {
   neighborhoodLinks: NeighborhoodLink[];
   trackingScripts: TrackingScript[];
 }
-
 export async function getActiveLocations(): Promise<Location[]> {
   try {
     return await db
@@ -70,14 +68,9 @@ export async function getMarketStats(locationId: number): Promise<MarketStat | n
 }
 
 /**
- * Full city page payload, cached in Upstash for the ISR window.
- * Cache stores a serialized snapshot; dates are revived on read.
+ * Full city page payload. The page-level ISR configuration handles caching.
  */
 export async function getCityPageData(slug: string): Promise<CityPageData | null> {
-  const cacheKey = locationCacheKey(slug);
-  const cached = await getCached<CityPageData>(cacheKey);
-  if (cached) return reviveDates(cached);
-
   const location = await getLocationBySlug(slug);
   if (!location || !location.isActive) return null;
 
@@ -120,7 +113,6 @@ export async function getCityPageData(slug: string): Promise<CityPageData | null
     trackingScripts: scripts,
   };
 
-  await setCached(cacheKey, data);
   return data;
 }
 
@@ -163,14 +155,4 @@ export async function getFeaturedTestimonials(limit = 3): Promise<Testimonial[]>
     console.warn('[queries] getFeaturedTestimonials failed:', err);
     return [];
   }
-}
-
-/** Revive Date fields after a JSON round-trip through Redis. */
-function reviveDates(data: CityPageData): CityPageData {
-  const toDate = (v: unknown) => (v ? new Date(v as string) : null);
-  return {
-    ...data,
-    location: { ...data.location, updatedAt: toDate(data.location.updatedAt) as Date, createdAt: toDate(data.location.createdAt) as Date },
-    recentSales: data.recentSales.map((s) => ({ ...s, closeDate: toDate(s.closeDate), createdAt: toDate(s.createdAt) as Date })),
-  };
 }

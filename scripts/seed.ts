@@ -119,7 +119,7 @@ async function main() {
   if (settings.length === 0) {
     console.log('Seeding notificationSettings…');
     await db.insert(notificationSettings).values({
-      notificationEmail: process.env.RESEND_ADMIN_EMAIL ?? null,
+      notificationEmail: process.env.EMAIL_ADMIN_EMAIL ?? null,
       offerWindowStartHour: 7,
       offerWindowEndHour: 20,
       proximityRadiusMiles: 20,

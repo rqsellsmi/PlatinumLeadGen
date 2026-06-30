@@ -9,18 +9,16 @@
 
 const REQUIRED_VARS = [
   'DATABASE_URL',
-  'UPSTASH_REDIS_REST_URL',
-  'UPSTASH_REDIS_REST_TOKEN',
   'NEXTAUTH_SECRET',
   'NEXTAUTH_URL',
   'ADMIN_USERNAME',
   'ADMIN_PASSWORD_HASH',
-  'RESEND_API_KEY',
-  'RESEND_FROM_EMAIL',
-  'RESEND_FROM_NAME',
-  'RESEND_ADMIN_EMAIL',
+  'MICROSOFT_TENANT_ID',
+  'MICROSOFT_CLIENT_ID',
+  'MICROSOFT_CLIENT_SECRET',
+  'MICROSOFT_SENDER_EMAIL',
+  'EMAIL_ADMIN_EMAIL',
   'RENTCAST_API_KEY',
-  'GOOGLE_MAPS_API_KEY',
   'SITE_URL',
   'CRON_SECRET',
   'NEXT_PUBLIC_GOOGLE_MAPS_API_KEY',
@@ -73,7 +71,7 @@ export const env = {
   get SITE_URL() {
     return process.env.SITE_URL ?? 'https://remax-platinumonline.com';
   },
-  get RESEND_ADMIN_EMAIL() {
-    return requireEnv('RESEND_ADMIN_EMAIL');
+  get EMAIL_ADMIN_EMAIL() {
+    return requireEnv('EMAIL_ADMIN_EMAIL');
   },
 };

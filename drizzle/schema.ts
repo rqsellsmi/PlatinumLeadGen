@@ -375,6 +375,16 @@ export const apiUsageLogs = pgTable('api_usage_logs', {
 });
 
 // ---------------------------------------------------------------------------
+// Durable fixed-window rate limits (Neon-backed; replaces Upstash Redis)
+// ---------------------------------------------------------------------------
+export const rateLimits = pgTable('rate_limits', {
+  key: varchar('key', { length: 255 }).primaryKey(),
+  count: integer('count').notNull().default(1),
+  resetAt: timestamp('reset_at').notNull(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
 // Appointment requests (thank-you page + webhook)
 // ---------------------------------------------------------------------------
 export const appointmentRequests = pgTable('appointment_requests', {

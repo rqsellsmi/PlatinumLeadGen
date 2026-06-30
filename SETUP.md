@@ -3,8 +3,8 @@
 Unified Next.js 14 application: public seller lead-gen pages, lead routing/agent
 management backend, and an admin dashboard — all on one domain.
 
-**Stack:** Next.js 14 (App Router) · Neon PostgreSQL (Drizzle ORM) · Upstash Redis ·
-Resend · RentCast · Google Maps Places · Vercel.
+**Stack:** Next.js 14 (App Router) · Neon PostgreSQL (Drizzle ORM) · Microsoft Graph Mail ·
+RentCast · Google Maps Places · Vercel.
 
 ---
 
@@ -13,10 +13,9 @@ Resend · RentCast · Google Maps Places · Vercel.
 | Service | What you need | Notes |
 | --- | --- | --- |
 | **Neon** (neon.tech) | `DATABASE_URL` | New project → copy the connection string. |
-| **Upstash** (upstash.com) | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | New Redis database → REST credentials. |
-| **Resend** (resend.com) | `RESEND_API_KEY` | **Verify your sending domain first** — email won't send until verified. |
+| **Microsoft 365** | Entra tenant ID, app client ID/secret, sender mailbox | Grant Microsoft Graph `Mail.Send` application permission and admin consent. |
 | **RentCast** | `RENTCAST_API_KEY` | For the home-valuation tool. |
-| **Google Maps** | `GOOGLE_MAPS_API_KEY` + `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | Enable **Places API**. Restrict the public key by HTTP referrer. |
+| **Google Maps** | `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | Enable Maps JavaScript API and Places API. Restrict the key by HTTP referrer. |
 
 ---
 
@@ -78,7 +77,7 @@ npm run dev      # http://localhost:3000
    You can run them locally with the production `DATABASE_URL`:
    ```bash
    DATABASE_URL='<prod-neon-url>' npm run db:migrate
-   DATABASE_URL='<prod-neon-url>' RESEND_ADMIN_EMAIL='<owner>' npm run seed
+   DATABASE_URL='<prod-neon-url>' EMAIL_ADMIN_EMAIL='<owner>' npm run seed
    ```
 
 > **CSP:** `next.config.js` ships a Content-Security-Policy (Section 13.1) that
@@ -150,9 +149,10 @@ There is also `/api/webhooks/appointment` (same API-key auth).
   coordinates. Covered by `tests/routing.test.ts`.
 - **Offer window** (`lib/offerWindow.ts`): 7am–8pm ET. The 3-hour acceptance timer
   starts when the offer email is **sent**, not when the lead arrives.
-- **Caching/ISR**: city pages are ISR (revalidate 1h), homepage 24h. Page data is
-  cached in Upstash; editing SEO/stats in admin invalidates the cache and triggers
-  `revalidatePath` so changes go live within seconds.
+- **Caching/ISR**: city pages are ISR (revalidate 1h), homepage 24h. Editing
+  SEO/stats in admin triggers `revalidatePath` so changes go live within seconds.
+- **Rate limiting**: webhook and valuation rate limits use atomic counters in Neon,
+  keeping the deployment to a single data service.
 - **Auth**: admin = NextAuth credentials (bcrypt hash in env, no user table);
   agents = magic link or admin-set password, signed httpOnly session cookie;
   webhooks = bcrypt-compared API keys; cron = shared secret header.

@@ -6,7 +6,7 @@ import { db } from '@/lib/db';
 import { appointmentRequests } from '@/drizzle/schema';
 import { appointmentSchema } from '@/lib/validation';
 import { verifyApiKey } from '@/lib/apiKeys';
-import { webhookRateLimit, clientIp } from '@/lib/redis';
+import { webhookRateLimit, clientIp } from '@/lib/rateLimit';
 import { sendEmail, appointmentNotificationEmail } from '@/lib/email';
 
 export const runtime = 'nodejs';
@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'invalid_api_key' }, { status: 401 });
     }
 
-    const { success } = await webhookRateLimit.limit(clientIp(req.headers));
+    const { success } = await webhookRateLimit(clientIp(req.headers));
     if (!success) {
       return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
     }

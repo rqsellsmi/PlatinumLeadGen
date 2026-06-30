@@ -5,7 +5,6 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { locations } from '@/drizzle/schema';
 import { validateFaqJson } from '@/lib/seo';
-import { invalidateLocationCache } from '@/lib/redis';
 import { requireAdmin } from '@/components/admin/requireAdmin';
 
 export interface SaveSeoState {
@@ -32,7 +31,7 @@ export async function saveSeo(_prev: SaveSeoState, formData: FormData): Promise<
   // Normalize: store an empty array as null to keep the column tidy.
   const normalizedFaq = result.items && result.items.length > 0 ? JSON.stringify(result.items) : null;
 
-  const rows = await db
+  await db
     .update(locations)
     .set({
       metaTitle: str(formData.get('metaTitle')),
@@ -43,11 +42,7 @@ export async function saveSeo(_prev: SaveSeoState, formData: FormData): Promise<
       faqJson: normalizedFaq,
       updatedAt: new Date(),
     })
-    .where(eq(locations.id, id))
-    .returning({ slug: locations.slug });
-
-  const slug = rows[0]?.slug;
-  if (slug) await invalidateLocationCache(slug);
+    .where(eq(locations.id, id));
   revalidatePath('/sell/[slug]', 'page');
   revalidatePath(`/admin/locations/${id}/seo`);
   return { success: true };

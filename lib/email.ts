@@ -1,27 +1,15 @@
 /**
- * Resend wrapper + all 7 transactional templates (Section 6).
+ * Microsoft Graph wrapper + all 7 transactional templates (Section 6).
  *
  * Every email: clean single-column HTML, brand-blue (#1E3A5F) header, white body,
  * with a required plain-text fallback.
  *
  * TODO v2: add Twilio SMS alongside sendEmail.
  */
-import { Resend } from 'resend';
-
 const BRAND_BLUE = '#1E3A5F';
 
-function resendClient(): Resend {
-  return new Resend(process.env.RESEND_API_KEY);
-}
-
-function fromAddress(): string {
-  const name = process.env.RESEND_FROM_NAME ?? 'RE/MAX Platinum';
-  const email = process.env.RESEND_FROM_EMAIL ?? 'leads@example.com';
-  return `${name} <${email}>`;
-}
-
 function adminEmail(): string {
-  return process.env.RESEND_ADMIN_EMAIL ?? process.env.RESEND_FROM_EMAIL ?? '';
+  return process.env.EMAIL_ADMIN_EMAIL ?? process.env.MICROSOFT_SENDER_EMAIL ?? '';
 }
 
 function siteUrl(): string {
@@ -36,25 +24,81 @@ export interface SendEmailArgs {
   replyTo?: string;
 }
 
+let cachedAccessToken: { value: string; expiresAt: number } | null = null;
+
+async function graphAccessToken(): Promise<string> {
+  if (cachedAccessToken && cachedAccessToken.expiresAt > Date.now() + 60_000) {
+    return cachedAccessToken.value;
+  }
+
+  const tenantId = process.env.MICROSOFT_TENANT_ID!;
+  const response = await fetch(
+    `https://login.microsoftonline.com/${encodeURIComponent(tenantId)}/oauth2/v2.0/token`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: process.env.MICROSOFT_CLIENT_ID!,
+        client_secret: process.env.MICROSOFT_CLIENT_SECRET!,
+        scope: 'https://graph.microsoft.com/.default',
+        grant_type: 'client_credentials',
+      }),
+      cache: 'no-store',
+    },
+  );
+
+  if (!response.ok) throw new Error(`Microsoft token request failed (${response.status}).`);
+  const data = (await response.json()) as { access_token?: string; expires_in?: number };
+  if (!data.access_token) throw new Error('Microsoft token response did not include an access token.');
+
+  cachedAccessToken = {
+    value: data.access_token,
+    expiresAt: Date.now() + (data.expires_in ?? 3600) * 1000,
+  };
+  return data.access_token;
+}
+
 /**
  * Low-level send. Returns { id } on success. Never throws on a send failure —
  * logs and returns { error } so callers (cron, autoOffer) can continue.
  */
 export async function sendEmail(args: SendEmailArgs): Promise<{ id?: string; error?: string }> {
   try {
-    const result = await resendClient().emails.send({
-      from: fromAddress(),
-      to: Array.isArray(args.to) ? args.to : [args.to],
-      subject: args.subject,
-      html: args.html,
-      text: args.text,
-      replyTo: args.replyTo,
-    });
-    if (result.error) {
-      console.error('[email] send failed:', result.error);
-      return { error: String(result.error.message ?? result.error) };
+    const token = await graphAccessToken();
+    const sender = process.env.MICROSOFT_SENDER_EMAIL!;
+    const recipients = Array.isArray(args.to) ? args.to : [args.to];
+    const response = await fetch(
+      `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(sender)}/sendMail`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: {
+            subject: args.subject,
+            body: { contentType: 'HTML', content: args.html },
+            toRecipients: recipients.map((address) => ({ emailAddress: { address } })),
+            ...(args.replyTo
+              ? { replyTo: [{ emailAddress: { address: args.replyTo } }] }
+              : {}),
+          },
+          saveToSentItems: true,
+        }),
+        cache: 'no-store',
+      },
+    );
+
+    if (!response.ok) {
+      const detail = await response.text();
+      console.error('[email] Microsoft Graph send failed:', response.status, detail);
+      return { error: `Microsoft Graph send failed (${response.status}).` };
     }
-    return { id: result.data?.id };
+
+    return {
+      id: response.headers.get('request-id') ?? response.headers.get('client-request-id') ?? 'accepted',
+    };
   } catch (err) {
     console.error('[email] send threw:', err);
     return { error: err instanceof Error ? err.message : 'unknown email error' };
