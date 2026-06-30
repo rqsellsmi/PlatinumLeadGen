@@ -1,4 +1,5 @@
 {
+  "framework": "nextjs",
   "crons": [
     { "path": "/api/cron/dispatch-queued-offers", "schedule": "0 13 * * *" },
     { "path": "/api/cron/expire-offers", "schedule": "0 13 * * *" },
