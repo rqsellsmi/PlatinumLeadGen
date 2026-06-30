@@ -17,6 +17,21 @@ import {
 } from '../drizzle/schema';
 import { eq } from 'drizzle-orm';
 
+// Seeding only needs DATABASE_URL — skip the full app env validation so you
+// don't have to set MS Graph / RentCast / NextAuth vars just to seed.
+// (validateEnv() runs lazily on the first query, so setting this here works.)
+process.env.SKIP_ENV_VALIDATION = process.env.SKIP_ENV_VALIDATION ?? '1';
+if (!process.env.DATABASE_URL) {
+  console.error(
+    '\n✗ DATABASE_URL is not set.\n' +
+      '  Add your Neon connection string to a .env file in the project root:\n' +
+      '    DATABASE_URL="postgresql://user:pass@host.neon.tech/neondb?sslmode=require"\n' +
+      '  Then:  npm run db:migrate   (creates the tables)\n' +
+      '  Then:  npm run seed         (this script)\n',
+  );
+  process.exit(1);
+}
+
 interface CitySeed {
   slug: string;
   name: string;
