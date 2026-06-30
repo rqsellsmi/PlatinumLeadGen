@@ -4,9 +4,12 @@
  * lib/db.ts so the check runs early. Skipped at build/lint/test time.
  */
 
+import { DATABASE_URL_CANDIDATES, resolveDatabaseUrl } from './dbUrl';
+
 /** Each entry is satisfied if ANY of its names is set (supports legacy aliases). */
 const REQUIRED_GROUPS: { label: string; anyOf: string[] }[] = [
-  { label: 'DATABASE_URL', anyOf: ['DATABASE_URL'] },
+  // Accept any Vercel/Neon integration variable name for the connection string.
+  { label: 'DATABASE_URL', anyOf: DATABASE_URL_CANDIDATES },
   { label: 'NEXTAUTH_SECRET', anyOf: ['NEXTAUTH_SECRET'] },
   { label: 'NEXTAUTH_URL', anyOf: ['NEXTAUTH_URL'] },
   { label: 'ADMIN_USERNAME', anyOf: ['ADMIN_USERNAME'] },
@@ -54,7 +57,7 @@ export function requireEnv(key: string): string {
 
 export const env = {
   get DATABASE_URL() {
-    return requireEnv('DATABASE_URL');
+    return resolveDatabaseUrl();
   },
   get SITE_URL() {
     return process.env.SITE_URL ?? 'https://remax-platinumonline.com';

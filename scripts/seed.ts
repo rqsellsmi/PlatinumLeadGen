@@ -16,12 +16,13 @@ import {
   homePageMetrics,
 } from '../drizzle/schema';
 import { eq } from 'drizzle-orm';
+import { resolveDatabaseUrl } from '../lib/dbUrl';
 
-// Seeding only needs DATABASE_URL — skip the full app env validation so you
-// don't have to set MS Graph / RentCast / NextAuth vars just to seed.
+// Seeding only needs a connection string — skip the full app env validation so
+// you don't have to set MS Graph / RentCast / NextAuth vars just to seed.
 // (validateEnv() runs lazily on the first query, so setting this here works.)
 process.env.SKIP_ENV_VALIDATION = process.env.SKIP_ENV_VALIDATION ?? '1';
-if (!process.env.DATABASE_URL) {
+if (!resolveDatabaseUrl()) {
   console.error(
     '\n✗ DATABASE_URL is not set.\n' +
       '  Add your Neon connection string to a .env file in the project root:\n' +
