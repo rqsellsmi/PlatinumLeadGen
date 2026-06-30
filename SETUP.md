@@ -104,17 +104,33 @@ Log in at **`/admin/login`** with `ADMIN_USERNAME` + your password, then:
 
 ---
 
-## 5. Scheduled jobs (Vercel Cron)
+## 5. Scheduled jobs
 
-Defined in `vercel.json`. Every handler verifies the `x-cron-secret` header against
-`CRON_SECRET`.
+Every cron handler verifies the `x-cron-secret` header against `CRON_SECRET`.
 
-| Path | Schedule | Job |
-| --- | --- | --- |
-| `/api/cron/dispatch-queued-offers` | every 5 min | Send offers queued outside the offer window once it reopens. |
-| `/api/cron/expire-offers` | every 10 min | Expire offers >3h unanswered, penalize, reassign. |
-| `/api/cron/followup-check` | every 30 min | 48h escalation alerts + weekly agent reminders. |
-| `/api/cron/broker-digest` | Thu 13:00 UTC (≈8am ET) | Weekly broker digest email. |
+The **Vercel Hobby (free) plan only allows daily cron jobs**, so the time-sensitive
+jobs are driven by a **GitHub Actions workflow** (`.github/workflows/cron.yml`) that
+pings the endpoints every ~10 minutes, while Vercel Cron (`vercel.json`) runs each job
+once a day as a backstop. (If you upgrade to **Vercel Pro**, you can instead set the
+`vercel.json` schedules back to `*/5`, `*/10`, `*/30` and delete the workflow.)
+
+| Path | GitHub Actions | Vercel Cron (backstop) | Job |
+| --- | --- | --- | --- |
+| `/api/cron/dispatch-queued-offers` | every ~10 min | daily | Send offers queued outside the offer window once it reopens. |
+| `/api/cron/expire-offers` | every ~10 min | daily | Expire offers >3h unanswered, penalize, reassign. |
+| `/api/cron/followup-check` | every ~10 min | daily | 48h escalation alerts + weekly agent reminders. |
+| `/api/cron/broker-digest` | — | Thu 13:00 UTC (≈8am ET) | Weekly broker digest email (weekly is allowed on Hobby). |
+
+**To enable the GitHub Actions scheduler**, add two repository secrets
+(GitHub → Settings → Secrets and variables → Actions):
+
+| Secret | Value |
+| --- | --- |
+| `DEPLOY_URL` | Your deployed URL, e.g. `https://your-project.vercel.app` (no trailing slash) |
+| `CRON_SECRET` | The **same** value you set as `CRON_SECRET` in Vercel's env vars |
+
+The workflow also has a **"Run workflow"** button (manual trigger) on the repo's
+**Actions** tab for testing.
 
 To test a cron locally:
 ```bash
