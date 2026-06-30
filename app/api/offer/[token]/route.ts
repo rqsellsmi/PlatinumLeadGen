@@ -1,0 +1,188 @@
+/**
+ * GET /api/offer/[token]?response=accept|decline — agent accept/decline links. (Section 7.4)
+ */
+import { NextRequest, NextResponse } from 'next/server';
+import { eq } from 'drizzle-orm';
+import { db } from '@/lib/db';
+import { leadOffers, leads, agents } from '@/drizzle/schema';
+import { applyScore, type ScoreReason } from '@/lib/scoring';
+import { reassignLead } from '@/lib/autoOffer';
+import { agentAcceptanceEmail, sendEmail } from '@/lib/email';
+import { setAgentSessionCookie } from '@/lib/agentSession';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+const THIRTY_MIN_MS = 30 * 60 * 1000;
+const ONE_HOUR_MS = 60 * 60 * 1000;
+const THREE_HOURS_MS = 3 * 60 * 60 * 1000;
+
+function siteUrl(): string {
+  return process.env.SITE_URL ?? 'https://remax-platinumonline.com';
+}
+
+function htmlPage(title: string, message: string, status: number): NextResponse {
+  const html = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${title}</title></head>
+<body style="margin:0;font-family:Arial,Helvetica,sans-serif;background:#f5f7fa;color:#1a1a1a;">
+  <div style="max-width:560px;margin:64px auto;background:#fff;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">
+    <div style="background:#1E3A5F;padding:20px 28px;color:#fff;font-size:20px;font-weight:bold;">RE/MAX Platinum</div>
+    <div style="padding:32px 28px;">
+      <h1 style="margin:0 0 12px;font-size:22px;color:#1E3A5F;">${title}</h1>
+      <p style="font-size:16px;line-height:1.5;">${message}</p>
+    </div>
+  </div>
+</body></html>`;
+  return new NextResponse(html, { status, headers: { 'content-type': 'text/html' } });
+}
+
+export async function GET(req: NextRequest, { params }: { params: { token: string } }) {
+  try {
+    const url = new URL(req.url);
+    const response = url.searchParams.get('response');
+    const token = params.token;
+
+    const rows = await db.select().from(leadOffers).where(eq(leadOffers.offerToken, token)).limit(1);
+    const offer = rows[0];
+    const now = new Date();
+
+    if (!offer || (offer.tokenExpiresAt && offer.tokenExpiresAt.getTime() < now.getTime())) {
+      return htmlPage(
+        'Link expired',
+        'This lead offer link is invalid or has expired. Please contact your broker if you have questions.',
+        400,
+      );
+    }
+
+    if (response === 'decline') {
+      // Decline is idempotent — already-resolved offers just confirm.
+      if (offer.status !== 'offered') {
+        return htmlPage(
+          'Already responded',
+          'Thanks — this lead has already been reassigned. No further action is needed.',
+          200,
+        );
+      }
+
+      await db
+        .update(leadOffers)
+        .set({ status: 'declined', declinedAt: now, updatedAt: now })
+        .where(eq(leadOffers.id, offer.id));
+
+      try {
+        await applyScore({
+          agentId: offer.agentId,
+          reason: 'system_decline',
+          leadId: offer.leadId,
+          leadOfferId: offer.id,
+        });
+      } catch (err) {
+        console.error('[api/offer] decline applyScore failed:', err);
+      }
+
+      try {
+        await reassignLead(offer.leadId);
+      } catch (err) {
+        console.error('[api/offer] reassignLead failed:', err);
+      }
+
+      return htmlPage(
+        'Thanks',
+        'You declined this lead. It has been reassigned to another agent. No further action is needed.',
+        200,
+      );
+    }
+
+    if (response === 'accept') {
+      if (offer.status !== 'offered') {
+        return htmlPage(
+          'Already responded',
+          'This lead offer has already been responded to. If you accepted it, open the agent portal to manage it.',
+          200,
+        );
+      }
+
+      await db
+        .update(leadOffers)
+        .set({ status: 'accepted', acceptedAt: now, tokenUsedAt: now, updatedAt: now })
+        .where(eq(leadOffers.id, offer.id));
+
+      await db
+        .update(leads)
+        .set({ acceptedAt: now, lastStatusChangedAt: now, updatedAt: now })
+        .where(eq(leads.id, offer.leadId));
+
+      // Response-time score based on how quickly the agent accepted after send.
+      if (offer.offerSentAt) {
+        const elapsed = now.getTime() - offer.offerSentAt.getTime();
+        let reason: ScoreReason | null = null;
+        if (elapsed <= THIRTY_MIN_MS) reason = 'system_response_fast';
+        else if (elapsed <= ONE_HOUR_MS) reason = 'system_response_good';
+        else if (elapsed <= THREE_HOURS_MS) reason = 'system_response_slow';
+        if (reason) {
+          try {
+            await applyScore({
+              agentId: offer.agentId,
+              reason,
+              leadId: offer.leadId,
+              leadOfferId: offer.id,
+            });
+          } catch (err) {
+            console.error('[api/offer] accept applyScore failed:', err);
+          }
+        }
+      }
+
+      // Send the agent the full contact details.
+      try {
+        const detailRows = await db
+          .select({ lead: leads, agent: agents })
+          .from(leads)
+          .innerJoin(agents, eq(agents.id, offer.agentId))
+          .where(eq(leads.id, offer.leadId))
+          .limit(1);
+        const detail = detailRows[0];
+        if (detail) {
+          const { lead, agent } = detail;
+          const leadName = `${lead.firstName ?? ''} ${lead.lastName ?? ''}`.trim() || 'New lead';
+          await sendEmail(
+            agentAcceptanceEmail({
+              to: agent.email,
+              agentName: `${agent.firstName} ${agent.lastName}`.trim(),
+              leadName,
+              leadEmail: lead.email,
+              leadPhone: lead.phone,
+              propertyAddress: lead.propertyAddress,
+              portalUrl: `${siteUrl()}/agent/leads`,
+            }),
+          );
+        }
+      } catch (err) {
+        console.error('[api/offer] acceptance email failed:', err);
+      }
+
+      try {
+        await setAgentSessionCookie(offer.agentId);
+      } catch (err) {
+        console.error('[api/offer] setAgentSessionCookie failed:', err);
+      }
+
+      return NextResponse.redirect(new URL('/agent/leads', req.url));
+    }
+
+    return htmlPage(
+      'Invalid request',
+      'Please use the Accept or Decline link from your lead offer email.',
+      400,
+    );
+  } catch (err) {
+    console.error('[api/offer] error:', err);
+    return htmlPage(
+      'Something went wrong',
+      'We could not process your response. Please try again or contact your broker.',
+      500,
+    );
+  }
+}

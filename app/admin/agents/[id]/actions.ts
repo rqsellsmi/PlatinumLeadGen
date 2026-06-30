@@ -1,0 +1,81 @@
+'use server';
+
+import { revalidatePath } from 'next/cache';
+import bcrypt from 'bcryptjs';
+import { eq } from 'drizzle-orm';
+import { db } from '@/lib/db';
+import { agents } from '@/drizzle/schema';
+import { applyScore } from '@/lib/scoring';
+import { requireAdmin } from '@/components/admin/requireAdmin';
+
+function num(v: FormDataEntryValue | null): number | null {
+  if (v == null || v === '') return null;
+  const n = Number(v);
+  return Number.isNaN(n) ? null : n;
+}
+
+export async function updateAgent(formData: FormData) {
+  await requireAdmin();
+  const id = Number(formData.get('agentId'));
+  if (!id) throw new Error('Invalid agent');
+  const firstName = String(formData.get('firstName') ?? '').trim();
+  const lastName = String(formData.get('lastName') ?? '').trim();
+  const email = String(formData.get('email') ?? '').trim();
+  if (!firstName || !lastName || !email) {
+    throw new Error('First name, last name, and email are required');
+  }
+  await db
+    .update(agents)
+    .set({
+      firstName,
+      lastName,
+      email,
+      phone: String(formData.get('phone') ?? '').trim() || null,
+      officeId: num(formData.get('officeId')),
+      latitude: num(formData.get('lat')),
+      longitude: num(formData.get('lng')),
+      updatedAt: new Date(),
+    })
+    .where(eq(agents.id, id));
+  revalidatePath(`/admin/agents/${id}`);
+  revalidatePath('/admin/agents');
+}
+
+export async function setAgentPassword(formData: FormData) {
+  await requireAdmin();
+  const id = Number(formData.get('agentId'));
+  const password = String(formData.get('password') ?? '');
+  if (!id) throw new Error('Invalid agent');
+  if (password.length < 8) throw new Error('Password must be at least 8 characters');
+  const passwordHash = await bcrypt.hash(password, 12);
+  await db
+    .update(agents)
+    .set({ passwordHash, updatedAt: new Date() })
+    .where(eq(agents.id, id));
+  revalidatePath(`/admin/agents/${id}`);
+}
+
+export async function adjustScore(formData: FormData) {
+  await requireAdmin();
+  const id = Number(formData.get('agentId'));
+  const delta = Number(formData.get('delta'));
+  const note = String(formData.get('note') ?? '').trim();
+  if (!id) throw new Error('Invalid agent');
+  if (Number.isNaN(delta) || delta === 0) throw new Error('Delta must be a non-zero number');
+  if (!note) throw new Error('A reason note is required for manual adjustments');
+  await applyScore({ agentId: id, reason: 'manual_adjustment', delta, note });
+  revalidatePath(`/admin/agents/${id}`);
+  revalidatePath('/admin/agents');
+}
+
+export async function deactivateAgent(formData: FormData) {
+  await requireAdmin();
+  const id = Number(formData.get('agentId'));
+  if (!id) throw new Error('Invalid agent');
+  await db
+    .update(agents)
+    .set({ isActive: false, updatedAt: new Date() })
+    .where(eq(agents.id, id));
+  revalidatePath(`/admin/agents/${id}`);
+  revalidatePath('/admin/agents');
+}

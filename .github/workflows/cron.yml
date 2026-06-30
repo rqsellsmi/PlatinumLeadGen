@@ -1,0 +1,64 @@
+name: Scheduled jobs
+
+# Free alternative to frequent Vercel Cron (the Hobby plan only allows daily crons).
+# This workflow pings the time-sensitive cron endpoints every ~10 minutes so offers
+# dispatch, expire, and follow-ups process promptly without a Vercel Pro plan.
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   DEPLOY_URL   e.g. https://your-project.vercel.app  (no trailing slash)
+#   CRON_SECRET  the SAME value set as CRON_SECRET in your Vercel env vars
+#
+# Note: GitHub's scheduler is best-effort and can be delayed under load; ~10 min is
+# the practical floor. The weekly broker digest stays on Vercel Cron (vercel.json),
+# which the Hobby plan permits since it runs less than once per day.
+
+on:
+  schedule:
+    - cron: '*/10 * * * *' # every 10 minutes
+  workflow_dispatch: {} # allow manual runs for testing
+
+# Avoid overlapping runs if a previous one is still going.
+concurrency:
+  group: scheduled-jobs
+  cancel-in-progress: false
+
+jobs:
+  ping-cron:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate secrets
+        env:
+          DEPLOY_URL: ${{ secrets.DEPLOY_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$DEPLOY_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "::error::DEPLOY_URL and CRON_SECRET repository secrets must be set."
+            exit 1
+          fi
+
+      - name: Dispatch queued offers
+        env:
+          DEPLOY_URL: ${{ secrets.DEPLOY_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -fsS --max-time 60 \
+            -H "x-cron-secret: $CRON_SECRET" \
+            "$DEPLOY_URL/api/cron/dispatch-queued-offers"
+
+      - name: Expire offers
+        env:
+          DEPLOY_URL: ${{ secrets.DEPLOY_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -fsS --max-time 60 \
+            -H "x-cron-secret: $CRON_SECRET" \
+            "$DEPLOY_URL/api/cron/expire-offers"
+
+      - name: Follow-up check
+        env:
+          DEPLOY_URL: ${{ secrets.DEPLOY_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -fsS --max-time 60 \
+            -H "x-cron-secret: $CRON_SECRET" \
+            "$DEPLOY_URL/api/cron/followup-check"
