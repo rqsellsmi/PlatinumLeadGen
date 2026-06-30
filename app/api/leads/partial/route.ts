@@ -42,6 +42,7 @@ export async function POST(req: NextRequest) {
       propertyLat: input.propertyLat ?? null,
       propertyLng: input.propertyLng ?? null,
       locationId,
+      pageVariant: input.pageVariant ?? 'seo',
       updatedAt: now,
     };
 

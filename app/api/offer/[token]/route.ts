@@ -9,6 +9,7 @@ import { applyScore, type ScoreReason } from '@/lib/scoring';
 import { reassignLead } from '@/lib/autoOffer';
 import { agentAcceptanceEmail, sendEmail } from '@/lib/email';
 import { setAgentSessionCookie } from '@/lib/agentSession';
+import { checkPreset, clientIp } from '@/lib/rateLimit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -40,6 +41,9 @@ function htmlPage(title: string, message: string, status: number): NextResponse 
 
 export async function GET(req: NextRequest, { params }: { params: { token: string } }) {
   try {
+    if (!(await checkPreset(clientIp(req.headers), 'offer'))) {
+      return htmlPage('Too many requests', 'Please wait a moment and try your link again.', 429);
+    }
     const url = new URL(req.url);
     const response = url.searchParams.get('response');
     const token = params.token;
@@ -68,7 +72,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
 
       await db
         .update(leadOffers)
-        .set({ status: 'declined', declinedAt: now, updatedAt: now })
+        .set({ status: 'declined', declinedAt: now, respondedAt: now, updatedAt: now })
         .where(eq(leadOffers.id, offer.id));
 
       try {
@@ -106,7 +110,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
 
       await db
         .update(leadOffers)
-        .set({ status: 'accepted', acceptedAt: now, tokenUsedAt: now, updatedAt: now })
+        .set({ status: 'accepted', acceptedAt: now, respondedAt: now, tokenUsedAt: now, updatedAt: now })
         .where(eq(leadOffers.id, offer.id));
 
       await db

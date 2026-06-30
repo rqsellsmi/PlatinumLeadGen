@@ -14,8 +14,15 @@ import {
 } from '../drizzle/schema';
 import { recommendAgents, type RoutingAgent } from './routing';
 import { isWithinOfferWindow } from './offerWindow';
-import { sendEmail, agentLeadOfferEmail, adminAlertEmail } from './email';
+import { sendEmail, agentLeadOfferEmail, agentAcceptanceEmail, adminAlertEmail } from './email';
 import { generateMagicLinkToken, magicLinkExpiry } from './agentPortalAuth';
+
+/** Format a price range for emails, e.g. "$398K–$442K". */
+function formatRange(low: number | null, high: number | null): string | null {
+  if (low == null && high == null) return null;
+  const k = (n: number | null) => (n == null ? '?' : `$${Math.round(n / 1000)}K`);
+  return `${k(low)}–${k(high)}`;
+}
 
 const OFFER_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const ACCEPTANCE_WINDOW_MS = 3 * 60 * 60 * 1000; // 3-hour acceptance timer
@@ -39,7 +46,9 @@ async function getActiveRoutingAgents(): Promise<RoutingAgent[]> {
     })
     .from(agents)
     .leftJoin(offices, eq(agents.officeId, offices.id))
-    .where(eq(agents.isActive, true));
+    // Both must be true: admin keeps the agent active AND the agent hasn't
+    // paused their own lead routing (Section 16.3).
+    .where(and(eq(agents.isActive, true), eq(agents.isAvailable, true)));
 
   return rows.map((r) => ({
     id: r.id,
@@ -193,12 +202,17 @@ export async function dispatchOfferEmail(offerId: number): Promise<boolean> {
   const email = agentLeadOfferEmail({
     to: agent.email,
     agentName: `${agent.firstName} ${agent.lastName}`.trim(),
+    leadFirstName: lead.firstName,
     leadCity: lead.propertyCity,
-    propertyAddress: lead.propertyAddress,
+    leadType: lead.leadType,
+    timeframe: lead.timeframe,
+    valuationRange: formatRange(lead.priceRangeLow, lead.priceRangeHigh),
     deadlineEt: formatEtDeadline(deadline),
     acceptUrl: `${base}/api/offer/${offer.offerToken}?response=accept`,
     declineUrl: `${base}/api/offer/${offer.offerToken}?response=decline`,
     portalUrl: `${base}/agent/login?token=${token}`,
+    relatedLeadId: lead.id,
+    relatedAgentId: agent.id,
   });
   await sendEmail(email);
 
@@ -226,6 +240,99 @@ export async function reassignLead(leadId: number): Promise<AutoOfferResult> {
     .where(eq(leadOffers.leadId, leadId));
   const excludeAgentIds = Array.from(new Set(priorOffers.map((o) => o.agentId)));
   return autoOfferLead(leadId, { excludeAgentIds });
+}
+
+export interface ManualReassignResult {
+  ok: boolean;
+  newOfferId?: number;
+  previousOfferClosed: boolean;
+  reason?: string;
+}
+
+/**
+ * Manually assign a lead to a chosen agent, bypassing the routing queue
+ * (Section 18.3). Admin override — works regardless of the agent's
+ * availability toggle.
+ */
+export async function manualReassignLead(
+  leadId: number,
+  newAgentId: number,
+  _adminUserId?: string,
+): Promise<ManualReassignResult> {
+  const leadRows = await db.select().from(leads).where(eq(leads.id, leadId)).limit(1);
+  const lead = leadRows[0];
+  if (!lead) return { ok: false, previousOfferClosed: false, reason: 'lead-not-found' };
+
+  const agentRows = await db.select().from(agents).where(eq(agents.id, newAgentId)).limit(1);
+  const agent = agentRows[0];
+  if (!agent) return { ok: false, previousOfferClosed: false, reason: 'agent-not-found' };
+
+  // No-op if the chosen agent already holds the lead (most recent accepted offer).
+  const currentRows = await db
+    .select({ id: leadOffers.id, agentId: leadOffers.agentId, status: leadOffers.status })
+    .from(leadOffers)
+    .where(eq(leadOffers.leadId, leadId));
+  const accepted = currentRows.find((o) => o.status === 'accepted');
+  if (accepted && accepted.agentId === newAgentId) {
+    return { ok: false, previousOfferClosed: false, reason: 'already-assigned' };
+  }
+
+  const now = new Date();
+
+  // 1. Close any outstanding (offered) offer so the prior agent can't accept it.
+  let previousOfferClosed = false;
+  const outstanding = currentRows.filter((o) => o.status === 'offered');
+  for (const o of outstanding) {
+    await db
+      .update(leadOffers)
+      .set({ status: 'closed_manual', respondedAt: now, updatedAt: now })
+      .where(eq(leadOffers.id, o.id));
+    previousOfferClosed = true;
+  }
+  // 2. No score penalty to the previous agent — this was an admin decision.
+
+  // 3. Create a new offer already in the accepted state.
+  const inserted = await db
+    .insert(leadOffers)
+    .values({
+      leadId,
+      agentId: newAgentId,
+      status: 'accepted',
+      offerToken: crypto.randomBytes(32).toString('hex'),
+      tokenExpiresAt: new Date(now.getTime() + OFFER_TOKEN_TTL_MS),
+      offerSentAt: now,
+      acceptedAt: now,
+      respondedAt: now,
+      firstUpdateDue: new Date(now.getTime() + FIRST_UPDATE_MS),
+      nextReminderDue: new Date(now.getTime() + WEEKLY_MS),
+    })
+    .returning({ id: leadOffers.id });
+  const newOfferId = inserted[0].id;
+
+  // 4. Reflect new assignment on the lead.
+  await db
+    .update(leads)
+    .set({ acceptedAt: now, lastStatusChangedAt: now, updatedAt: now })
+    .where(eq(leads.id, leadId));
+
+  // 5. Notify the new agent it was a direct admin assignment (full lead info).
+  const leadName = `${lead.firstName ?? ''} ${lead.lastName ?? ''}`.trim() || 'New lead';
+  await sendEmail(
+    agentAcceptanceEmail({
+      to: agent.email,
+      agentName: `${agent.firstName} ${agent.lastName}`.trim(),
+      leadName,
+      leadEmail: lead.email,
+      leadPhone: lead.phone,
+      propertyAddress: lead.propertyAddress,
+      portalUrl: `${siteUrl()}/agent/leads`,
+      adminAssigned: true,
+      relatedLeadId: lead.id,
+      relatedAgentId: agent.id,
+    }),
+  );
+
+  return { ok: true, newOfferId, previousOfferClosed };
 }
 
 /** Helper for cron: find queued offers (offerSentAt null, status offered). */

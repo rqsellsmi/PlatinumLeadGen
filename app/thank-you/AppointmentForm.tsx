@@ -2,15 +2,28 @@
 
 import * as React from 'react';
 import { Button, Input, Label, Card, CardBody, CardHeader } from '@/components/ui';
+import { dataLayerPush } from '@/lib/clientAnalytics';
 
-/** Optional appointment-request form on the thank-you page. */
-export default function AppointmentForm() {
-  const [name, setName] = React.useState('');
-  const [phone, setPhone] = React.useState('');
+/** Optional appointment-request form on the thank-you page (Section 22.7). */
+export default function AppointmentForm({
+  initialName = '',
+  initialPhone = '',
+}: {
+  initialName?: string;
+  initialPhone?: string;
+}) {
+  const [name, setName] = React.useState(initialName);
+  const [phone, setPhone] = React.useState(initialPhone);
   const [preferredTime, setPreferredTime] = React.useState('');
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [done, setDone] = React.useState(false);
+
+  // Prefill once values arrive from sessionStorage on the client.
+  React.useEffect(() => {
+    if (initialName) setName(initialName);
+    if (initialPhone) setPhone(initialPhone);
+  }, [initialName, initialPhone]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -27,6 +40,7 @@ export default function AppointmentForm() {
         body: JSON.stringify({ name, phone, preferredTime }),
       });
       if (!res.ok) throw new Error('We could not submit your request. Please try again.');
+      dataLayerPush('appointment_requested');
       setDone(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong. Please try again.');
@@ -38,14 +52,14 @@ export default function AppointmentForm() {
   return (
     <Card>
       <CardHeader>
-        <h2 className="text-xl font-bold text-brand-blue">Prefer to Schedule a Call?</h2>
-        <p className="mt-1 text-sm text-slate-600">
+        <h2 className="text-xl font-bold text-charcoal">Prefer to schedule a call?</h2>
+        <p className="mt-1 text-sm text-mute">
           Let us know when you&apos;re available and an agent will reach out.
         </p>
       </CardHeader>
       <CardBody>
         {done ? (
-          <p className="rounded-md border border-brand-blue/20 bg-brand-light px-4 py-3 text-sm text-brand-blue">
+          <p className="rounded-lg border border-platinum-blue/20 bg-cream px-4 py-3 text-sm text-charcoal">
             Thanks! We&apos;ve received your request and an agent will be in touch shortly.
           </p>
         ) : (
@@ -53,20 +67,14 @@ export default function AppointmentForm() {
             {error ? (
               <div
                 role="alert"
-                className="rounded-md border border-brand-red/30 bg-brand-red/5 px-4 py-3 text-sm text-brand-red"
+                className="rounded-lg border border-platinum-red/30 bg-danger-bg px-4 py-3 text-sm text-platinum-red"
               >
                 {error}
               </div>
             ) : null}
             <div>
               <Label htmlFor="appt-name">Name</Label>
-              <Input
-                id="appt-name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                autoComplete="name"
-                required
-              />
+              <Input id="appt-name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" required />
             </div>
             <div>
               <Label htmlFor="appt-phone">Phone</Label>
@@ -79,7 +87,7 @@ export default function AppointmentForm() {
               />
             </div>
             <div>
-              <Label htmlFor="appt-time">Preferred Time</Label>
+              <Label htmlFor="appt-time">Preferred time</Label>
               <Input
                 id="appt-time"
                 value={preferredTime}
@@ -88,7 +96,7 @@ export default function AppointmentForm() {
               />
             </div>
             <Button type="submit" size="lg" className="w-full" disabled={loading}>
-              {loading ? 'Submitting…' : 'Request Appointment'}
+              {loading ? 'Submitting…' : 'Request appointment'}
             </Button>
           </form>
         )}

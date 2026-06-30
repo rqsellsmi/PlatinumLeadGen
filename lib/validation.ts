@@ -13,6 +13,7 @@ export const partialLeadSchema = z.object({
   propertyLat: z.number().optional().nullable(),
   propertyLng: z.number().optional().nullable(),
   locationSlug: z.string().max(120).optional().nullable(),
+  pageVariant: z.enum(['seo', 'ads']).optional().nullable(),
 });
 
 export const leadSubmitSchema = z.object({
@@ -33,6 +34,7 @@ export const leadSubmitSchema = z.object({
   priceRangeLow: z.number().int().optional().nullable(),
   priceRangeHigh: z.number().int().optional().nullable(),
   locationSlug: z.string().max(120).optional().nullable(),
+  pageVariant: z.enum(['seo', 'ads']).optional().nullable(),
 });
 
 /** Webhook lead schema — same shape, plus an optional source label. */

@@ -13,6 +13,7 @@ import {
 import SiteHeader from '@/components/SiteHeader';
 import SiteFooter from '@/components/SiteFooter';
 import HeroSection from '@/components/city/HeroSection';
+import SocialProofBar from '@/components/city/SocialProofBar';
 import MarketStatsBar from '@/components/city/MarketStatsBar';
 import ValuationForm from '@/components/city/ValuationForm';
 import RecentSales from '@/components/city/RecentSales';
@@ -22,6 +23,8 @@ import Testimonials from '@/components/city/Testimonials';
 import FaqSection from '@/components/city/FaqSection';
 import NeighborhoodLinks from '@/components/city/NeighborhoodLinks';
 import TrackingScripts from '@/components/city/TrackingScripts';
+import StickyCtaBar from '@/components/cro/StickyCtaBar';
+import ExitIntentOverlay from '@/components/cro/ExitIntentOverlay';
 
 export const revalidate = 3600;
 
@@ -88,9 +91,21 @@ export default async function CityPage({ params }: { params: { slug: string } })
       />
       <SiteHeader />
       <main>
-        <HeroSection headline={headline} subheadline={subheadline} cityName={cityName} />
+        <HeroSection
+          headline={headline}
+          subheadline={subheadline}
+          cityName={cityName}
+          eyebrow={location.name}
+        />
+        <SocialProofBar
+          cityName={cityName}
+          socialProofCount={location.socialProofCount ?? 0}
+          googleReviewRating={location.googleReviewRating}
+          googleReviewCount={location.googleReviewCount}
+          topTestimonial={testimonials.find((t) => t.isActive) ?? null}
+        />
         <MarketStatsBar stats={stats} cityName={cityName} homesSold={stats?.homesSold ?? 0} />
-        <ValuationForm locationSlug={location.slug} cityName={cityName} />
+        <ValuationForm locationSlug={location.slug} cityName={cityName} pageVariant="seo" />
         <RecentSales sales={recentSales} cityName={cityName} />
         <HowItWorks />
         {location.guideUrl ? (
@@ -102,6 +117,8 @@ export default async function CityPage({ params }: { params: { slug: string } })
         <TrackingScripts scripts={trackingScripts} />
       </main>
       <SiteFooter />
+      <StickyCtaBar />
+      <ExitIntentOverlay />
     </>
   );
 }

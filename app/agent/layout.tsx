@@ -1,12 +1,14 @@
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getCurrentAgent, clearAgentSessionCookie } from '@/lib/agentSession';
-import { Button } from '@/components/ui';
+import Logo from '@/components/Logo';
+import AvailabilityToggle from '@/components/agent/AvailabilityToggle';
 
 /**
- * Agent portal layout (Section 9). Presentational top bar only — it does NOT
- * enforce auth (pages do that), so it never blocks the login route. We call
- * getCurrentAgent() purely to display the agent's name when signed in, and
- * render null-safely otherwise.
+ * Agent portal shell (Section 15.4 / 16.4). Dark charcoal sidebar with the
+ * availability toggle panel above the user identity, plus a header pill that
+ * surfaces availability on every page. Presentational — pages enforce auth, so
+ * the login route renders without the sidebar.
  */
 export const dynamic = 'force-dynamic';
 
@@ -18,28 +20,64 @@ async function logoutAction() {
 
 export default async function AgentLayout({ children }: { children: React.ReactNode }) {
   const agent = await getCurrentAgent();
-  const agentName = agent ? [agent.firstName, agent.lastName].filter(Boolean).join(' ') : null;
+
+  if (!agent) {
+    return <div className="min-h-screen bg-offwhite">{children}</div>;
+  }
+
+  const agentName = [agent.firstName, agent.lastName].filter(Boolean).join(' ');
+  const initials = agentName.slice(0, 2).toUpperCase();
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-5xl flex-col items-start justify-between gap-2 px-4 py-3 sm:flex-row sm:items-center">
-          <div className="text-sm font-bold text-brand-blue sm:text-base">
-            RE/MAX Platinum <span className="font-normal text-slate-400">— Agent Portal</span>
-          </div>
-          {agent && (
-            <div className="flex items-center gap-3">
-              {agentName && <span className="text-sm text-slate-600">{agentName}</span>}
+    <div className="flex min-h-screen bg-offwhite">
+      <aside className="flex w-60 shrink-0 flex-col bg-charcoal text-white">
+        <div className="px-5 py-5">
+          <Logo variant="cream" width={150} />
+          <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-mute-lighter">
+            Agent Portal
+          </p>
+        </div>
+        <nav className="flex-1 space-y-1 px-3 py-2">
+          <Link
+            href="/agent/leads"
+            className="block rounded-lg px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-charcoal-light"
+          >
+            My Leads
+          </Link>
+        </nav>
+        <div className="space-y-4 px-4 py-4">
+          <AvailabilityToggle initial={agent.isAvailable} />
+          <div className="flex items-center gap-3 border-t border-white/10 pt-4">
+            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-platinum-blue text-sm font-bold text-white">
+              {initials}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-bold">{agentName}</p>
               <form action={logoutAction}>
-                <Button type="submit" variant="outline" size="sm">
-                  Logout
-                </Button>
+                <button type="submit" className="text-xs text-mute-lighter hover:text-white">
+                  Sign out
+                </button>
               </form>
             </div>
-          )}
+          </div>
         </div>
-      </header>
-      <main className="mx-auto max-w-5xl px-4 py-6">{children}</main>
+      </aside>
+
+      <div className="flex-1">
+        <header className="flex items-center justify-end border-b border-line bg-white px-8 py-3.5">
+          <span
+            className={`inline-flex items-center gap-2 rounded-pill px-3 py-1 text-sm font-bold ${
+              agent.isAvailable ? 'bg-success-bg text-success' : 'bg-line-hair text-mute'
+            }`}
+          >
+            <span
+              className={`h-2 w-2 rounded-full ${agent.isAvailable ? 'bg-success' : 'bg-mute-lighter'}`}
+            />
+            {agent.isAvailable ? 'Available' : 'Paused'}
+          </span>
+        </header>
+        <main className="mx-auto max-w-5xl px-4 py-6 sm:px-8">{children}</main>
+      </div>
     </div>
   );
 }

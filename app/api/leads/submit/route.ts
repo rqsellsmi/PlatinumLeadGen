@@ -3,13 +3,14 @@
  * auto-offer it, and send the homeowner a confirmation email. (Section 4.7)
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { leads, locations } from '@/drizzle/schema';
 import { leadSubmitSchema } from '@/lib/validation';
 import { autoOfferLead } from '@/lib/autoOffer';
 import { getValuation } from '@/lib/rentcast';
 import { sendEmail, homeownerConfirmationEmail } from '@/lib/email';
+import { checkPreset, clientIp } from '@/lib/rateLimit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -22,6 +23,9 @@ async function resolveLocationId(slug: string | null | undefined): Promise<numbe
 
 export async function POST(req: NextRequest) {
   try {
+    if (!(await checkPreset(clientIp(req.headers), 'lead_submit'))) {
+      return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
+    }
     const body = await req.json().catch(() => null);
     const parsed = leadSubmitSchema.safeParse(body);
     if (!parsed.success) {
@@ -68,6 +72,7 @@ export async function POST(req: NextRequest) {
       priceRangeLow,
       priceRangeHigh,
       locationId,
+      pageVariant: input.pageVariant ?? 'seo',
       updatedAt: now,
     };
 
@@ -87,6 +92,18 @@ export async function POST(req: NextRequest) {
         .values({ sessionId: input.sessionId, status: 'new', ...fields })
         .returning({ id: leads.id });
       leadId = inserted[0].id;
+    }
+
+    // Increment social proof count for this location (Section 3.5) — never decremented.
+    if (locationId != null) {
+      try {
+        await db
+          .update(locations)
+          .set({ socialProofCount: sql`${locations.socialProofCount} + 1` })
+          .where(eq(locations.id, locationId));
+      } catch (err) {
+        console.error('[api/leads/submit] socialProofCount increment failed:', err);
+      }
     }
 
     // Routing + confirmation must not 500 the request — log and continue.

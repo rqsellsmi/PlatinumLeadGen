@@ -14,6 +14,7 @@ import {
   isTokenExpired,
 } from '@/lib/agentPortalAuth';
 import { sendEmail } from '@/lib/email';
+import { checkPreset, clientIp } from '@/lib/rateLimit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -24,6 +25,9 @@ function siteUrl(): string {
 
 export async function POST(req: NextRequest) {
   try {
+    if (!(await checkPreset(clientIp(req.headers), 'agent_login'))) {
+      return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
+    }
     const body = (await req.json().catch(() => null)) as
       | { token?: string; email?: string; password?: string; requestLink?: boolean }
       | null;

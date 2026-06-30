@@ -1,60 +1,62 @@
 /**
- * Neon-backed fixed-window rate limiting.
+ * Neon-backed rate limiting — background fixed-window pattern (Spec Section 8).
  *
- * The upsert is atomic, so concurrent requests cannot bypass the counter.
- * One compact row is retained per rate-limit scope and client IP.
+ * The upsert increments a per-(ip, endpoint, window) counter atomically. The
+ * check is "fail open": if the DB hiccups, the request is allowed. Thresholds
+ * per Section 8.3. A daily cron purges windows older than 24h (Section 8.4).
  */
 import { sql } from 'drizzle-orm';
 import { db } from './db';
 import { rateLimits } from '../drizzle/schema';
 
-export interface RateLimitResult {
-  success: boolean;
-  remaining: number;
-  resetAt: Date;
-}
-
+/**
+ * Returns true if the request is allowed, false if it exceeds the limit.
+ * windowStart is floored to the window boundary so all hits in a window share a row.
+ */
 export async function checkRateLimit(
-  scope: string,
-  identifier: string,
+  ip: string,
+  endpoint: string,
   limit: number,
-  windowMs: number,
-): Promise<RateLimitResult> {
-  const now = new Date();
-  const nextReset = new Date(now.getTime() + windowMs);
-  const key = `${scope}:${identifier}`.slice(0, 255);
-
-  const rows = await db
-    .insert(rateLimits)
-    .values({ key, count: 1, resetAt: nextReset, updatedAt: now })
-    .onConflictDoUpdate({
-      target: rateLimits.key,
-      set: {
-        count: sql`case when ${rateLimits.resetAt} <= ${now} then 1 else ${rateLimits.count} + 1 end`,
-        resetAt: sql`case when ${rateLimits.resetAt} <= ${now} then ${nextReset} else ${rateLimits.resetAt} end`,
-        updatedAt: now,
-      },
-    })
-    .returning({ count: rateLimits.count, resetAt: rateLimits.resetAt });
-
-  const row = rows[0];
-  return {
-    success: row.count <= limit,
-    remaining: Math.max(0, limit - row.count),
-    resetAt: row.resetAt,
-  };
+  windowMinutes: number,
+): Promise<boolean> {
+  const windowMs = windowMinutes * 60 * 1000;
+  const windowStart = new Date(Math.floor(Date.now() / windowMs) * windowMs);
+  try {
+    const result = await db
+      .insert(rateLimits)
+      .values({ ip: ip.slice(0, 64), endpoint, windowStart, hitCount: 1 })
+      .onConflictDoUpdate({
+        target: [rateLimits.ip, rateLimits.endpoint, rateLimits.windowStart],
+        set: { hitCount: sql`${rateLimits.hitCount} + 1` },
+      })
+      .returning({ hitCount: rateLimits.hitCount });
+    return (result[0]?.hitCount ?? 1) <= limit;
+  } catch {
+    // Fail open — better to let one through than block everyone on a DB blip.
+    return true;
+  }
 }
 
+/** Extract the client IP from request headers. */
 export function clientIp(headers: Headers): string {
   const forwarded = headers.get('x-forwarded-for');
   if (forwarded) return forwarded.split(',')[0].trim();
-  return headers.get('x-real-ip') ?? '127.0.0.1';
+  return headers.get('x-real-ip') ?? 'unknown';
 }
 
-export function valuationRateLimit(identifier: string) {
-  return checkRateLimit('valuation', identifier, 30, 60 * 60 * 1000);
-}
+// Threshold presets (Section 8.3).
+export const RATE_LIMITS = {
+  lead_submit: { limit: 20, windowMinutes: 15 },
+  valuation: { limit: 30, windowMinutes: 60 },
+  agent_login: { limit: 10, windowMinutes: 15 },
+  offer: { limit: 20, windowMinutes: 60 },
+  webhook: { limit: 20, windowMinutes: 15 },
+} as const;
 
-export function webhookRateLimit(identifier: string) {
-  return checkRateLimit('webhook', identifier, 20, 15 * 60 * 1000);
+export type RateLimitEndpoint = keyof typeof RATE_LIMITS;
+
+/** Convenience: check by named preset. Returns true if allowed. */
+export function checkPreset(ip: string, endpoint: RateLimitEndpoint): Promise<boolean> {
+  const { limit, windowMinutes } = RATE_LIMITS[endpoint];
+  return checkRateLimit(ip, endpoint, limit, windowMinutes);
 }

@@ -1,107 +1,177 @@
 /**
- * Microsoft Graph wrapper + all 7 transactional templates (Section 6).
+ * Email — Microsoft Graph API (Spec Section 6).
  *
- * Every email: clean single-column HTML, brand-blue (#1E3A5F) header, white body,
- * with a required plain-text fallback.
+ * Token reliability fix (Section 6.3): the OAuth access token is persisted to
+ * Neon (ms_graph_tokens, single row) so every Vercel serverless invocation
+ * shares it instead of re-fetching from in-memory cache (which is lost between
+ * invocations). Every send is recorded in email_send_log (Section 6.4).
+ *
+ * Uses the OAuth 2.0 client-credentials flow — no user sign-in, no refresh
+ * token. Re-authenticate with client credentials when the access token expires.
  *
  * TODO v2: add Twilio SMS alongside sendEmail.
  */
-const BRAND_BLUE = '#1E3A5F';
+import { eq } from 'drizzle-orm';
+import { db } from './db';
+import { msGraphTokens, emailSendLog } from '../drizzle/schema';
 
-function adminEmail(): string {
-  return process.env.EMAIL_ADMIN_EMAIL ?? process.env.MICROSOFT_SENDER_EMAIL ?? '';
+const BRAND_BLUE = '#1E3A5F'; // email header (Section 6.6)
+
+// Support both v1.5 (MS_GRAPH_*) and legacy (MICROSOFT_*) env names.
+function clientId() {
+  return process.env.MS_GRAPH_CLIENT_ID ?? process.env.MICROSOFT_CLIENT_ID ?? '';
 }
-
+function clientSecret() {
+  return process.env.MS_GRAPH_CLIENT_SECRET ?? process.env.MICROSOFT_CLIENT_SECRET ?? '';
+}
+function tenantId() {
+  return process.env.MS_GRAPH_TENANT_ID ?? process.env.MICROSOFT_TENANT_ID ?? '';
+}
+function fromEmail() {
+  return process.env.MS_GRAPH_FROM_EMAIL ?? process.env.MICROSOFT_SENDER_EMAIL ?? '';
+}
+function adminEmail(): string {
+  return (
+    process.env.MS_GRAPH_ADMIN_EMAIL ??
+    process.env.EMAIL_ADMIN_EMAIL ??
+    fromEmail()
+  );
+}
 function siteUrl(): string {
   return process.env.SITE_URL ?? 'https://remax-platinumonline.com';
 }
 
-export interface SendEmailArgs {
-  to: string | string[];
-  subject: string;
-  html: string;
-  text: string;
-  replyTo?: string;
-}
+// ---------------------------------------------------------------------------
+// Token management — persisted to Neon (Section 6.3)
+// ---------------------------------------------------------------------------
+async function getValidAccessToken(): Promise<string> {
+  const account = fromEmail();
+  const rows = await db
+    .select()
+    .from(msGraphTokens)
+    .where(eq(msGraphTokens.accountEmail, account))
+    .limit(1);
 
-let cachedAccessToken: { value: string; expiresAt: number } | null = null;
-
-async function graphAccessToken(): Promise<string> {
-  if (cachedAccessToken && cachedAccessToken.expiresAt > Date.now() + 60_000) {
-    return cachedAccessToken.value;
+  // Reuse if it expires more than 5 minutes from now.
+  const fiveMinFromNow = new Date(Date.now() + 5 * 60 * 1000);
+  if (rows[0] && rows[0].expiresAt > fiveMinFromNow) {
+    return rows[0].accessToken;
   }
 
-  const tenantId = process.env.MICROSOFT_TENANT_ID!;
-  const response = await fetch(
-    `https://login.microsoftonline.com/${encodeURIComponent(tenantId)}/oauth2/v2.0/token`,
+  // Fetch a fresh token via client-credentials.
+  const res = await fetch(
+    `https://login.microsoftonline.com/${encodeURIComponent(tenantId())}/oauth2/v2.0/token`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
-        client_id: process.env.MICROSOFT_CLIENT_ID!,
-        client_secret: process.env.MICROSOFT_CLIENT_SECRET!,
+        client_id: clientId(),
+        client_secret: clientSecret(),
         scope: 'https://graph.microsoft.com/.default',
         grant_type: 'client_credentials',
       }),
       cache: 'no-store',
     },
   );
+  if (!res.ok) throw new Error(`MS Graph token request failed (${res.status}).`);
+  const data = (await res.json()) as { access_token?: string; expires_in?: number };
+  if (!data.access_token) throw new Error('MS Graph token response missing access_token.');
 
-  if (!response.ok) throw new Error(`Microsoft token request failed (${response.status}).`);
-  const data = (await response.json()) as { access_token?: string; expires_in?: number };
-  if (!data.access_token) throw new Error('Microsoft token response did not include an access token.');
+  const expiresAt = new Date(Date.now() + (data.expires_in ?? 3600) * 1000);
+  // Upsert — only ever one row per sending account.
+  await db
+    .insert(msGraphTokens)
+    .values({
+      accountEmail: account,
+      accessToken: data.access_token,
+      refreshToken: '',
+      expiresAt,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: msGraphTokens.accountEmail,
+      set: { accessToken: data.access_token, expiresAt, updatedAt: new Date() },
+    });
 
-  cachedAccessToken = {
-    value: data.access_token,
-    expiresAt: Date.now() + (data.expires_in ?? 3600) * 1000,
-  };
   return data.access_token;
 }
 
+// ---------------------------------------------------------------------------
+// Send
+// ---------------------------------------------------------------------------
+export interface SendEmailArgs {
+  to: string | string[];
+  subject: string;
+  html: string;
+  text: string;
+  cc?: string;
+  replyTo?: string;
+  /** Template label for the send log (Section 6.4). */
+  templateName?: string;
+  relatedLeadId?: number;
+  relatedAgentId?: number;
+}
+
 /**
- * Low-level send. Returns { id } on success. Never throws on a send failure —
- * logs and returns { error } so callers (cron, autoOffer) can continue.
+ * Low-level send via MS Graph. Logs every attempt to email_send_log and never
+ * throws on a send failure — returns { ok:false } so callers can continue.
  */
-export async function sendEmail(args: SendEmailArgs): Promise<{ id?: string; error?: string }> {
+export async function sendEmail(args: SendEmailArgs): Promise<{ ok: boolean; error?: string }> {
+  const recipients = Array.isArray(args.to) ? args.to : [args.to];
+  const templateName = args.templateName ?? 'generic';
   try {
-    const token = await graphAccessToken();
-    const sender = process.env.MICROSOFT_SENDER_EMAIL!;
-    const recipients = Array.isArray(args.to) ? args.to : [args.to];
-    const response = await fetch(
-      `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(sender)}/sendMail`,
+    const token = await getValidAccessToken();
+    const res = await fetch(
+      `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(fromEmail())}/sendMail`,
       {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: {
             subject: args.subject,
             body: { contentType: 'HTML', content: args.html },
             toRecipients: recipients.map((address) => ({ emailAddress: { address } })),
-            ...(args.replyTo
-              ? { replyTo: [{ emailAddress: { address: args.replyTo } }] }
-              : {}),
+            ...(args.cc ? { ccRecipients: [{ emailAddress: { address: args.cc } }] } : {}),
+            ...(args.replyTo ? { replyTo: [{ emailAddress: { address: args.replyTo } }] } : {}),
           },
-          saveToSentItems: true,
+          saveToSentItems: true, // also visible in M365 Sent Items (Section 6.4)
         }),
         cache: 'no-store',
       },
     );
-
-    if (!response.ok) {
-      const detail = await response.text();
-      console.error('[email] Microsoft Graph send failed:', response.status, detail);
-      return { error: `Microsoft Graph send failed (${response.status}).` };
-    }
-
-    return {
-      id: response.headers.get('request-id') ?? response.headers.get('client-request-id') ?? 'accepted',
-    };
+    const success = res.status === 202;
+    const errorMessage = success ? null : `${res.status} ${await res.text()}`.slice(0, 4000);
+    await logSend(recipients[0], args.subject, templateName, success ? 'sent' : 'failed', errorMessage, args);
+    if (!success) console.error('[email] MS Graph send failed:', errorMessage);
+    return { ok: success, error: errorMessage ?? undefined };
   } catch (err) {
-    console.error('[email] send threw:', err);
-    return { error: err instanceof Error ? err.message : 'unknown email error' };
+    const msg = err instanceof Error ? err.message : 'unknown email error';
+    console.error('[email] send threw:', msg);
+    await logSend(recipients[0], args.subject, templateName, 'failed', msg, args);
+    return { ok: false, error: msg };
+  }
+}
+
+async function logSend(
+  toEmail: string,
+  subject: string,
+  templateName: string,
+  status: 'sent' | 'failed',
+  errorMessage: string | null,
+  args: SendEmailArgs,
+): Promise<void> {
+  try {
+    await db.insert(emailSendLog).values({
+      toEmail,
+      subject,
+      templateName,
+      status,
+      errorMessage,
+      relatedLeadId: args.relatedLeadId ?? null,
+      relatedAgentId: args.relatedAgentId ?? null,
+    });
+  } catch (err) {
+    console.error('[email] failed to write email_send_log:', err);
   }
 }
 
@@ -150,34 +220,56 @@ function escapeHtml(s: string): string {
 export interface AgentOfferEmailData {
   to: string;
   agentName: string;
+  leadFirstName: string | null;
   leadCity: string | null;
-  propertyAddress: string | null;
-  deadlineEt: string; // human-readable ET deadline
+  leadType: string | null;
+  timeframe: string | null;
+  valuationRange: string | null;
+  deadlineEt: string;
   acceptUrl: string;
   declineUrl: string;
   portalUrl: string;
+  relatedLeadId?: number;
+  relatedAgentId?: number;
 }
 
 export function agentLeadOfferEmail(d: AgentOfferEmailData): SendEmailArgs {
-  const loc = d.propertyAddress ?? d.leadCity ?? 'a nearby area';
+  const who = d.leadFirstName ?? 'A homeowner';
+  const loc = d.leadCity ?? 'a nearby area';
+  const rows = [
+    `<tr><td style="color:#64748b;padding-right:12px;">Lead</td><td><strong>${escapeHtml(d.leadFirstName ?? '—')}</strong> · ${escapeHtml(loc)}</td></tr>`,
+    d.leadType ? `<tr><td style="color:#64748b;padding-right:12px;">Type</td><td>${escapeHtml(d.leadType)}</td></tr>` : '',
+    d.timeframe ? `<tr><td style="color:#64748b;padding-right:12px;">Timeframe</td><td>${escapeHtml(d.timeframe)}</td></tr>` : '',
+    d.valuationRange ? `<tr><td style="color:#64748b;padding-right:12px;">Est. value</td><td>${escapeHtml(d.valuationRange)}</td></tr>` : '',
+  ].join('');
   const html = shell(
     'New Lead Available',
     `<h1 style="margin:0 0 12px;font-size:22px;color:${BRAND_BLUE};">New lead available</h1>
-     <p style="font-size:15px;line-height:1.5;">Hi ${escapeHtml(d.agentName)}, a new seller lead is available near <strong>${escapeHtml(loc)}</strong>.</p>
+     <p style="font-size:15px;line-height:1.5;">Hi ${escapeHtml(d.agentName)}, ${escapeHtml(who)} in <strong>${escapeHtml(loc)}</strong> just requested a home valuation.</p>
+     <table style="font-size:15px;line-height:1.8;margin:12px 0;">${rows}</table>
      <p style="font-size:15px;line-height:1.5;">Respond by <strong>${escapeHtml(d.deadlineEt)}</strong> to claim it.</p>
      <p style="margin:24px 0;">${button(d.acceptUrl, 'Accept Lead')} &nbsp; ${button(d.declineUrl, 'Decline', '#64748b')}</p>
      <p style="font-size:13px;color:#64748b;">Or manage your leads in the <a href="${d.portalUrl}" style="color:${BRAND_BLUE};">agent portal</a>.</p>`,
   );
   const text = `New lead available near ${loc}.
+Lead: ${d.leadFirstName ?? '—'}${d.timeframe ? ` · ${d.timeframe}` : ''}${d.valuationRange ? ` · ${d.valuationRange}` : ''}
 Respond by ${d.deadlineEt} to claim it.
 Accept: ${d.acceptUrl}
 Decline: ${d.declineUrl}
 Portal: ${d.portalUrl}`;
-  return { to: d.to, subject: `New Lead Available — ${loc}`, html, text };
+  return {
+    to: d.to,
+    subject: `New Lead Available — ${loc}`,
+    html,
+    text,
+    templateName: 'agent_offer',
+    relatedLeadId: d.relatedLeadId,
+    relatedAgentId: d.relatedAgentId,
+  };
 }
 
 // ---------------------------------------------------------------------------
-// 2. Agent Acceptance Confirmation
+// 2. Agent Acceptance Confirmation (also used for manual admin assignment)
 // ---------------------------------------------------------------------------
 export interface AgentAcceptanceEmailData {
   to: string;
@@ -187,13 +279,20 @@ export interface AgentAcceptanceEmailData {
   leadPhone: string | null;
   propertyAddress: string | null;
   portalUrl: string;
+  adminAssigned?: boolean; // Section 18.3 #5
+  relatedLeadId?: number;
+  relatedAgentId?: number;
 }
 
 export function agentAcceptanceEmail(d: AgentAcceptanceEmailData): SendEmailArgs {
+  const heading = d.adminAssigned ? 'A lead was assigned to you' : 'You accepted this lead';
+  const intro = d.adminAssigned
+    ? `Hi ${escapeHtml(d.agentName)}, your broker assigned this lead directly to you. Here are the full contact details:`
+    : `Hi ${escapeHtml(d.agentName)}, here are the full contact details:`;
   const html = shell(
-    'Lead Accepted',
-    `<h1 style="margin:0 0 12px;font-size:22px;color:${BRAND_BLUE};">You accepted this lead</h1>
-     <p style="font-size:15px;line-height:1.5;">Hi ${escapeHtml(d.agentName)}, here are the full contact details:</p>
+    heading,
+    `<h1 style="margin:0 0 12px;font-size:22px;color:${BRAND_BLUE};">${escapeHtml(heading)}</h1>
+     <p style="font-size:15px;line-height:1.5;">${intro}</p>
      <table style="font-size:15px;line-height:1.8;margin:12px 0;">
        <tr><td style="color:#64748b;padding-right:12px;">Name</td><td><strong>${escapeHtml(d.leadName)}</strong></td></tr>
        <tr><td style="color:#64748b;padding-right:12px;">Email</td><td>${escapeHtml(d.leadEmail ?? '—')}</td></tr>
@@ -203,14 +302,22 @@ export function agentAcceptanceEmail(d: AgentAcceptanceEmailData): SendEmailArgs
      <p style="font-size:15px;line-height:1.5;"><strong>Reminder:</strong> submit your first status update within 48 hours.</p>
      <p style="margin:24px 0;">${button(d.portalUrl, 'Open Agent Portal')}</p>`,
   );
-  const text = `You accepted a lead.
+  const text = `${heading}.
 Name: ${d.leadName}
 Email: ${d.leadEmail ?? '—'}
 Phone: ${d.leadPhone ?? '—'}
 Property: ${d.propertyAddress ?? '—'}
 Reminder: submit your first status update within 48 hours.
 Portal: ${d.portalUrl}`;
-  return { to: d.to, subject: `Lead accepted — ${d.leadName}`, html, text };
+  return {
+    to: d.to,
+    subject: `${d.adminAssigned ? 'Lead assigned' : 'Lead accepted'} — ${d.leadName}`,
+    html,
+    text,
+    templateName: d.adminAssigned ? 'agent_manual_assignment' : 'agent_acceptance',
+    relatedLeadId: d.relatedLeadId,
+    relatedAgentId: d.relatedAgentId,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -220,6 +327,7 @@ export interface HomeownerConfirmationEmailData {
   to: string;
   firstName: string | null;
   city: string | null;
+  relatedLeadId?: number;
 }
 
 export function homeownerConfirmationEmail(d: HomeownerConfirmationEmailData): SendEmailArgs {
@@ -234,7 +342,14 @@ export function homeownerConfirmationEmail(d: HomeownerConfirmationEmailData): S
   const text = `${hi}
 Your home valuation request${d.city ? ` for ${d.city}` : ''} has been received. A local RE/MAX Platinum expert will be in touch within one business day.
 — The RE/MAX Platinum Team`;
-  return { to: d.to, subject: 'We received your home valuation request', html, text };
+  return {
+    to: d.to,
+    subject: 'We received your home valuation request',
+    html,
+    text,
+    templateName: 'homeowner_confirmation',
+    relatedLeadId: d.relatedLeadId,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -246,6 +361,7 @@ export interface EscalationEmailData {
   propertyAddress: string | null;
   hoursSinceAccept: number;
   adminLeadUrl: string;
+  relatedLeadId?: number;
 }
 
 export function escalationEmail(d: EscalationEmailData): SendEmailArgs {
@@ -265,7 +381,14 @@ Lead: ${d.leadName}
 Property: ${d.propertyAddress ?? '—'}
 Hours since accept: ${d.hoursSinceAccept}
 View: ${d.adminLeadUrl}`;
-  return { to: adminEmail(), subject: `Escalation: ${d.agentName} — ${d.leadName}`, html, text };
+  return {
+    to: adminEmail(),
+    subject: `Escalation: ${d.agentName} — ${d.leadName}`,
+    html,
+    text,
+    templateName: 'escalation',
+    relatedLeadId: d.relatedLeadId,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -276,6 +399,7 @@ export interface WeeklyReminderEmailData {
   agentName: string;
   openLeadCount: number;
   portalUrl: string;
+  relatedAgentId?: number;
 }
 
 export function weeklyReminderEmail(d: WeeklyReminderEmailData): SendEmailArgs {
@@ -287,7 +411,14 @@ export function weeklyReminderEmail(d: WeeklyReminderEmailData): SendEmailArgs {
   );
   const text = `Hi ${d.agentName}, you have ${d.openLeadCount} open lead(s) needing a status update.
 Portal: ${d.portalUrl}`;
-  return { to: d.to, subject: 'Your open leads need a status update', html, text };
+  return {
+    to: d.to,
+    subject: 'Your open leads need a status update',
+    html,
+    text,
+    templateName: 'weekly_reminder',
+    relatedAgentId: d.relatedAgentId,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -296,6 +427,7 @@ Portal: ${d.portalUrl}`;
 export interface DigestRow {
   agentName: string;
   leadName: string;
+  propertyAddress: string | null;
   daysSinceAccept: number;
   status: string;
 }
@@ -305,8 +437,9 @@ export function brokerDigestEmail(rows: DigestRow[], adminUrl: string): SendEmai
     .map(
       (r) =>
         `<tr>
-           <td style="padding:8px;border-bottom:1px solid #e2e8f0;">${escapeHtml(r.agentName)}</td>
            <td style="padding:8px;border-bottom:1px solid #e2e8f0;">${escapeHtml(r.leadName)}</td>
+           <td style="padding:8px;border-bottom:1px solid #e2e8f0;">${escapeHtml(r.propertyAddress ?? '—')}</td>
+           <td style="padding:8px;border-bottom:1px solid #e2e8f0;">${escapeHtml(r.agentName)}</td>
            <td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:center;">${r.daysSinceAccept}</td>
            <td style="padding:8px;border-bottom:1px solid #e2e8f0;">${escapeHtml(r.status)}</td>
          </tr>`,
@@ -318,20 +451,26 @@ export function brokerDigestEmail(rows: DigestRow[], adminUrl: string): SendEmai
      <p style="font-size:15px;line-height:1.5;">${rows.length} active accepted lead${rows.length === 1 ? '' : 's'} this week.</p>
      <table style="width:100%;border-collapse:collapse;font-size:14px;margin:12px 0;">
        <thead><tr style="text-align:left;color:#64748b;">
-         <th style="padding:8px;">Agent</th><th style="padding:8px;">Lead</th>
+         <th style="padding:8px;">Lead</th><th style="padding:8px;">Address</th><th style="padding:8px;">Agent</th>
          <th style="padding:8px;text-align:center;">Days</th><th style="padding:8px;">Status</th>
        </tr></thead>
-       <tbody>${tableRows || '<tr><td colspan="4" style="padding:8px;color:#64748b;">No active accepted leads.</td></tr>'}</tbody>
+       <tbody>${tableRows || '<tr><td colspan="5" style="padding:8px;color:#64748b;">No active accepted leads.</td></tr>'}</tbody>
      </table>
      <p style="margin:24px 0;">${button(adminUrl, 'Open Admin Dashboard')}</p>`,
   );
   const text =
     `Weekly Broker Digest — ${rows.length} active accepted leads\n\n` +
     rows
-      .map((r) => `- ${r.agentName} | ${r.leadName} | ${r.daysSinceAccept}d | ${r.status}`)
+      .map((r) => `- ${r.leadName} | ${r.propertyAddress ?? '—'} | ${r.agentName} | ${r.daysSinceAccept}d | ${r.status}`)
       .join('\n') +
     `\n\nAdmin: ${adminUrl}`;
-  return { to: adminEmail(), subject: 'Weekly Broker Digest — Active Leads', html, text };
+  return {
+    to: adminEmail(),
+    subject: 'Weekly Broker Digest — Active Leads',
+    html,
+    text,
+    templateName: 'broker_digest',
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -363,11 +502,17 @@ Phone: ${d.phone ?? '—'}
 Email: ${d.email ?? '—'}
 Preferred time: ${d.preferredTime ?? '—'}
 Notes: ${d.notes ?? '—'}`;
-  return { to: adminEmail(), subject: `Appointment request — ${d.name}`, html, text };
+  return {
+    to: adminEmail(),
+    subject: `Appointment request — ${d.name}`,
+    html,
+    text,
+    templateName: 'appointment_request',
+  };
 }
 
 /** Generic admin alert (used when no agent could be found for a lead). */
 export function adminAlertEmail(subject: string, message: string): SendEmailArgs {
   const html = shell(subject, `<p style="font-size:15px;line-height:1.5;">${escapeHtml(message)}</p>`);
-  return { to: adminEmail(), subject, html, text: message };
+  return { to: adminEmail(), subject, html, text: message, templateName: 'admin_alert' };
 }

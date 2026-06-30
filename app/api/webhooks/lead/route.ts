@@ -7,7 +7,7 @@ import { db } from '@/lib/db';
 import { leads, locations } from '@/drizzle/schema';
 import { webhookLeadSchema } from '@/lib/validation';
 import { verifyApiKey } from '@/lib/apiKeys';
-import { webhookRateLimit, clientIp } from '@/lib/rateLimit';
+import { checkPreset, clientIp } from '@/lib/rateLimit';
 import { autoOfferLead } from '@/lib/autoOffer';
 
 export const runtime = 'nodejs';
@@ -26,8 +26,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'invalid_api_key' }, { status: 401 });
     }
 
-    const { success } = await webhookRateLimit(clientIp(req.headers));
-    if (!success) {
+    if (!(await checkPreset(clientIp(req.headers), 'webhook'))) {
       return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
     }
 

@@ -43,6 +43,7 @@ export const offerStatusEnum = pgEnum('offer_status', [
   'declined',
   'expired',
   'reassigned',
+  'closed_manual', // admin manual reassignment (Section 18)
 ]);
 
 export const scoreReasonEnum = pgEnum('score_reason', [
@@ -94,7 +95,11 @@ export const agents = pgTable(
     latitude: real('latitude'),
     longitude: real('longitude'),
     score: real('score').notNull().default(0),
+    // Admin-controlled membership.
     isActive: boolean('is_active').notNull().default(true),
+    // Agent self-controlled availability (Section 16). Both must be true to
+    // receive new offers. Toggled from the agent portal.
+    isAvailable: boolean('is_available').notNull().default(true),
     // Magic link auth: 64-char hex token, 30-day expiry, refreshed on every email.
     magicLinkToken: varchar('magic_link_token', { length: 128 }),
     magicLinkExpiresAt: timestamp('magic_link_expires_at'),
@@ -129,6 +134,10 @@ export const locations = pgTable(
     heroSubheadline: varchar('hero_subheadline', { length: 500 }),
     faqJson: text('faq_json'), // JSON string: [{ question, answer }]
     guideUrl: varchar('guide_url', { length: 500 }), // seller guide PDF (Section 4.3 #6)
+    // Social proof + Google review display (Section 3.3 / 3.5).
+    socialProofCount: integer('social_proof_count').notNull().default(0),
+    googleReviewCount: integer('google_review_count'),
+    googleReviewRating: real('google_review_rating'),
     isActive: boolean('is_active').notNull().default(true),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
@@ -254,6 +263,8 @@ export const leads = pgTable(
     priceRangeHigh: integer('price_range_high'),
     locationId: integer('location_id').references(() => locations.id),
     source: varchar('source', { length: 80 }).notNull().default('website'),
+    // 'seo' | 'ads' — which page type captured the lead (Section 3.3).
+    pageVariant: varchar('page_variant', { length: 50 }),
     isDeleted: boolean('is_deleted').notNull().default(false), // soft delete
     // Timestamps that were bigint in the old MySQL schema (Section 3.2 fix).
     acceptedAt: timestamp('accepted_at'),
@@ -291,6 +302,9 @@ export const leadOffers = pgTable(
     acceptedAt: timestamp('accepted_at'),
     declinedAt: timestamp('declined_at'),
     expiredAt: timestamp('expired_at'),
+    // Generic responded-at for the offer history timeline (Section 17.2) —
+    // set on accept, decline, expiry, or manual close.
+    respondedAt: timestamp('responded_at'),
     firstUpdateDue: timestamp('first_update_due'), // offerSentAt + 48h
     firstUpdateSubmittedAt: timestamp('first_update_submitted_at'),
     escalationSentAt: timestamp('escalation_sent_at'),
@@ -375,13 +389,57 @@ export const apiUsageLogs = pgTable('api_usage_logs', {
 });
 
 // ---------------------------------------------------------------------------
-// Durable fixed-window rate limits (Neon-backed; replaces Upstash Redis)
+// Neon-backed fixed-window rate limits (Section 3.3 / 8). No Redis.
+// Composite unique on (ip, endpoint, windowStart) — the background upsert
+// increments hitCount per window. Cron purges rows older than 24h.
 // ---------------------------------------------------------------------------
-export const rateLimits = pgTable('rate_limits', {
-  key: varchar('key', { length: 255 }).primaryKey(),
-  count: integer('count').notNull().default(1),
-  resetAt: timestamp('reset_at').notNull(),
+export const rateLimits = pgTable(
+  'rate_limits',
+  {
+    id: serial('id').primaryKey(),
+    ip: varchar('ip', { length: 64 }).notNull(),
+    endpoint: varchar('endpoint', { length: 100 }).notNull(),
+    windowStart: timestamp('window_start').notNull(),
+    hitCount: integer('hit_count').notNull().default(1),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    uniq: uniqueIndex('rate_limits_ip_endpoint_window_idx').on(
+      t.ip,
+      t.endpoint,
+      t.windowStart,
+    ),
+    windowIdx: index('rate_limits_window_idx').on(t.windowStart),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// MS Graph OAuth token (single row) — persists the token across serverless
+// invocations so it isn't silently lost between calls (Section 3.3 / 6.3).
+// ---------------------------------------------------------------------------
+export const msGraphTokens = pgTable('ms_graph_tokens', {
+  id: serial('id').primaryKey(),
+  accountEmail: varchar('account_email', { length: 200 }).notNull().unique(),
+  accessToken: text('access_token').notNull(),
+  refreshToken: text('refresh_token').notNull().default(''), // unused in client-credentials flow
+  expiresAt: timestamp('expires_at').notNull(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
+// Email send log — every MS Graph send attempt (Section 3.3 / 6.4).
+// Replaces the Resend dashboard; viewable at /admin/email-log.
+// ---------------------------------------------------------------------------
+export const emailSendLog = pgTable('email_send_log', {
+  id: serial('id').primaryKey(),
+  toEmail: varchar('to_email', { length: 200 }).notNull(),
+  subject: varchar('subject', { length: 500 }).notNull(),
+  templateName: varchar('template_name', { length: 100 }).notNull(),
+  status: varchar('status', { length: 20 }).notNull(), // 'sent' | 'failed'
+  errorMessage: text('error_message'),
+  sentAt: timestamp('sent_at').notNull().defaultNow(),
+  relatedLeadId: integer('related_lead_id'),
+  relatedAgentId: integer('related_agent_id'),
 });
 
 // ---------------------------------------------------------------------------
@@ -446,3 +504,6 @@ export type ApiKey = typeof apiKeys.$inferSelect;
 export type AppointmentRequest = typeof appointmentRequests.$inferSelect;
 export type NotificationSettings = typeof notificationSettings.$inferSelect;
 export type HomePageMetrics = typeof homePageMetrics.$inferSelect;
+export type MsGraphToken = typeof msGraphTokens.$inferSelect;
+export type EmailSendLogRow = typeof emailSendLog.$inferSelect;
+export type RateLimitRow = typeof rateLimits.$inferSelect;

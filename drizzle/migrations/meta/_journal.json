@@ -15,6 +15,13 @@
       "when": 1782766987214,
       "tag": "0001_spooky_sinister_six",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1782900000000,
+      "tag": "0002_v15_additions",
+      "breakpoints": true
     }
   ]
 }

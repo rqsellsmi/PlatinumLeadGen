@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
       try {
         await db
           .update(leadOffers)
-          .set({ status: 'expired', expiredAt: now, updatedAt: now })
+          .set({ status: 'expired', expiredAt: now, respondedAt: now, updatedAt: now })
           .where(eq(leadOffers.id, offer.id));
 
         await applyScore({
