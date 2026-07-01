@@ -1,17 +1,20 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
+import Image from 'next/image';
 import {
-  getActiveLocations,
-  getMarketStats,
-  getHomePageMetrics,
+  getHomepageAggregateStats,
+  getFeaturedRecentSales,
+  getCityTiles,
+  getGuidesForPage,
   getFeaturedTestimonials,
 } from '@/lib/queries';
-import Image from 'next/image';
-import { formatCurrency, formatNumber } from '@/lib/utils';
 import SiteHeader from '@/components/SiteHeader';
 import SiteFooter from '@/components/SiteFooter';
 import HeroAddressForm from '@/components/city/HeroAddressForm';
 import ValuationForm from '@/components/city/ValuationForm';
+import HomeMetricsBar from '@/components/home/HomeMetricsBar';
+import HomeRecentSales from '@/components/home/HomeRecentSales';
+import ExploreMarket from '@/components/home/ExploreMarket';
+import GuideDownloadBlock from '@/components/home/GuideDownloadBlock';
 
 export const revalidate = 86400;
 
@@ -24,23 +27,15 @@ export const metadata: Metadata = {
   alternates: { canonical: SITE_URL },
 };
 
-function shortCityName(name: string): string {
-  return name.split(',')[0].trim();
-}
-
 export default async function HomePage() {
-  const [locations, metrics, testimonials] = await Promise.all([
-    getActiveLocations(),
-    getHomePageMetrics(),
+  const [stats, recentSales, cityTiles, guides, testimonials] = await Promise.all([
+    getHomepageAggregateStats(),
+    getFeaturedRecentSales(6),
+    getCityTiles(),
+    getGuidesForPage('home'),
     getFeaturedTestimonials(3),
   ]);
-
-  const cityCards = await Promise.all(
-    locations.map(async (location) => ({
-      location,
-      stats: await getMarketStats(location.id),
-    })),
-  );
+  const guide = guides[0] ?? null;
 
   return (
     <>
@@ -85,64 +80,20 @@ export default async function HomePage() {
           </div>
         </section>
 
+        {/* Aggregate community metrics */}
+        <HomeMetricsBar stats={stats} />
+
         {/* Valuation form — general (routes by property proximity, no city required) */}
         <ValuationForm locationSlug="" cityName="Michigan" pageVariant="seo" />
 
-        {/* Overall stats */}
-        {metrics ? (
-          <section className="bg-charcoal">
-            <div className="mx-auto max-w-6xl px-4 py-14">
-              <dl className="grid grid-cols-1 gap-8 sm:grid-cols-3">
-                {[
-                  { value: formatNumber(metrics.totalHomesSold), label: 'Homes Sold' },
-                  { value: formatNumber(metrics.avgDaysToSell), label: 'Avg. Days to Sell' },
-                  { value: formatCurrency(metrics.avgSalePrice), label: 'Avg. Sale Price' },
-                ].map((s) => (
-                  <div key={s.label} className="text-center">
-                    <dd className="font-numeric text-5xl font-bold leading-none text-white sm:text-6xl">
-                      {s.value}
-                    </dd>
-                    <dt className="mt-2 text-sm font-semibold text-mute-lighter">{s.label}</dt>
-                  </div>
-                ))}
-              </dl>
-            </div>
-          </section>
-        ) : null}
+        {/* Recent sales across all communities */}
+        <HomeRecentSales sales={recentSales} />
 
-        {/* City cards */}
-        {cityCards.length ? (
-          <section className="bg-cream">
-            <div className="mx-auto max-w-6xl px-4 py-16 sm:py-24">
-              <h2 className="text-center text-3xl font-extrabold tracking-tight text-charcoal sm:text-4xl">
-                Find Your Home&apos;s Value by City
-              </h2>
-              <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                {cityCards.map(({ location, stats }) => (
-                  <Link
-                    key={location.id}
-                    href={`/sell/${location.slug}`}
-                    className="group rounded-card border border-line bg-white p-6 transition-shadow hover:shadow-[0_12px_32px_rgba(20,20,24,0.12)]"
-                  >
-                    <h3 className="text-xl font-bold text-charcoal group-hover:text-platinum-red">
-                      {shortCityName(location.name)}
-                    </h3>
-                    {stats?.avgSalePrice != null ? (
-                      <p className="mt-2 text-sm text-mute">
-                        Avg. sale price:{' '}
-                        <span className="font-numeric font-bold text-charcoal">
-                          {formatCurrency(stats.avgSalePrice)}
-                        </span>
-                      </p>
-                    ) : (
-                      <p className="mt-2 text-sm text-mute-light">Get your free valuation →</p>
-                    )}
-                  </Link>
-                ))}
-              </div>
-            </div>
-          </section>
-        ) : null}
+        {/* Explore Your Market — city cards linking to community pages */}
+        <ExploreMarket cities={cityTiles} />
+
+        {/* Seller guide download (admin-managed; shown when assigned to "home") */}
+        {guide ? <GuideDownloadBlock guide={guide} /> : null}
 
         {/* Featured testimonials */}
         {testimonials.length >= 2 ? (

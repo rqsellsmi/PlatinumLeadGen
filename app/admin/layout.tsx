@@ -17,6 +17,7 @@ const NAV = [
   { href: '/admin/locations', label: 'Locations' },
   { href: '/admin/testimonials', label: 'Testimonials' },
   { href: '/admin/recent-sales', label: 'Recent Sales' },
+  { href: '/admin/downloads', label: 'Downloads' },
   { href: '/admin/data-upload', label: 'Data Upload' },
   { href: '/admin/analytics', label: 'Analytics' },
   { href: '/admin/api-usage', label: 'API Usage' },

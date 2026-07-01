@@ -2,7 +2,7 @@
  * Server-side data loading for public pages (Section 4.2).
  * City page data is fetched at render time. Next.js ISR caches the rendered page.
  */
-import { eq, and, desc, asc } from 'drizzle-orm';
+import { eq, and, desc, asc, sql } from 'drizzle-orm';
 import { db } from './db';
 import {
   locations,
@@ -12,12 +12,16 @@ import {
   neighborhoodLinks,
   trackingScripts,
   homePageMetrics,
+  agents,
+  closings,
+  guides,
   type Location,
   type MarketStat,
   type RecentSale,
   type Testimonial,
   type NeighborhoodLink,
   type TrackingScript,
+  type Guide,
 } from '../drizzle/schema';
 
 export interface CityPageData {
@@ -132,6 +136,141 @@ export async function getHomePageMetrics() {
   } catch (err) {
     console.warn('[queries] getHomePageMetrics failed:', err);
     return null;
+  }
+}
+
+export interface HomepageAggregateStats {
+  homesSold: number | null;
+  closedVolume: number | null;
+  localAgents: number | null;
+  avgRating: number | null;
+}
+
+/** Aggregate, business-wide numbers for the homepage metrics bar. Computed. */
+export async function getHomepageAggregateStats(): Promise<HomepageAggregateStats> {
+  try {
+    const [metricsRow, closingsRow, agentsRow, ratingRow] = await Promise.all([
+      db.select().from(homePageMetrics).limit(1),
+      db
+        .select({
+          vol: sql<string | null>`sum(${closings.salePrice})`,
+          cnt: sql<number>`count(*)::int`,
+        })
+        .from(closings),
+      db.select({ n: sql<number>`count(*)::int` }).from(agents),
+      db
+        .select({ avg: sql<string | null>`avg(${locations.googleReviewRating})` })
+        .from(locations)
+        .where(sql`${locations.googleReviewRating} is not null`),
+    ]);
+    const closedVolume = closingsRow[0]?.vol != null ? Number(closingsRow[0].vol) : null;
+    const closingsCount = Number(closingsRow[0]?.cnt ?? 0);
+    const homesSold = metricsRow[0]?.totalHomesSold ?? (closingsCount > 0 ? closingsCount : null);
+    const localAgents = Number(agentsRow[0]?.n ?? 0);
+    const avgRating = ratingRow[0]?.avg != null ? Number(ratingRow[0].avg) : null;
+    return { homesSold, closedVolume, localAgents, avgRating };
+  } catch (err) {
+    console.warn('[queries] getHomepageAggregateStats failed:', err);
+    return { homesSold: null, closedVolume: null, localAgents: null, avgRating: null };
+  }
+}
+
+export interface HomeRecentSale {
+  id: number;
+  address: string;
+  soldPrice: number | null;
+  daysOnMarket: number | null;
+  closeDate: Date | null;
+  photoUrl: string | null;
+  cityName: string | null;
+}
+
+/** Newest showcase sales across all cities (homepage). */
+export async function getFeaturedRecentSales(limit = 6): Promise<HomeRecentSale[]> {
+  try {
+    return await db
+      .select({
+        id: recentSales.id,
+        address: recentSales.address,
+        soldPrice: recentSales.soldPrice,
+        daysOnMarket: recentSales.daysOnMarket,
+        closeDate: recentSales.closeDate,
+        photoUrl: recentSales.photoUrl,
+        cityName: locations.name,
+      })
+      .from(recentSales)
+      .leftJoin(locations, eq(recentSales.locationId, locations.id))
+      .orderBy(sql`${recentSales.closeDate} desc nulls last`, asc(recentSales.displayOrder))
+      .limit(limit);
+  } catch (err) {
+    console.warn('[queries] getFeaturedRecentSales failed:', err);
+    return [];
+  }
+}
+
+export interface CityTile {
+  slug: string;
+  name: string;
+  avgSalePrice: number | null;
+  daysToSell: number | null;
+  photoUrl: string | null;
+}
+
+/** Active cities with headline stats + a representative photo, for the homepage. */
+export async function getCityTiles(): Promise<CityTile[]> {
+  try {
+    const locs = await db
+      .select()
+      .from(locations)
+      .where(eq(locations.isActive, true))
+      .orderBy(asc(locations.name));
+    return await Promise.all(
+      locs.map(async (l) => {
+        const [stat] = await db
+          .select({ avgSalePrice: marketStats.avgSalePrice, daysToSell: marketStats.daysToSell })
+          .from(marketStats)
+          .where(eq(marketStats.locationId, l.id))
+          .limit(1);
+        const [photo] = await db
+          .select({ url: recentSales.photoUrl })
+          .from(recentSales)
+          .where(and(eq(recentSales.locationId, l.id), sql`${recentSales.photoUrl} is not null`))
+          .orderBy(asc(recentSales.displayOrder))
+          .limit(1);
+        return {
+          slug: l.slug,
+          name: l.name,
+          avgSalePrice: stat?.avgSalePrice ?? null,
+          daysToSell: stat?.daysToSell ?? null,
+          photoUrl: photo?.url ?? null,
+        };
+      }),
+    );
+  } catch (err) {
+    console.warn('[queries] getCityTiles failed:', err);
+    return [];
+  }
+}
+
+/** Active downloadable guides assigned to a given page key (e.g. "home"). */
+export async function getGuidesForPage(pageKey: string): Promise<Guide[]> {
+  try {
+    const rows = await db
+      .select()
+      .from(guides)
+      .where(eq(guides.isActive, true))
+      .orderBy(asc(guides.displayOrder));
+    return rows.filter((g) => {
+      try {
+        const arr = JSON.parse(g.placement);
+        return Array.isArray(arr) && arr.includes(pageKey);
+      } catch {
+        return false;
+      }
+    });
+  } catch (err) {
+    console.warn('[queries] getGuidesForPage failed:', err);
+    return [];
   }
 }
 
