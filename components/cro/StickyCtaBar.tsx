@@ -1,35 +1,34 @@
 'use client';
 
 import * as React from 'react';
-import { scrollToValuation, LEAD_SUBMITTED_FLAG } from '@/lib/clientAnalytics';
+import { LEAD_SUBMITTED_FLAG } from '@/lib/clientAnalytics';
+import { OPEN_VALUATION_EVENT } from '@/components/HeroValuation';
 
 /**
- * Sticky CTA bar (Section 22.3). Appears once the valuation form scrolls out of
- * view; hidden when the form is visible or once a lead has been submitted.
- * Watches the #valuation element with IntersectionObserver.
+ * Sticky CTA bar (Section 22.3). Appears once the visitor scrolls past the
+ * hero; hidden once a lead has been submitted. Opens the shared valuation
+ * modal (the page no longer has a separate on-page form to scroll to).
  */
 export default function StickyCtaBar() {
   const [show, setShow] = React.useState(false);
 
   React.useEffect(() => {
     if (sessionStorage.getItem(LEAD_SUBMITTED_FLAG)) return;
-    const target = document.getElementById('valuation');
-    if (!target) return;
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (sessionStorage.getItem(LEAD_SUBMITTED_FLAG)) {
-          setShow(false);
-          return;
-        }
-        // Show when the form is NOT in view (and we've scrolled past its top).
-        setShow(!entry.isIntersecting && entry.boundingClientRect.top < 0);
-      },
-      { threshold: 0.1 },
-    );
-    observer.observe(target);
-    return () => observer.disconnect();
+    function onScroll() {
+      if (sessionStorage.getItem(LEAD_SUBMITTED_FLAG)) {
+        setShow(false);
+        return;
+      }
+      setShow(window.scrollY > 700);
+    }
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
   }, []);
+
+  function openValuation() {
+    window.dispatchEvent(new CustomEvent(OPEN_VALUATION_EVENT));
+  }
 
   if (!show) return null;
 
@@ -40,7 +39,7 @@ export default function StickyCtaBar() {
           See what your home is worth — free, no obligation.
         </span>
         <button
-          onClick={scrollToValuation}
+          onClick={openValuation}
           className="min-h-[56px] w-full rounded-pill bg-platinum-red px-6 text-base font-bold text-white hover:bg-platinum-redHover sm:min-h-0 sm:w-auto sm:py-3"
         >
           Get My Free Home Value →

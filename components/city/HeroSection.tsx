@@ -1,10 +1,13 @@
 import Image from 'next/image';
-import HeroAddressForm from '@/components/city/HeroAddressForm';
+import HeroValuation from '@/components/HeroValuation';
 
 interface HeroSectionProps {
   headline: string;
   subheadline: string;
   cityName: string;
+  /** Location slug + page variant for the in-hero valuation flow. */
+  locationSlug: string;
+  pageVariant?: 'seo' | 'ads';
   /** Optional eyebrow shown above the H1 (e.g. "Brighton, Michigan"). */
   eyebrow?: string;
   /** Optional trust signals rendered under the address form. */
@@ -23,6 +26,8 @@ export default function HeroSection({
   headline,
   subheadline,
   cityName,
+  locationSlug,
+  pageVariant = 'seo',
   eyebrow,
   rating,
   reviewCount,
@@ -56,7 +61,11 @@ export default function HeroSection({
             {subheadline}
           </p>
           <div className="mt-8">
-            <HeroAddressForm />
+            <HeroValuation
+              locationSlug={locationSlug}
+              cityName={cityName}
+              pageVariant={pageVariant}
+            />
           </div>
           <div className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-3 text-sm font-semibold text-white">
             {rating != null ? (

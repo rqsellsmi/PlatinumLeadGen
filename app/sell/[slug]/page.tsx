@@ -15,7 +15,6 @@ import SiteFooter from '@/components/SiteFooter';
 import HeroSection from '@/components/city/HeroSection';
 import SocialProofBar from '@/components/city/SocialProofBar';
 import MarketStatsBar from '@/components/city/MarketStatsBar';
-import ValuationForm from '@/components/city/ValuationForm';
 import RecentSales from '@/components/city/RecentSales';
 import HowItWorks from '@/components/city/HowItWorks';
 import SellerGuideSection from '@/components/city/SellerGuideSection';
@@ -95,6 +94,8 @@ export default async function CityPage({ params }: { params: { slug: string } })
           headline={headline}
           subheadline={subheadline}
           cityName={cityName}
+          locationSlug={location.slug}
+          pageVariant="seo"
           eyebrow={location.name}
           rating={location.googleReviewRating}
           reviewCount={location.googleReviewCount}
@@ -108,7 +109,6 @@ export default async function CityPage({ params }: { params: { slug: string } })
           topTestimonial={testimonials.find((t) => t.isActive) ?? null}
         />
         <MarketStatsBar stats={stats} cityName={cityName} homesSold={stats?.homesSold ?? 0} />
-        <ValuationForm locationSlug={location.slug} cityName={cityName} pageVariant="seo" />
         <RecentSales sales={recentSales} cityName={cityName} />
         <HowItWorks />
         {location.guideUrl ? (

@@ -10,7 +10,7 @@ import {
 import { formatNumber } from '@/lib/utils';
 import SiteHeader from '@/components/SiteHeader';
 import SiteFooter from '@/components/SiteFooter';
-import HomeValuation from '@/components/home/HomeValuation';
+import HeroValuation from '@/components/HeroValuation';
 import HomeMetricsBar from '@/components/home/HomeMetricsBar';
 import HomeRecentSales from '@/components/home/HomeRecentSales';
 import ExploreMarket from '@/components/home/ExploreMarket';
@@ -67,7 +67,7 @@ export default async function HomePage() {
                 Find out what your home is worth today — free, and with no obligation.
               </p>
               <div className="mt-8">
-                <HomeValuation buttonLabel="What's My Home Worth? →" />
+                <HeroValuation buttonLabel="What's My Home Worth? →" />
               </div>
               <div className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-3 text-sm font-semibold text-white">
                 {stats.avgRating != null ? (
