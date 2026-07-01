@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { locations } from '@/drizzle/schema';
 import { Card, CardHeader, CardBody, Button, Input, Label, Badge } from '@/components/ui';
 import { requireAdmin } from '@/components/admin/requireAdmin';
+import ResetOnSubmitForm from '@/components/admin/ResetOnSubmitForm';
 import { createLocation, toggleLocationActive, updateLocationMatchCities } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -35,7 +36,7 @@ export default async function LocationsPage() {
           <h2 className="font-bold text-charcoal">Add location</h2>
         </CardHeader>
         <CardBody>
-          <form action={createLocation} className="grid grid-cols-1 gap-4 md:grid-cols-4">
+          <ResetOnSubmitForm action={createLocation} className="grid grid-cols-1 gap-4 md:grid-cols-4">
             <div>
               <Label htmlFor="name">City name</Label>
               <Input id="name" name="name" required />
@@ -56,7 +57,7 @@ export default async function LocationsPage() {
               <Button type="submit">Add location</Button>
               <p className="mt-1 text-xs text-mute-light">Slug is generated automatically from the name.</p>
             </div>
-          </form>
+          </ResetOnSubmitForm>
         </CardBody>
       </Card>
 

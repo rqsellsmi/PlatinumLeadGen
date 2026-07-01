@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { agents, offices, leadOffers, leads } from '@/drizzle/schema';
 import { Card, CardHeader, CardBody, Button, Input, Label, Select, Badge } from '@/components/ui';
 import { requireAdmin } from '@/components/admin/requireAdmin';
+import ResetOnSubmitForm from '@/components/admin/ResetOnSubmitForm';
 import { scoreTier } from '@/lib/scoreTiers';
 import { createAgent, toggleAgentActive } from './actions';
 
@@ -162,7 +163,7 @@ export default async function AgentsPage() {
           <h2 className="font-bold text-charcoal">Add agent</h2>
         </CardHeader>
         <CardBody>
-          <form action={createAgent} className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <ResetOnSubmitForm action={createAgent} className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div>
               <Label htmlFor="firstName">First name</Label>
               <Input id="firstName" name="firstName" required />
@@ -203,7 +204,7 @@ export default async function AgentsPage() {
             <div className="md:col-span-3">
               <Button type="submit">Add agent</Button>
             </div>
-          </form>
+          </ResetOnSubmitForm>
         </CardBody>
       </Card>
     </div>

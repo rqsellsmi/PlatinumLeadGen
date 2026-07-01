@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { guides, locations, type Guide } from '@/drizzle/schema';
 import { Card, CardHeader, CardBody, Button, Input, Label, Textarea, Badge } from '@/components/ui';
 import { requireAdmin } from '@/components/admin/requireAdmin';
+import ResetOnSubmitForm from '@/components/admin/ResetOnSubmitForm';
 import { createGuide, updateGuide, deleteGuide } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -111,12 +112,12 @@ export default async function DownloadsAdminPage() {
           <h2 className="font-bold text-charcoal">Add download</h2>
         </CardHeader>
         <CardBody>
-          <form action={createGuide} className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <ResetOnSubmitForm action={createGuide} className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <Fields prefix="new" slugHint={slugHint} />
             <div className="md:col-span-3">
               <Button type="submit">Add download</Button>
             </div>
-          </form>
+          </ResetOnSubmitForm>
         </CardBody>
       </Card>
 

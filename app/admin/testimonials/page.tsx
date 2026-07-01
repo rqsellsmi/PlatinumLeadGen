@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { locations, testimonials, type Testimonial, type Location } from '@/drizzle/schema';
 import { Card, CardHeader, CardBody, Button, Input, Label, Textarea, Select, Badge } from '@/components/ui';
 import { requireAdmin } from '@/components/admin/requireAdmin';
+import ResetOnSubmitForm from '@/components/admin/ResetOnSubmitForm';
 import { createTestimonial, updateTestimonial, deleteTestimonial } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -101,12 +102,12 @@ export default async function TestimonialsAdminPage() {
           <h2 className="font-bold text-charcoal">Add testimonial</h2>
         </CardHeader>
         <CardBody>
-          <form action={createTestimonial} className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <ResetOnSubmitForm action={createTestimonial} className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <Fields prefix="new" locationList={locationList} />
             <div className="md:col-span-3">
               <Button type="submit">Add testimonial</Button>
             </div>
-          </form>
+          </ResetOnSubmitForm>
         </CardBody>
       </Card>
 
