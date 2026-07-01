@@ -16,12 +16,14 @@ const COLUMN_ALIASES: Record<string, string[]> = {
   salePrice: ['Sale Price', 'SalePrice', 'Sold Price', 'Close Price'],
   daysOnMarket: ['Days on Market', 'DOM', 'CDOM', 'Days On Market', 'DaysOnMarket'],
   address: ['Address', 'Property Address', 'Street Address'],
-  city: ['City'],
+  // Prefer the clean mailing city over the township-style "City" for matching.
+  city: ['Mailing City', 'City'],
   state: ['State'],
-  zipCode: ['Zip', 'ZIP', 'Zip Code', 'Postal Code'],
+  zipCode: ['Zip5', 'Zip', 'ZIP', 'Zip Code', 'Postal Code'],
   propertyType: ['Property Type', 'Type'],
   agentName: ['Agent', 'Agent Name', 'Listing Agent', 'Buyer Agent'],
   mlsNumber: ['MLS', 'MLS #', 'MLS Number'],
+  status: ['Stat', 'Status'],
   schoolDistrict: ['School District', 'District', 'School'],
   percentOfListPrice: [
     'RATIO Close Price By List Price',
@@ -204,6 +206,11 @@ export function parseClosingsCsv(text: string, agentRole: AgentRole): ParsedClos
   for (let i = 1; i < rawRows.length; i++) {
     const cells = rawRows[i];
     const rowNum = i + 1; // 1-based incl. header
+
+    // Only import completed sales. If a Stat/Status column exists, skip
+    // anything that isn't "SOLD" (pending, expired, withdrawn, etc.).
+    const status = pick(cells, headerIndex, COLUMN_ALIASES.status);
+    if (status && status.trim().toLowerCase() !== 'sold') continue;
 
     const closeRaw = pick(cells, headerIndex, COLUMN_ALIASES.closeDate);
     const closeDate = closeRaw ? parseCloseDate(closeRaw) : null;

@@ -40,6 +40,20 @@ export async function updateLocationDistrict(formData: FormData) {
   revalidatePath('/admin/locations');
 }
 
+export async function updateLocationMatchCities(formData: FormData) {
+  await requireAdmin();
+  const id = Number(formData.get('locationId'));
+  if (!id) throw new Error('Invalid location');
+  const raw = String(formData.get('matchCities') ?? '').trim();
+  await db
+    .update(locations)
+    .set({ matchCities: raw || null, updatedAt: new Date() })
+    .where(eq(locations.id, id));
+  revalidatePath('/admin/locations');
+  revalidatePath('/', 'page');
+  revalidatePath('/sell/[slug]', 'page');
+}
+
 export async function toggleLocationActive(formData: FormData) {
   await requireAdmin();
   const id = Number(formData.get('locationId'));

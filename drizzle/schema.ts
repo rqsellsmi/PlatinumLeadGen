@@ -139,6 +139,9 @@ export const locations = pgTable(
     guideUrl: varchar('guide_url', { length: 500 }), // seller guide PDF (Section 4.3 #6)
     // District name used to match closings to this city for per-location stats (v1.6 §A.2).
     schoolDistrict: varchar('school_district', { length: 200 }),
+    // Comma-separated mailing cities this location covers (matches closings.city).
+    // Null/empty → fall back to the location's own short name.
+    matchCities: text('match_cities'),
     // Social proof + Google review display (Section 3.3 / 3.5).
     socialProofCount: integer('social_proof_count').notNull().default(0),
     googleReviewCount: integer('google_review_count'),
@@ -222,6 +225,8 @@ export const closings = pgTable(
     agentName: varchar('agent_name', { length: 200 }),
     schoolDistrict: varchar('school_district', { length: 200 }), // per-location stats matching
     percentOfListPrice: real('percent_of_list_price'), // sale/list ratio as a percentage
+    // Optional showcase photo for a sale that appears on a recent-sales tile (§import).
+    photoUrl: varchar('photo_url', { length: 500 }),
     uploadBatchId: integer('upload_batch_id')
       .notNull()
       .references(() => uploadBatches.id, { onDelete: 'cascade' }),

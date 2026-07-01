@@ -1,9 +1,9 @@
 import Image from 'next/image';
-import type { RecentSale } from '@/drizzle/schema';
+import type { HomeRecentSale } from '@/lib/queries';
 import { formatCurrency, formatMonthYear } from '@/lib/utils';
 
 interface RecentSalesProps {
-  sales: RecentSale[];
+  sales: HomeRecentSale[];
   cityName: string;
 }
 
