@@ -4,7 +4,7 @@ import { and, desc, eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { leads, leadOffers, statusUpdates } from '@/drizzle/schema';
 import { getCurrentAgent } from '@/lib/agentSession';
-import { Card, CardHeader, CardBody, Badge } from '@/components/ui';
+import { Badge, statusTone } from '@/components/ui';
 import { formatCurrency } from '@/lib/utils';
 import { StatusUpdateForm } from '@/components/agent/StatusUpdateForm';
 
@@ -34,6 +34,7 @@ export default async function AgentLeadDetailPage({
 
   const { offer, lead } = row;
   const fullName = [lead.firstName, lead.lastName].filter(Boolean).join(' ') || 'Unnamed lead';
+  const firstName = lead.firstName || 'lead';
   const address =
     [lead.propertyAddress, lead.propertyCity, lead.propertyState, lead.propertyZip]
       .filter(Boolean)
@@ -41,7 +42,9 @@ export default async function AgentLeadDetailPage({
   const priceRange =
     lead.priceRangeLow != null || lead.priceRangeHigh != null
       ? `${formatCurrency(lead.priceRangeLow)} – ${formatCurrency(lead.priceRangeHigh)}`
-      : null;
+      : lead.estimatedValue != null
+        ? formatCurrency(lead.estimatedValue)
+        : null;
 
   const history = await db
     .select()
@@ -52,39 +55,51 @@ export default async function AgentLeadDetailPage({
   return (
     <div className="space-y-6">
       <div>
-        <Link href="/agent/leads" className="text-sm text-brand-blue hover:underline">
+        <Link href="/agent/leads" className="text-sm font-semibold text-platinum-blue hover:underline">
           ← Back to my leads
         </Link>
-        <div className="mt-1 flex items-center gap-3">
-          <h1 className="text-2xl font-bold text-slate-900">{fullName}</h1>
-          <Badge className="capitalize">{lead.status}</Badge>
+      </div>
+
+      {/* Header */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="mb-1.5 flex items-center gap-2">
+            <Badge tone={statusTone(lead.status)}>{lead.status}</Badge>
+          </div>
+          <h1 className="text-2xl font-extrabold tracking-tight text-charcoal">{fullName}</h1>
+          {address ? <p className="mt-1 text-sm text-mute-light">{address}</p> : null}
         </div>
+        {lead.phone ? (
+          <a
+            href={`tel:${lead.phone}`}
+            className="inline-flex items-center gap-2 rounded-pill bg-platinum-red px-5 py-3 text-sm font-bold text-white transition-colors hover:bg-platinum-redHover"
+          >
+            📞 Call {firstName}
+          </a>
+        ) : null}
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <h2 className="font-semibold text-slate-800">Contact &amp; property</h2>
-          </CardHeader>
-          <CardBody>
-            <dl className="grid grid-cols-1 gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
-              <Field label="Name" value={fullName} />
-              <Field
-                label="Email"
-                value={lead.email}
-                href={lead.email ? `mailto:${lead.email}` : undefined}
-              />
-              <Field
-                label="Phone"
-                value={lead.phone}
-                href={lead.phone ? `tel:${lead.phone}` : undefined}
-              />
+        <div className="space-y-6 lg:col-span-2">
+          {/* Estimate callout */}
+          {priceRange ? (
+            <div className="rounded-card bg-cream px-6 py-6 text-center">
+              <p className="text-[11px] font-bold uppercase tracking-[0.06em] text-mute-light">
+                Estimated value
+              </p>
+              <p className="mt-1.5 font-numeric text-4xl font-bold text-charcoal">{priceRange}</p>
+            </div>
+          ) : null}
+
+          {/* Contact + property */}
+          <div className="rounded-card border border-line bg-white">
+            <div className="border-b border-line px-5 py-4">
+              <h2 className="font-bold text-charcoal">Contact &amp; property</h2>
+            </div>
+            <dl className="grid grid-cols-1 gap-x-6 gap-y-4 px-5 py-5 text-sm sm:grid-cols-2">
+              <Field label="Email" value={lead.email} href={lead.email ? `mailto:${lead.email}` : undefined} />
+              <Field label="Phone" value={lead.phone} href={lead.phone ? `tel:${lead.phone}` : undefined} />
               <Field label="Property address" value={address} />
-              <Field
-                label="Estimated value"
-                value={lead.estimatedValue != null ? formatCurrency(lead.estimatedValue) : null}
-              />
-              <Field label="Price range" value={priceRange} />
               <Field label="Timeframe" value={lead.timeframe} />
               <Field label="Source" value={lead.source} />
               <Field
@@ -92,43 +107,51 @@ export default async function AgentLeadDetailPage({
                 value={offer.acceptedAt ? new Date(offer.acceptedAt).toLocaleString('en-US') : null}
               />
             </dl>
-          </CardBody>
-        </Card>
+          </div>
 
-        <Card>
-          <CardHeader>
-            <h2 className="font-semibold text-slate-800">Update status</h2>
-          </CardHeader>
-          <CardBody>
+          {/* Activity timeline */}
+          <div className="rounded-card border border-line bg-white">
+            <div className="border-b border-line px-5 py-4">
+              <h2 className="font-bold text-charcoal">Activity</h2>
+            </div>
+            <div className="px-5 py-5">
+              {history.length === 0 ? (
+                <p className="text-sm text-mute">No updates yet.</p>
+              ) : (
+                <ul className="space-y-0">
+                  {history.map((u, i) => (
+                    <li key={u.id} className="flex gap-3.5">
+                      <div className="flex flex-col items-center">
+                        <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-platinum-red" />
+                        {i < history.length - 1 ? <span className="w-px flex-1 bg-line" /> : null}
+                      </div>
+                      <div className="pb-5">
+                        <div className="flex items-center gap-2">
+                          <Badge tone={statusTone(u.newStatus)}>{u.newStatus}</Badge>
+                          <span className="text-xs text-mute-lighter">
+                            {u.createdAt ? new Date(u.createdAt).toLocaleString('en-US') : ''}
+                          </span>
+                        </div>
+                        {u.note ? <p className="mt-1.5 text-sm text-charcoal">{u.note}</p> : null}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Update status */}
+        <div className="rounded-card border border-line bg-white lg:self-start">
+          <div className="border-b border-line px-5 py-4">
+            <h2 className="font-bold text-charcoal">Log activity</h2>
+          </div>
+          <div className="px-5 py-5">
             <StatusUpdateForm leadOfferId={offer.id} currentStatus={lead.status} />
-          </CardBody>
-        </Card>
+          </div>
+        </div>
       </div>
-
-      <Card>
-        <CardHeader>
-          <h2 className="font-semibold text-slate-800">Update history</h2>
-        </CardHeader>
-        <CardBody>
-          {history.length === 0 ? (
-            <p className="text-sm text-slate-500">No updates yet.</p>
-          ) : (
-            <ul className="space-y-4">
-              {history.map((u) => (
-                <li key={u.id} className="border-l-2 border-slate-200 pl-4">
-                  <div className="flex items-center gap-2">
-                    <Badge className="capitalize">{u.newStatus}</Badge>
-                    <span className="text-xs text-slate-400">
-                      {u.createdAt ? new Date(u.createdAt).toLocaleString('en-US') : ''}
-                    </span>
-                  </div>
-                  {u.note && <p className="mt-1 text-sm text-slate-700">{u.note}</p>}
-                </li>
-              ))}
-            </ul>
-          )}
-        </CardBody>
-      </Card>
     </div>
   );
 }
@@ -144,11 +167,11 @@ function Field({
 }) {
   return (
     <div>
-      <dt className="text-xs uppercase tracking-wide text-slate-400">{label}</dt>
-      <dd className="text-slate-800">
+      <dt className="text-[11px] font-bold uppercase tracking-[0.06em] text-mute-lighter">{label}</dt>
+      <dd className="mt-0.5 text-charcoal">
         {value ? (
           href ? (
-            <a href={href} className="text-brand-blue hover:underline">
+            <a href={href} className="font-semibold text-platinum-blue hover:underline">
               {value}
             </a>
           ) : (

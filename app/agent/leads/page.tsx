@@ -94,10 +94,15 @@ export default async function AgentLeadsPage() {
   const closedThisMo = Number(closedRow[0]?.n ?? 0);
 
   const kpis: AgentKpi[] = [
-    { label: 'Active leads', value: String(active) },
-    { label: 'To contact', value: String(toContact), tone: toContact > 0 ? 'danger' : 'neutral' },
-    { label: 'Avg response', value: avgMins },
-    { label: 'Closed this mo.', value: String(closedThisMo), tone: 'success' },
+    { label: 'Active leads', value: String(active), sub: 'in your pipeline' },
+    {
+      label: 'To contact',
+      value: String(toContact),
+      sub: toContact > 0 ? 'need a first call' : 'all caught up',
+      tone: toContact > 0 ? 'danger' : 'neutral',
+    },
+    { label: 'Avg response', value: avgMins, sub: 'time to accept' },
+    { label: 'Closed this mo.', value: String(closedThisMo), sub: 'this month', tone: 'success' },
   ];
 
   return (

@@ -21,6 +21,7 @@ export interface AgentLeadItem {
 export interface AgentKpi {
   label: string;
   value: string;
+  sub?: string;
   tone?: 'neutral' | 'danger' | 'success';
 }
 
@@ -101,10 +102,13 @@ export default function AgentDashboard({
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {kpis.map((k) => (
           <div key={k.label} className="rounded-card border border-line bg-white px-5 py-4">
-            <p className="text-[11px] font-bold uppercase tracking-wide text-mute-light">{k.label}</p>
-            <p className={cn('mt-1 font-numeric text-4xl font-bold', kpiToneClass[k.tone ?? 'neutral'])}>
+            <p className="text-[11px] font-bold uppercase tracking-[0.06em] text-mute-light">
+              {k.label}
+            </p>
+            <p className={cn('mt-2 font-numeric text-[38px] font-bold leading-none', kpiToneClass[k.tone ?? 'neutral'])}>
               {k.value}
             </p>
+            {k.sub ? <p className="mt-1.5 text-xs text-mute-light">{k.sub}</p> : null}
           </div>
         ))}
       </div>
@@ -199,18 +203,18 @@ export default function AgentDashboard({
                   overIndex === index && dragIndex !== index && 'ring-2 ring-platinum-blue',
                 )}
               >
-                <div className="flex items-center gap-4 px-4 py-3.5">
+                <div className="grid grid-cols-[24px_1fr_auto] items-center gap-4 px-4 py-3.5 sm:grid-cols-[24px_1.7fr_1fr_1fr_auto]">
                   <span className="cursor-grab select-none text-mute-lighter active:cursor-grabbing" aria-hidden title="Drag to reorder">
                     ⠿
                   </span>
-                  <Link href={`/agent/leads/${item.leadOfferId}`} className="min-w-0 flex-1">
+                  <Link href={`/agent/leads/${item.leadOfferId}`} className="min-w-0">
                     <p className="truncate font-bold text-charcoal">{item.name}</p>
                     <p className="truncate text-sm text-mute-light">{item.address ?? '—'}</p>
                   </Link>
-                  <span className="hidden w-28 text-right font-numeric font-bold text-charcoal sm:block">
+                  <span className="hidden font-numeric text-lg font-bold text-charcoal sm:block">
                     {item.priceRange ?? ''}
                   </span>
-                  <span className="hidden w-40 truncate text-sm text-mute sm:block">
+                  <span className="hidden truncate text-sm font-semibold text-mute sm:block">
                     {item.timeframe ?? ''}
                   </span>
                   <Badge tone={statusTone(item.status)}>{item.status}</Badge>

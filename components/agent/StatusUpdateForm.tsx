@@ -75,7 +75,9 @@ export function StatusUpdateForm({
           onChange={(e) => setNote(e.target.value)}
         />
       </div>
-      {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-brand-red">{error}</p>}
+      {error && (
+        <p className="rounded-lg bg-danger-bg px-3 py-2 text-sm text-platinum-red">{error}</p>
+      )}
       <Button type="submit" className="w-full" disabled={pending}>
         {pending ? 'Saving…' : 'Save update'}
       </Button>
