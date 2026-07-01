@@ -15,39 +15,34 @@ export default function FaqSection({ faq, cityName }: FaqSectionProps) {
   if (!items.length) return null;
 
   return (
-    <section className="bg-white">
-      <div className="mx-auto max-w-3xl px-4 py-16">
-        <h2 className="text-center text-3xl font-bold text-brand-blue">
+    <section className="bg-cream">
+      <div className="mx-auto max-w-3xl px-4 py-16 sm:py-24">
+        <h2 className="text-center text-2xl font-extrabold tracking-tight text-charcoal sm:text-4xl">
           Frequently Asked Questions About Selling in {cityName}, MI
         </h2>
-        <dl className="mt-10 divide-y divide-slate-200 border-y border-slate-200">
+        <div className="mt-12 flex flex-col gap-3">
           {items.map((item, i) => {
             const isOpen = open === i;
             return (
-              <div key={i}>
-                <dt>
-                  <button
-                    type="button"
-                    onClick={() => setOpen(isOpen ? null : i)}
-                    aria-expanded={isOpen}
-                    className="flex w-full items-center justify-between gap-4 py-5 text-left text-lg font-semibold text-slate-800 hover:text-brand-blue"
-                  >
-                    <span>{item.question}</span>
-                    <span
-                      aria-hidden="true"
-                      className="shrink-0 text-2xl font-normal text-brand-blue"
-                    >
-                      {isOpen ? '−' : '+'}
-                    </span>
-                  </button>
-                </dt>
+              <div key={i} className="overflow-hidden rounded-card border border-line bg-white">
+                <button
+                  type="button"
+                  onClick={() => setOpen(isOpen ? null : i)}
+                  aria-expanded={isOpen}
+                  className="flex w-full items-center justify-between gap-4 px-6 py-5 text-left text-lg font-bold text-charcoal"
+                >
+                  <span>{item.question}</span>
+                  <span aria-hidden className="shrink-0 text-2xl font-normal text-platinum-red">
+                    {isOpen ? '−' : '+'}
+                  </span>
+                </button>
                 {isOpen ? (
-                  <dd className="pb-5 text-slate-600">{item.answer}</dd>
+                  <div className="px-6 pb-6 leading-relaxed text-mute">{item.answer}</div>
                 ) : null}
               </div>
             );
           })}
-        </dl>
+        </div>
       </div>
     </section>
   );

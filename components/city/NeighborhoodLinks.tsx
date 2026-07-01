@@ -11,17 +11,17 @@ export default function NeighborhoodLinks({ links, cityName }: NeighborhoodLinks
   if (!links.length) return null;
 
   return (
-    <section className="bg-brand-light">
-      <div className="mx-auto max-w-6xl px-4 py-16">
-        <h2 className="text-center text-3xl font-bold text-brand-blue">
+    <section className="bg-white">
+      <div className="mx-auto max-w-5xl px-4 py-14 sm:py-20">
+        <h2 className="text-2xl font-extrabold tracking-tight text-charcoal sm:text-3xl">
           Explore {cityName} Neighborhoods
         </h2>
-        <ul className="mx-auto mt-8 flex max-w-4xl flex-wrap justify-center gap-3">
+        <ul className="mt-7 flex flex-wrap gap-2.5">
           {links.map((link) => (
             <li key={link.id}>
               <Link
                 href={link.url}
-                className="inline-flex rounded-full border border-brand-blue/30 bg-white px-4 py-2 text-sm font-medium text-brand-blue transition-colors hover:bg-brand-blue hover:text-white"
+                className="inline-flex rounded-pill bg-cream px-4 py-2.5 text-[15px] font-semibold text-platinum-blue transition-colors hover:bg-[#EDE9DC]"
               >
                 {link.label}
               </Link>

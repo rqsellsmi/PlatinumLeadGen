@@ -96,6 +96,9 @@ export default async function CityPage({ params }: { params: { slug: string } })
           subheadline={subheadline}
           cityName={cityName}
           eyebrow={location.name}
+          rating={location.googleReviewRating}
+          reviewCount={location.googleReviewCount}
+          homesSold={location.socialProofCount ?? stats?.homesSold ?? null}
         />
         <SocialProofBar
           cityName={cityName}

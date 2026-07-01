@@ -6,8 +6,8 @@ import {
   getHomePageMetrics,
   getFeaturedTestimonials,
 } from '@/lib/queries';
+import Image from 'next/image';
 import { formatCurrency, formatNumber } from '@/lib/utils';
-import { Badge } from '@/components/ui';
 import SiteHeader from '@/components/SiteHeader';
 import SiteFooter from '@/components/SiteFooter';
 
@@ -45,49 +45,60 @@ export default async function HomePage() {
       <SiteHeader />
       <main>
         {/* Hero */}
-        <section className="bg-gradient-to-br from-brand-blue to-[#16304d] text-white">
-          <div className="mx-auto max-w-4xl px-4 py-24 text-center sm:py-32">
-            <h1 className="text-4xl font-bold leading-tight sm:text-5xl">
-              Sell Your Michigan Home Faster — and for More
-            </h1>
-            <p className="mx-auto mt-6 max-w-2xl text-lg text-slate-200 sm:text-xl">
-              RE/MAX Platinum pairs cutting-edge home valuations with local experts who know your
-              neighborhood. Find out what your home is worth today.
-            </p>
-            <div className="mt-10">
-              <Link
-                href="/sell"
-                className="inline-flex items-center justify-center rounded-md bg-brand-red px-8 py-4 text-base font-semibold text-white transition-colors hover:bg-[#b8141f]"
-              >
-                Get My Free Home Value
-              </Link>
+        <section className="relative isolate flex min-h-[520px] items-center px-5 py-20 sm:px-8 lg:px-12">
+          <Image
+            src="/assets/hero-home.jpg"
+            alt="Michigan homes"
+            fill
+            priority
+            sizes="100vw"
+            className="-z-10 object-cover"
+          />
+          <div
+            aria-hidden
+            className="absolute inset-0 -z-10 bg-gradient-to-r from-[rgba(20,20,24,0.78)] via-[rgba(20,20,24,0.55)] to-[rgba(20,20,24,0.3)]"
+          />
+          <div className="mx-auto w-full max-w-6xl">
+            <div className="max-w-2xl">
+              <p className="mb-5 text-[13px] font-bold uppercase tracking-[0.14em] text-white/90">
+                Southeast Michigan · Free Home Valuation
+              </p>
+              <h1 className="text-4xl font-black leading-[1.03] tracking-tight text-white sm:text-6xl">
+                Sell Your Michigan Home Faster — and for More
+              </h1>
+              <p className="mt-5 max-w-xl text-lg text-white/90 sm:text-xl">
+                RE/MAX Platinum pairs instant home valuations with local experts who know your
+                neighborhood. Find out what your home is worth today.
+              </p>
+              <div className="mt-8">
+                <Link
+                  href="/sell"
+                  className="inline-flex items-center justify-center rounded-pill bg-platinum-red px-8 py-3.5 text-base font-bold text-white transition-colors hover:bg-platinum-redHover"
+                >
+                  Get My Free Home Value →
+                </Link>
+              </div>
             </div>
           </div>
         </section>
 
         {/* Overall stats */}
         {metrics ? (
-          <section className="bg-white">
-            <div className="mx-auto max-w-6xl px-4 py-12">
-              <dl className="grid grid-cols-1 gap-6 sm:grid-cols-3">
-                <div className="rounded-lg border border-slate-200 bg-brand-light px-4 py-6 text-center">
-                  <dd className="text-3xl font-bold text-brand-blue">
-                    {formatNumber(metrics.totalHomesSold)}
-                  </dd>
-                  <dt className="mt-2 text-sm font-medium text-slate-600">Homes Sold</dt>
-                </div>
-                <div className="rounded-lg border border-slate-200 bg-brand-light px-4 py-6 text-center">
-                  <dd className="text-3xl font-bold text-brand-blue">
-                    {formatNumber(metrics.avgDaysToSell)}
-                  </dd>
-                  <dt className="mt-2 text-sm font-medium text-slate-600">Avg. Days to Sell</dt>
-                </div>
-                <div className="rounded-lg border border-slate-200 bg-brand-light px-4 py-6 text-center">
-                  <dd className="text-3xl font-bold text-brand-blue">
-                    {formatCurrency(metrics.avgSalePrice)}
-                  </dd>
-                  <dt className="mt-2 text-sm font-medium text-slate-600">Avg. Sale Price</dt>
-                </div>
+          <section className="bg-charcoal">
+            <div className="mx-auto max-w-6xl px-4 py-14">
+              <dl className="grid grid-cols-1 gap-8 sm:grid-cols-3">
+                {[
+                  { value: formatNumber(metrics.totalHomesSold), label: 'Homes Sold' },
+                  { value: formatNumber(metrics.avgDaysToSell), label: 'Avg. Days to Sell' },
+                  { value: formatCurrency(metrics.avgSalePrice), label: 'Avg. Sale Price' },
+                ].map((s) => (
+                  <div key={s.label} className="text-center">
+                    <dd className="font-numeric text-5xl font-bold leading-none text-white sm:text-6xl">
+                      {s.value}
+                    </dd>
+                    <dt className="mt-2 text-sm font-semibold text-mute-lighter">{s.label}</dt>
+                  </div>
+                ))}
               </dl>
             </div>
           </section>
@@ -95,9 +106,9 @@ export default async function HomePage() {
 
         {/* City cards */}
         {cityCards.length ? (
-          <section className="bg-brand-light">
-            <div className="mx-auto max-w-6xl px-4 py-16">
-              <h2 className="text-center text-3xl font-bold text-brand-blue">
+          <section className="bg-cream">
+            <div className="mx-auto max-w-6xl px-4 py-16 sm:py-24">
+              <h2 className="text-center text-3xl font-extrabold tracking-tight text-charcoal sm:text-4xl">
                 Find Your Home&apos;s Value by City
               </h2>
               <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -105,20 +116,20 @@ export default async function HomePage() {
                   <Link
                     key={location.id}
                     href={`/sell/${location.slug}`}
-                    className="group rounded-lg border border-slate-200 bg-white p-6 shadow-sm transition-shadow hover:shadow-md"
+                    className="group rounded-card border border-line bg-white p-6 transition-shadow hover:shadow-[0_12px_32px_rgba(20,20,24,0.12)]"
                   >
-                    <h3 className="text-xl font-bold text-brand-blue group-hover:underline">
+                    <h3 className="text-xl font-bold text-charcoal group-hover:text-platinum-red">
                       {shortCityName(location.name)}
                     </h3>
                     {stats?.avgSalePrice != null ? (
-                      <p className="mt-2 text-sm text-slate-600">
+                      <p className="mt-2 text-sm text-mute">
                         Avg. sale price:{' '}
-                        <span className="font-semibold text-slate-800">
+                        <span className="font-numeric font-bold text-charcoal">
                           {formatCurrency(stats.avgSalePrice)}
                         </span>
                       </p>
                     ) : (
-                      <p className="mt-2 text-sm text-slate-500">Get your free valuation</p>
+                      <p className="mt-2 text-sm text-mute-light">Get your free valuation →</p>
                     )}
                   </Link>
                 ))}
@@ -130,28 +141,34 @@ export default async function HomePage() {
         {/* Featured testimonials */}
         {testimonials.length >= 2 ? (
           <section className="bg-white">
-            <div className="mx-auto max-w-6xl px-4 py-16">
-              <h2 className="text-center text-3xl font-bold text-brand-blue">
+            <div className="mx-auto max-w-6xl px-4 py-16 sm:py-24">
+              <h2 className="text-3xl font-extrabold tracking-tight text-charcoal sm:text-4xl">
                 What Michigan Homeowners Are Saying
               </h2>
-              <div className="mt-10 grid grid-cols-1 gap-6 md:grid-cols-3">
+              <div className="mt-12 grid grid-cols-1 gap-6 md:grid-cols-3">
                 {testimonials.map((t) => (
-                  <figure
-                    key={t.id}
-                    className="flex flex-col rounded-lg border border-slate-200 bg-white p-6 shadow-sm"
-                  >
-                    <blockquote className="flex-1 text-slate-700">
-                      <p>&ldquo;{t.quote}&rdquo;</p>
+                  <figure key={t.id} className="flex flex-col rounded-xl bg-cream p-9">
+                    <div className="mb-4 flex gap-0.5 text-platinum-red" aria-hidden>
+                      {'★★★★★'.split('').map((s, i) => (
+                        <span key={i}>{s}</span>
+                      ))}
+                    </div>
+                    <blockquote className="flex-1">
+                      <p className="font-serif text-xl leading-relaxed text-charcoal">
+                        &ldquo;{t.quote}&rdquo;
+                      </p>
                     </blockquote>
                     {t.saleDetails ? (
-                      <div className="mt-4">
-                        <Badge>{t.saleDetails}</Badge>
+                      <div className="mt-5">
+                        <span className="inline-block rounded-pill border border-line bg-white px-3 py-1.5 text-xs font-bold text-success">
+                          {t.saleDetails}
+                        </span>
                       </div>
                     ) : null}
-                    <figcaption className="mt-4 border-t border-slate-100 pt-4">
-                      <p className="font-semibold text-brand-blue">{t.clientName}</p>
+                    <figcaption className="mt-4">
+                      <p className="font-bold text-charcoal">{t.clientName}</p>
                       {t.neighborhood ? (
-                        <p className="text-sm text-slate-500">{t.neighborhood}</p>
+                        <p className="text-sm text-mute-light">{t.neighborhood}</p>
                       ) : null}
                     </figcaption>
                   </figure>

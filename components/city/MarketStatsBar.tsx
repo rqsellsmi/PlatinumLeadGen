@@ -7,38 +7,59 @@ interface MarketStatsBarProps {
   homesSold: number;
 }
 
-/** Four headline stat blocks (Section 4.3 #3). Renders nothing when stats is null. */
+/**
+ * Dark headline stat bar (design mockup §2): four big Barlow numbers on
+ * charcoal, with the "% above list" figure accented in Platinum Red.
+ * Renders nothing when stats is null.
+ */
 export default function MarketStatsBar({ stats, cityName, homesSold }: MarketStatsBarProps) {
   if (!stats) return null;
 
-  const blocks = [
+  const blocks: { label: string; value: React.ReactNode }[] = [
     { label: 'Average Sale Price', value: formatCurrency(stats.avgSalePrice) },
     {
       label: 'Average Days to Sell',
-      value: stats.daysToSell != null ? formatNumber(stats.daysToSell) : '—',
+      value:
+        stats.daysToSell != null ? (
+          <>
+            {formatNumber(stats.daysToSell)}{' '}
+            <span className="text-[0.45em] font-semibold text-mute-lighter">days</span>
+          </>
+        ) : (
+          '—'
+        ),
     },
     { label: 'Homes Sold This Year', value: formatNumber(homesSold) },
     {
       label: '% Sold Above List Price',
-      value: stats.percentAboveList != null ? `${stats.percentAboveList}%` : '—',
+      value:
+        stats.percentAboveList != null ? (
+          <>
+            {stats.percentAboveList}
+            <span className="text-platinum-red">%</span>
+          </>
+        ) : (
+          '—'
+        ),
     },
   ];
 
   return (
-    <section className="bg-white">
-      <div className="mx-auto max-w-6xl px-4 py-12">
-        <dl className="grid grid-cols-2 gap-5 lg:grid-cols-4">
+    <section className="bg-charcoal">
+      <div className="mx-auto max-w-6xl px-4 py-12 sm:py-16">
+        <dl className="grid grid-cols-2 gap-8 lg:grid-cols-4">
           {blocks.map((b) => (
-            <div
-              key={b.label}
-              className="rounded-card border border-line bg-cream px-4 py-6 text-center"
-            >
-              <dd className="font-numeric text-3xl font-bold text-charcoal sm:text-4xl">{b.value}</dd>
-              <dt className="mt-2 text-sm font-semibold text-mute">{b.label}</dt>
+            <div key={b.label} className="text-center">
+              <dd className="font-numeric text-5xl font-bold leading-none text-white sm:text-6xl">
+                {b.value}
+              </dd>
+              <dt className="mt-2 text-sm font-semibold tracking-wide text-mute-lighter">
+                {b.label}
+              </dt>
             </div>
           ))}
         </dl>
-        <p className="mt-6 text-center text-sm text-mute-light">
+        <p className="mt-9 text-center text-sm text-mute-light">
           Based on {formatNumber(homesSold)} homes sold in {cityName} over the last 12 months.
         </p>
       </div>

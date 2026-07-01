@@ -1,4 +1,5 @@
 import Image from 'next/image';
+import HeroAddressForm from '@/components/city/HeroAddressForm';
 
 interface HeroSectionProps {
   headline: string;
@@ -6,49 +7,78 @@ interface HeroSectionProps {
   cityName: string;
   /** Optional eyebrow shown above the H1 (e.g. "Brighton, Michigan"). */
   eyebrow?: string;
+  /** Optional trust signals rendered under the address form. */
+  rating?: number | null;
+  reviewCount?: number | null;
+  homesSold?: number | null;
 }
 
 /**
- * "Warm Split" hero (Section 15.4 recommended): cream panel with text on one
- * side, photo on the other. Fully server-rendered, no layout shift, not
- * lazy-loaded. CTAs scroll to the single valuation form (#valuation).
+ * "Bold" hero (design mockup default): a full-bleed home photo with a dark
+ * left-to-right gradient, an eyebrow, big headline, and an inline address
+ * capture that hands off to the single valuation form. Server-rendered so the
+ * hero image is a priority LCP asset with no layout shift.
  */
-export default function HeroSection({ headline, subheadline, cityName, eyebrow }: HeroSectionProps) {
+export default function HeroSection({
+  headline,
+  subheadline,
+  cityName,
+  eyebrow,
+  rating,
+  reviewCount,
+  homesSold,
+}: HeroSectionProps) {
   return (
-    <section className="bg-cream">
-      <div className="mx-auto grid max-w-6xl grid-cols-1 items-stretch gap-0 md:grid-cols-2">
-        <div className="flex flex-col justify-center px-6 py-14 sm:px-10 sm:py-20">
+    <section className="relative isolate flex min-h-[560px] items-center px-5 py-16 sm:px-8 lg:min-h-[calc(86vh)] lg:px-12">
+      <Image
+        src="/assets/hero-home.jpg"
+        alt={`Homes for sale in ${cityName}`}
+        fill
+        priority
+        sizes="100vw"
+        className="-z-10 object-cover"
+      />
+      <div
+        aria-hidden
+        className="absolute inset-0 -z-10 bg-gradient-to-r from-[rgba(20,20,24,0.78)] via-[rgba(20,20,24,0.55)] to-[rgba(20,20,24,0.25)]"
+      />
+      <div className="mx-auto w-full max-w-6xl">
+        <div className="max-w-[680px]">
           {eyebrow ? (
-            <p className="font-serif text-lg italic text-platinum-blue">{eyebrow}</p>
+            <p className="mb-5 text-[13px] font-bold uppercase tracking-[0.14em] text-white/90">
+              {eyebrow} · Free Home Valuation
+            </p>
           ) : null}
-          <h1 className="mt-2 text-3xl font-extrabold leading-[1.1] tracking-tight text-charcoal sm:text-5xl">
+          <h1 className="text-4xl font-black leading-[1.02] tracking-tight text-white sm:text-6xl lg:text-7xl">
             {headline}
           </h1>
-          <p className="mt-5 max-w-xl text-lg text-mute">{subheadline}</p>
-          <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-            <a
-              href="#valuation"
-              className="inline-flex items-center justify-center rounded-pill bg-platinum-red px-8 py-3.5 text-base font-bold text-white transition-colors hover:bg-platinum-redHover"
-            >
-              Get My Free Home Value →
-            </a>
+          <p className="mt-5 max-w-xl text-lg leading-relaxed text-white/90 sm:text-xl">
+            {subheadline}
+          </p>
+          <div className="mt-8">
+            <HeroAddressForm />
+          </div>
+          <div className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-3 text-sm font-semibold text-white">
+            {rating != null ? (
+              <span className="flex items-center gap-1.5">
+                <span className="text-platinum-red" aria-hidden>
+                  ★
+                </span>
+                {rating.toFixed(1)}
+                {reviewCount != null ? ` · ${reviewCount.toLocaleString()}+ reviews` : ''}
+              </span>
+            ) : null}
+            {homesSold ? (
+              <span className="text-white/90">{homesSold.toLocaleString()}+ homes sold</span>
+            ) : null}
+            <span className="text-white/90">Free · No obligation</span>
             <a
               href="#recent-sales"
-              className="inline-flex items-center justify-center rounded-pill border-[1.5px] border-charcoal/30 px-8 py-3.5 text-base font-bold text-charcoal transition-colors hover:border-charcoal"
+              className="font-bold text-white underline decoration-1 underline-offset-4"
             >
-              See Recent Sales in {cityName}
+              See recent sales →
             </a>
           </div>
-        </div>
-        <div className="relative min-h-[280px] md:min-h-full">
-          <Image
-            src="/assets/hero-home.jpg"
-            alt={`Homes for sale in ${cityName}`}
-            fill
-            priority
-            sizes="(max-width: 768px) 100vw, 50vw"
-            className="object-cover"
-          />
         </div>
       </div>
     </section>
