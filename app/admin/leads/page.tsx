@@ -95,9 +95,14 @@ export default async function LeadsPage({
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Leads</h1>
-        <p className="text-sm text-slate-500">{total} matching leads (soft-deleted excluded).</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-charcoal">Leads</h1>
+          <p className="text-sm text-mute">{total} matching leads (soft-deleted excluded).</p>
+        </div>
+        <Link href="/admin/leads/new">
+          <Button>+ Add lead</Button>
+        </Link>
       </div>
 
       <Card>

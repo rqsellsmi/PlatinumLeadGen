@@ -7,6 +7,9 @@ import { and, eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { leads, locations } from '@/drizzle/schema';
 import { partialLeadSchema } from '@/lib/validation';
+import { attributionColumns } from '@/lib/attributionServer';
+import { normalizeAddress } from '@/lib/addressNormalization';
+import { logLeadEvent } from '@/lib/leadEvents';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -41,7 +44,10 @@ export async function POST(req: NextRequest) {
       propertyZip: input.propertyZip ?? null,
       propertyLat: input.propertyLat ?? null,
       propertyLng: input.propertyLng ?? null,
+      normalizedAddress: normalizeAddress(input.propertyAddress).full || null,
       locationId,
+      pageVariant: input.pageVariant ?? 'seo',
+      ...attributionColumns(input),
       updatedAt: now,
     };
 
@@ -60,6 +66,8 @@ export async function POST(req: NextRequest) {
         ...propertyFields,
       })
       .returning({ id: leads.id });
+
+    await logLeadEvent(inserted[0].id, 'address_entered', input.propertyAddress);
 
     return NextResponse.json({ leadId: inserted[0].id });
   } catch (err) {

@@ -41,6 +41,7 @@ export async function GET(req: NextRequest) {
       return {
         agentName: `${r.agent.firstName} ${r.agent.lastName}`.trim(),
         leadName,
+        propertyAddress: r.lead.propertyAddress,
         daysSinceAccept,
         status: r.lead.status,
       };

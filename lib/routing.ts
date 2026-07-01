@@ -67,6 +67,13 @@ export interface RecommendParams {
   queuePointer: number;
   /** Agent ids to exclude (prior offer recipients on reassignment). */
   excludedAgentIds?: Set<number> | number[];
+  /**
+   * Persisted rotation list (agent ids with slot duplicates) from agent_queue
+   * (v1.6 §G). When provided, it is used instead of rebuilding from scratch so
+   * an admin's manual drag-reorder is honored. Non-eligible ids are skipped; if
+   * nothing eligible remains, it falls back to a freshly built rotation.
+   */
+  rotationList?: number[];
 }
 
 export interface RecommendResult {
@@ -115,8 +122,17 @@ export function recommendAgents(params: RecommendParams): RecommendResult {
     }
   }
 
-  // The rotation list spans ALL eligible agents (Step 5 fallback uses the same list).
-  const rotation = buildRotationList(eligible);
+  // The rotation list spans ALL eligible agents (Step 5 fallback uses the same
+  // list). A persisted custom order is honored when provided (§G), filtered to
+  // currently-eligible agents; otherwise it's built from scratch.
+  const eligibleIds = new Set(eligible.map((a) => a.id));
+  let rotation: number[];
+  if (params.rotationList && params.rotationList.length > 0) {
+    rotation = params.rotationList.filter((id) => eligibleIds.has(id));
+    if (rotation.length === 0) rotation = buildRotationList(eligible);
+  } else {
+    rotation = buildRotationList(eligible);
+  }
   if (rotation.length === 0) {
     return { agentId: null, newQueuePointer: queuePointer, distanceMiles: null, usedProximity: false };
   }

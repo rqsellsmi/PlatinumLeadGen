@@ -1,131 +1,196 @@
-import Link from 'next/link';
-import { and, count, eq } from 'drizzle-orm';
+import { and, desc, eq, gte, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { leads, agents, leadOffers } from '@/drizzle/schema';
-import { Card, CardHeader, CardBody, Badge } from '@/components/ui';
+import { leads, leadOffers, agents, locations } from '@/drizzle/schema';
 import { requireAdmin } from '@/components/admin/requireAdmin';
+import OverviewDashboard, {
+  type Kpi,
+  type HotLead,
+  type CityStat,
+} from '@/components/admin/OverviewDashboard';
+import { getRoutingSnapshot } from '@/lib/roundRobin';
+import { formatCompactCurrency, formatPriceRange } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
 
-const LEAD_STATUSES = ['new', 'contacted', 'qualified', 'closed', 'lost'] as const;
-const LEAD_TYPES = ['valuation', 'seller_guide', 'webhook'] as const;
+const CITY_COLORS = ['bg-platinum-red', 'bg-platinum-blue', 'bg-success', 'bg-warning'];
+
+function leadValue(l: { estimatedValue: number | null; priceRangeLow: number | null; priceRangeHigh: number | null }): number {
+  if (l.estimatedValue != null) return l.estimatedValue;
+  if (l.priceRangeLow != null && l.priceRangeHigh != null) return (l.priceRangeLow + l.priceRangeHigh) / 2;
+  return 0;
+}
+
+async function safe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    console.warn('[admin/overview] query failed:', err);
+    return fallback;
+  }
+}
 
 export default async function AdminOverviewPage() {
   await requireAdmin();
 
-  const [byStatusRows, byTypeRows, activeAgentsRows, pendingOffersRows] = await Promise.all([
-    db
-      .select({ status: leads.status, n: count() })
-      .from(leads)
-      .where(eq(leads.isDeleted, false))
-      .groupBy(leads.status),
-    db
-      .select({ leadType: leads.leadType, n: count() })
-      .from(leads)
-      .where(eq(leads.isDeleted, false))
-      .groupBy(leads.leadType),
-    db.select({ n: count() }).from(agents).where(eq(agents.isActive, true)),
-    db.select({ n: count() }).from(leadOffers).where(eq(leadOffers.status, 'offered')),
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+
+  const [snapshot, newToday, statusAgg, avgRespRow, liveLeads, hotRows, cityRows] = await Promise.all([
+    getRoutingSnapshot(),
+    safe(
+      async () =>
+        Number(
+          (
+            await db
+              .select({ n: sql<number>`count(*)::int` })
+              .from(leads)
+              .where(and(eq(leads.isDeleted, false), gte(leads.createdAt, startOfToday)))
+          )[0]?.n ?? 0,
+        ),
+      0,
+    ),
+    safe(
+      () =>
+        db
+          .select({ status: leads.status, n: sql<number>`count(*)::int` })
+          .from(leads)
+          .where(eq(leads.isDeleted, false))
+          .groupBy(leads.status),
+      [] as { status: string; n: number }[],
+    ),
+    safe(
+      async () =>
+        (
+          await db
+            .select({
+              mins: sql<number | null>`avg(extract(epoch from (${leadOffers.acceptedAt} - ${leadOffers.offerSentAt}))/60)`,
+            })
+            .from(leadOffers)
+            .where(eq(leadOffers.status, 'accepted'))
+        )[0]?.mins ?? null,
+      null as number | null,
+    ),
+    safe(
+      () =>
+        db
+          .select({
+            estimatedValue: leads.estimatedValue,
+            priceRangeLow: leads.priceRangeLow,
+            priceRangeHigh: leads.priceRangeHigh,
+          })
+          .from(leads)
+          .where(
+            and(
+              eq(leads.isDeleted, false),
+              sql`${leads.status} not in ('closed','lost')`,
+            ),
+          ),
+      [] as { estimatedValue: number | null; priceRangeLow: number | null; priceRangeHigh: number | null }[],
+    ),
+    safe(
+      () =>
+        db
+          .select({
+            id: leads.id,
+            firstName: leads.firstName,
+            lastName: leads.lastName,
+            address: leads.propertyAddress,
+            city: leads.propertyCity,
+            estimatedValue: leads.estimatedValue,
+            priceRangeLow: leads.priceRangeLow,
+            priceRangeHigh: leads.priceRangeHigh,
+            agentFirst: agents.firstName,
+            agentLast: agents.lastName,
+          })
+          .from(leads)
+          .leftJoin(
+            leadOffers,
+            and(eq(leadOffers.leadId, leads.id), eq(leadOffers.status, 'accepted')),
+          )
+          .leftJoin(agents, eq(agents.id, leadOffers.agentId))
+          .where(eq(leads.isDeleted, false))
+          .orderBy(desc(leads.createdAt))
+          .limit(5),
+      [] as Array<{
+        id: number;
+        firstName: string | null;
+        lastName: string | null;
+        address: string | null;
+        city: string | null;
+        estimatedValue: number | null;
+        priceRangeLow: number | null;
+        priceRangeHigh: number | null;
+        agentFirst: string | null;
+        agentLast: string | null;
+      }>,
+    ),
+    safe(
+      () =>
+        db
+          .select({
+            city: sql<string>`coalesce(${leads.propertyCity}, ${locations.name}, 'Other')`,
+            n: sql<number>`count(*)::int`,
+            volume: sql<number>`coalesce(sum(coalesce(${leads.estimatedValue}, (${leads.priceRangeLow} + ${leads.priceRangeHigh})/2, 0)),0)::bigint`,
+          })
+          .from(leads)
+          .leftJoin(locations, eq(locations.id, leads.locationId))
+          .where(eq(leads.isDeleted, false))
+          .groupBy(sql`coalesce(${leads.propertyCity}, ${locations.name}, 'Other')`)
+          .orderBy(sql`count(*) desc`)
+          .limit(4),
+      [] as { city: string; n: number; volume: number }[],
+    ),
   ]);
 
-  const statusCounts = Object.fromEntries(byStatusRows.map((r) => [r.status, r.n]));
-  const typeCounts = Object.fromEntries(byTypeRows.map((r) => [r.leadType, r.n]));
-  const activeAgents = activeAgentsRows[0]?.n ?? 0;
-  const pendingOffers = pendingOffersRows[0]?.n ?? 0;
-  const totalLeads = byStatusRows.reduce((acc, r) => acc + Number(r.n), 0);
+  const statusCounts = Object.fromEntries(statusAgg.map((r) => [r.status, Number(r.n)]));
+  const total = statusAgg.reduce((acc, r) => acc + Number(r.n), 0);
+  const closed = Number(statusCounts['closed'] ?? 0);
+  const pipeline = liveLeads.reduce((acc, l) => acc + leadValue(l), 0);
+  const avgResp = avgRespRow != null ? `${Math.round(avgRespRow)}m` : '—';
+
+  const kpis: Kpi[] = [
+    { label: 'New today', value: String(newToday), sub: 'leads today' },
+    {
+      label: 'Unassigned',
+      value: String(snapshot.waiting),
+      sub: snapshot.waiting > 0 ? 'Action needed' : 'All routed',
+      subTone: snapshot.waiting > 0 ? 'danger' : 'success',
+    },
+    { label: 'Avg response', value: avgResp, sub: 'accept time' },
+    {
+      label: 'Conversion',
+      value: total > 0 ? `${Math.round((closed / total) * 100)}%` : '—',
+      sub: `${closed} closed`,
+    },
+    { label: 'Pipeline', value: formatCompactCurrency(pipeline), sub: `${liveLeads.length} live leads` },
+  ];
+
+  const hotLeads: HotLead[] = hotRows.map((r) => ({
+    id: r.id,
+    name: [r.firstName, r.lastName].filter(Boolean).join(' ') || 'Unnamed lead',
+    address: r.address ?? '—',
+    city: r.city ?? '',
+    priceRange: formatPriceRange(r.priceRangeLow, r.priceRangeHigh, r.estimatedValue) ?? '—',
+    assignee: [r.agentFirst, r.agentLast].filter(Boolean).join(' ') || null,
+  }));
+
+  const maxVolume = Math.max(1, ...cityRows.map((c) => Number(c.volume)));
+  const cityStats: CityStat[] = cityRows.map((c, i) => ({
+    city: c.city,
+    leads: Number(c.n),
+    volume: formatCompactCurrency(Number(c.volume)),
+    pct: Math.round((Number(c.volume) / maxVolume) * 100),
+    color: CITY_COLORS[i % CITY_COLORS.length],
+  }));
+
+  const next = snapshot.agents.find((a) => a.id === snapshot.nextAgentId) ?? null;
 
   return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Overview</h1>
-        <p className="text-sm text-slate-500">Lead pipeline and routing snapshot.</p>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <StatCard label="Total leads" value={totalLeads} />
-        <StatCard label="Active agents" value={activeAgents} href="/admin/agents" />
-        <StatCard label="Pending offers" value={pendingOffers} href="/admin/leads?status=new" />
-        <StatCard label="Closed" value={Number(statusCounts['closed'] ?? 0)} />
-      </div>
-
-      <Card>
-        <CardHeader>
-          <h2 className="font-semibold text-slate-800">Leads by status</h2>
-        </CardHeader>
-        <CardBody>
-          <div className="flex flex-wrap gap-3">
-            {LEAD_STATUSES.map((s) => (
-              <Link key={s} href={`/admin/leads?status=${s}`} className="block">
-                <Badge className="capitalize">
-                  {s}: {Number(statusCounts[s] ?? 0)}
-                </Badge>
-              </Link>
-            ))}
-          </div>
-        </CardBody>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <h2 className="font-semibold text-slate-800">Leads by type</h2>
-        </CardHeader>
-        <CardBody>
-          <div className="flex flex-wrap gap-3">
-            {LEAD_TYPES.map((t) => (
-              <Link key={t} href={`/admin/leads?type=${t}`} className="block">
-                <Badge className="capitalize">
-                  {t.replace('_', ' ')}: {Number(typeCounts[t] ?? 0)}
-                </Badge>
-              </Link>
-            ))}
-          </div>
-        </CardBody>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <h2 className="font-semibold text-slate-800">Quick links</h2>
-        </CardHeader>
-        <CardBody>
-          <div className="flex flex-wrap gap-3 text-sm">
-            <QuickLink href="/admin/leads" label="All leads" />
-            <QuickLink href="/admin/agents" label="Agents" />
-            <QuickLink href="/admin/offices" label="Offices" />
-            <QuickLink href="/admin/locations" label="Locations" />
-            <QuickLink href="/admin/api-keys" label="API keys" />
-            <QuickLink href="/admin/settings" label="Settings" />
-          </div>
-        </CardBody>
-      </Card>
-    </div>
-  );
-}
-
-function StatCard({ label, value, href }: { label: string; value: number; href?: string }) {
-  const inner = (
-    <Card className="h-full">
-      <CardBody>
-        <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
-        <p className="mt-1 text-3xl font-bold text-brand-blue">{value}</p>
-      </CardBody>
-    </Card>
-  );
-  return href ? (
-    <Link href={href} className="block">
-      {inner}
-    </Link>
-  ) : (
-    inner
-  );
-}
-
-function QuickLink({ href, label }: { href: string; label: string }) {
-  return (
-    <Link
-      href={href}
-      className="rounded-md border border-slate-300 px-3 py-1.5 font-medium text-brand-blue hover:bg-brand-light"
-    >
-      {label}
-    </Link>
+    <OverviewDashboard
+      kpis={kpis}
+      hotLeads={hotLeads}
+      cityStats={cityStats}
+      nextAgent={next ? { name: next.name, initials: next.initials } : null}
+    />
   );
 }

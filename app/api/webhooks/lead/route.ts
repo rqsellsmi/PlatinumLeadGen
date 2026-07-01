@@ -7,8 +7,11 @@ import { db } from '@/lib/db';
 import { leads, locations } from '@/drizzle/schema';
 import { webhookLeadSchema } from '@/lib/validation';
 import { verifyApiKey } from '@/lib/apiKeys';
-import { webhookRateLimit, clientIp } from '@/lib/rateLimit';
+import { checkPreset, clientIp } from '@/lib/rateLimit';
 import { autoOfferLead } from '@/lib/autoOffer';
+import { attributionColumns } from '@/lib/attributionServer';
+import { normalizedAddressKey } from '@/lib/leadDedup';
+import { logLeadEvent } from '@/lib/leadEvents';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -26,8 +29,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'invalid_api_key' }, { status: 401 });
     }
 
-    const { success } = await webhookRateLimit(clientIp(req.headers));
-    if (!success) {
+    if (!(await checkPreset(clientIp(req.headers), 'webhook'))) {
       return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
     }
 
@@ -56,8 +58,10 @@ export async function POST(req: NextRequest) {
       estimatedValue: input.estimatedValue ?? null,
       priceRangeLow: input.priceRangeLow ?? null,
       priceRangeHigh: input.priceRangeHigh ?? null,
+      normalizedAddress: normalizedAddressKey(input.propertyAddress),
       locationId,
       source: input.source ?? 'webhook',
+      ...attributionColumns(input),
       updatedAt: now,
     };
 
@@ -78,6 +82,8 @@ export async function POST(req: NextRequest) {
         .returning({ id: leads.id });
       leadId = inserted[0].id;
     }
+
+    await logLeadEvent(leadId, 'valuation_submitted', input.source ?? 'webhook');
 
     try {
       await autoOfferLead(leadId);

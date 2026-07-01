@@ -27,6 +27,38 @@ export function formatPercent(value: number | null | undefined): string {
   return `${value}%`;
 }
 
+/** Compact currency, e.g. 5800000 -> "$5.8M", 740000 -> "$740K". */
+export function formatCompactCurrency(value: number | null | undefined): string {
+  if (value === null || value === undefined || Number.isNaN(value) || value === 0) return '$0';
+  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `$${Math.round(value / 1_000)}K`;
+  return `$${value}`;
+}
+
+/** Price range like "$430K–$470K" from low/high (falls back to estimate). */
+export function formatPriceRange(
+  low: number | null | undefined,
+  high: number | null | undefined,
+  estimate?: number | null,
+): string | null {
+  const k = (n: number) => `$${Math.round(n / 1000)}K`;
+  if (low != null && high != null) return `${k(low)}–${k(high)}`;
+  if (estimate != null) return `${k(Math.round(estimate * 0.92))}–${k(Math.round(estimate * 1.08))}`;
+  return null;
+}
+
+/** Relative time label, e.g. "12m ago", "5h ago", "3d ago". */
+export function relativeTime(date: Date | string | null | undefined): string | null {
+  if (!date) return null;
+  const ms = Date.now() - new Date(date).getTime();
+  const mins = Math.round(ms / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.round(hrs / 24)}d ago`;
+}
+
 /** Format a Date as "Month Year", e.g. "March 2025". */
 export function formatMonthYear(date: Date | string | null | undefined): string {
   if (!date) return '';

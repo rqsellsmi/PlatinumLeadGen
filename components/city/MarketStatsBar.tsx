@@ -7,7 +7,7 @@ interface MarketStatsBarProps {
   homesSold: number;
 }
 
-/** Four headline stat blocks. Renders nothing when stats is null. */
+/** Four headline stat blocks (Section 4.3 #3). Renders nothing when stats is null. */
 export default function MarketStatsBar({ stats, cityName, homesSold }: MarketStatsBarProps) {
   if (!stats) return null;
 
@@ -27,18 +27,18 @@ export default function MarketStatsBar({ stats, cityName, homesSold }: MarketSta
   return (
     <section className="bg-white">
       <div className="mx-auto max-w-6xl px-4 py-12">
-        <dl className="grid grid-cols-2 gap-6 lg:grid-cols-4">
+        <dl className="grid grid-cols-2 gap-5 lg:grid-cols-4">
           {blocks.map((b) => (
             <div
               key={b.label}
-              className="rounded-lg border border-slate-200 bg-brand-light px-4 py-6 text-center"
+              className="rounded-card border border-line bg-cream px-4 py-6 text-center"
             >
-              <dd className="text-2xl font-bold text-brand-blue sm:text-3xl">{b.value}</dd>
-              <dt className="mt-2 text-sm font-medium text-slate-600">{b.label}</dt>
+              <dd className="font-numeric text-3xl font-bold text-charcoal sm:text-4xl">{b.value}</dd>
+              <dt className="mt-2 text-sm font-semibold text-mute">{b.label}</dt>
             </div>
           ))}
         </dl>
-        <p className="mt-6 text-center text-sm text-slate-500">
+        <p className="mt-6 text-center text-sm text-mute-light">
           Based on {formatNumber(homesSold)} homes sold in {cityName} over the last 12 months.
         </p>
       </div>

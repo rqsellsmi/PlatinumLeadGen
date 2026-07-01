@@ -2,6 +2,8 @@
 
 import * as React from 'react';
 import { Button, Input, Label, Card, CardBody, CardHeader } from '@/components/ui';
+import { fireSellerGuideConversion } from '@/lib/googleAdsConversions';
+import { getLeadAttribution } from '@/lib/attribution';
 
 interface SellerGuideSectionProps {
   locationSlug: string;
@@ -37,9 +39,13 @@ export default function SellerGuideSection({ locationSlug, guideUrl }: SellerGui
           email,
           leadType: 'seller_guide',
           locationSlug,
+          ...getLeadAttribution(),
         }),
       });
       if (!res.ok) throw new Error('We could not process your request. Please try again.');
+      const data = (await res.json().catch(() => ({}))) as { leadId?: number };
+      // Fire the Seller Guide conversion after the confirmed save (§B.4).
+      if (data.leadId != null) fireSellerGuideConversion(data.leadId, email);
       setDone(true);
       if (guideUrl) window.open(guideUrl, '_blank', 'noopener,noreferrer');
     } catch (e) {

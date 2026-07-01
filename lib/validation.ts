@@ -4,6 +4,23 @@
  */
 import { z } from 'zod';
 
+/** Attribution fields (v1.6 §C) — all optional, captured client-side. */
+export const attributionFields = {
+  utmSource: z.string().max(200).optional().nullable(),
+  utmMedium: z.string().max(200).optional().nullable(),
+  utmCampaign: z.string().max(200).optional().nullable(),
+  utmContent: z.string().max(200).optional().nullable(),
+  utmTerm: z.string().max(200).optional().nullable(),
+  gclid: z.string().max(500).optional().nullable(),
+  gbraid: z.string().max(500).optional().nullable(),
+  wbraid: z.string().max(500).optional().nullable(),
+  referrer: z.string().max(1000).optional().nullable(),
+  landingPageUrl: z.string().max(1000).optional().nullable(),
+  deviceType: z.string().max(20).optional().nullable(),
+  firstSeenAt: z.string().optional().nullable(),
+  lastSeenAt: z.string().optional().nullable(),
+};
+
 export const partialLeadSchema = z.object({
   sessionId: z.string().min(1).max(128),
   propertyAddress: z.string().min(3).max(300),
@@ -13,6 +30,8 @@ export const partialLeadSchema = z.object({
   propertyLat: z.number().optional().nullable(),
   propertyLng: z.number().optional().nullable(),
   locationSlug: z.string().max(120).optional().nullable(),
+  pageVariant: z.enum(['seo', 'ads']).optional().nullable(),
+  ...attributionFields,
 });
 
 export const leadSubmitSchema = z.object({
@@ -33,6 +52,8 @@ export const leadSubmitSchema = z.object({
   priceRangeLow: z.number().int().optional().nullable(),
   priceRangeHigh: z.number().int().optional().nullable(),
   locationSlug: z.string().max(120).optional().nullable(),
+  pageVariant: z.enum(['seo', 'ads']).optional().nullable(),
+  ...attributionFields,
 });
 
 /** Webhook lead schema — same shape, plus an optional source label. */
@@ -53,6 +74,7 @@ export const appointmentSchema = z.object({
   preferredTime: z.string().max(200).optional().nullable(),
   notes: z.string().max(2000).optional().nullable(),
   leadId: z.number().int().optional().nullable(),
+  ...attributionFields,
 });
 
 export type PartialLeadInput = z.infer<typeof partialLeadSchema>;

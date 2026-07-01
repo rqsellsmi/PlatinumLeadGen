@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
-import { inter } from '@/lib/fonts';
+import { fontVariables } from '@/lib/fonts';
+import Analytics from '@/components/Analytics';
+import AttributionCapture from '@/components/AttributionCapture';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -14,8 +16,12 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={inter.variable}>
-      <body className="font-sans">{children}</body>
+    <html lang="en" className={fontVariables}>
+      <body className="font-sans text-ink antialiased">
+        <Analytics />
+        <AttributionCapture />
+        {children}
+      </body>
     </html>
   );
 }

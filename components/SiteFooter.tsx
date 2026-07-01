@@ -1,22 +1,27 @@
 import Link from 'next/link';
+import Logo from '@/components/Logo';
 
-/** Minimal shared public footer. */
+/** Shared public site footer (Section 15). */
 export default function SiteFooter() {
   return (
-    <footer className="mt-16 border-t border-slate-200 bg-brand-light">
-      <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-4 py-8 text-sm text-slate-600 sm:flex-row">
-        <div className="font-bold text-brand-blue">
-          RE/MAX <span className="text-brand-red">Platinum</span>
-        </div>
-        <nav className="flex items-center gap-6">
-          <Link href="/" className="hover:text-brand-blue">
+    <footer className="mt-20 border-t border-line bg-cream">
+      <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-4 py-10 text-sm text-mute sm:flex-row">
+        <Logo variant="blue" width={130} />
+        <nav className="flex items-center gap-6 font-semibold text-charcoal">
+          <Link href="/" className="hover:text-platinum-blue">
             Home
           </Link>
-          <Link href="/sell" className="hover:text-brand-blue">
+          <Link href="/sell" className="hover:text-platinum-blue">
             Michigan Cities
           </Link>
+          <Link href="/privacy" className="hover:text-platinum-blue">
+            Privacy
+          </Link>
+          <Link href="/terms" className="hover:text-platinum-blue">
+            Terms
+          </Link>
         </nav>
-        <div className="text-slate-500">
+        <div className="text-mute-light">
           &copy; {new Date().getFullYear()} RE/MAX Platinum. All rights reserved.
         </div>
       </div>

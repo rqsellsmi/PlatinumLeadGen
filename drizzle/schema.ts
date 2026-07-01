@@ -43,18 +43,22 @@ export const offerStatusEnum = pgEnum('offer_status', [
   'declined',
   'expired',
   'reassigned',
+  'closed_manual', // admin manual reassignment (Section 18)
 ]);
 
 export const scoreReasonEnum = pgEnum('score_reason', [
-  'system_response_fast', // +7.5 accept within 30 min
-  'system_response_good', // +5.0 accept within 1 hour
-  'system_response_slow', // +2.0 accept within 3 hours
+  'system_response_fast', // +10.0 accept <15 min / +7.65 15–30 min (v1.6 §E.3)
+  'system_response_good', // +5.0 accept 30–60 min
+  'system_response_slow', // +2.0 accept 60 min–3 hours
   'system_no_response', // -1.5 auto-expired
-  'system_decline', // -1.0 declined
+  'system_decline', // -3.0 declined (v1.6 §E.4 / §J)
   'system_closing', // +15.0 lead closed
   'pipeline_contacted', // +2.0 reached Contacted
   'fast_contact_bonus', // +3.0 contacted within 24h of accept
   'pipeline_qualified', // +2.0 reached Qualified
+  'stale_48h', // -1.0 no first status update by 48h (v1.6 §E.5)
+  'stale_7day', // -1.0 recurring weekly stale penalty (v1.6 §E.5)
+  'lead_deleted_reversal', // reversal of a negative event when a lead is deleted (v1.6 §K.3)
   'manual_adjustment', // variable (requires reason)
 ]);
 
@@ -93,8 +97,12 @@ export const agents = pgTable(
     // Own coordinates preferred; office coordinates used as fallback in routing.
     latitude: real('latitude'),
     longitude: real('longitude'),
-    score: real('score').notNull().default(0),
+    score: real('score').notNull().default(50), // v1.6 §E.2/§J: new agents start at 50
+    // Admin-controlled membership.
     isActive: boolean('is_active').notNull().default(true),
+    // Agent self-controlled availability (Section 16). Both must be true to
+    // receive new offers. Toggled from the agent portal.
+    isAvailable: boolean('is_available').notNull().default(true),
     // Magic link auth: 64-char hex token, 30-day expiry, refreshed on every email.
     magicLinkToken: varchar('magic_link_token', { length: 128 }),
     magicLinkExpiresAt: timestamp('magic_link_expires_at'),
@@ -129,6 +137,12 @@ export const locations = pgTable(
     heroSubheadline: varchar('hero_subheadline', { length: 500 }),
     faqJson: text('faq_json'), // JSON string: [{ question, answer }]
     guideUrl: varchar('guide_url', { length: 500 }), // seller guide PDF (Section 4.3 #6)
+    // District name used to match closings to this city for per-location stats (v1.6 §A.2).
+    schoolDistrict: varchar('school_district', { length: 200 }),
+    // Social proof + Google review display (Section 3.3 / 3.5).
+    socialProofCount: integer('social_proof_count').notNull().default(0),
+    googleReviewCount: integer('google_review_count'),
+    googleReviewRating: real('google_review_rating'),
     isActive: boolean('is_active').notNull().default(true),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
@@ -168,8 +182,58 @@ export const recentSales = pgTable('recent_sales', {
   closeDate: timestamp('close_date'),
   photoUrl: varchar('photo_url', { length: 500 }),
   displayOrder: integer('display_order').notNull().default(0),
+  // Auto-population from closings (v1.6 §A.4). Manual rows keep these null/false
+  // and are never overwritten or deleted by the metrics recompute.
+  isAutoPopulated: boolean('is_auto_populated').notNull().default(false),
+  closingId: integer('closing_id').references(() => closings.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
+
+// ---------------------------------------------------------------------------
+// Closings + upload batches (CSV import → market-stats recompute) — v1.6 §A.2
+// ---------------------------------------------------------------------------
+export const uploadBatches = pgTable('upload_batches', {
+  id: serial('id').primaryKey(),
+  agentRole: varchar('agent_role', { length: 20 }).notNull(), // 'listing' | 'buyer'
+  fileName: varchar('file_name', { length: 500 }),
+  rowsImported: integer('rows_imported').notNull().default(0),
+  rowsSkipped: integer('rows_skipped').notNull().default(0),
+  rowsErrored: integer('rows_errored').notNull().default(0),
+  earliestCloseDate: timestamp('earliest_close_date'),
+  latestCloseDate: timestamp('latest_close_date'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+export const closings = pgTable(
+  'closings',
+  {
+    id: serial('id').primaryKey(),
+    mlsNumber: varchar('mls_number', { length: 50 }), // dedup key per agentRole; null = no dedup
+    agentRole: varchar('agent_role', { length: 20 }).notNull(), // 'listing' | 'buyer'
+    closeDate: timestamp('close_date').notNull(),
+    listPrice: integer('list_price'),
+    salePrice: integer('sale_price').notNull(),
+    daysOnMarket: integer('days_on_market'),
+    address: varchar('address', { length: 500 }).notNull(),
+    city: varchar('city', { length: 100 }),
+    state: varchar('state', { length: 10 }).notNull().default('MI'),
+    zipCode: varchar('zip_code', { length: 20 }),
+    propertyType: varchar('property_type', { length: 100 }).notNull().default('Single Family'),
+    agentName: varchar('agent_name', { length: 200 }),
+    schoolDistrict: varchar('school_district', { length: 200 }), // per-location stats matching
+    percentOfListPrice: real('percent_of_list_price'), // sale/list ratio as a percentage
+    uploadBatchId: integer('upload_batch_id')
+      .notNull()
+      .references(() => uploadBatches.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    mlsRoleIdx: index('closings_mls_role_idx').on(t.mlsNumber, t.agentRole),
+    districtIdx: index('closings_district_idx').on(t.schoolDistrict),
+    closeDateIdx: index('closings_close_date_idx').on(t.closeDate),
+    batchIdx: index('closings_batch_idx').on(t.uploadBatchId),
+  }),
+);
 
 // ---------------------------------------------------------------------------
 // Testimonials
@@ -209,9 +273,13 @@ export const neighborhoodLinks = pgTable('neighborhood_links', {
 // ---------------------------------------------------------------------------
 export const homePageMetrics = pgTable('home_page_metrics', {
   id: serial('id').primaryKey(),
-  totalHomesSold: integer('total_homes_sold'),
+  totalHomesSold: integer('total_homes_sold'), // all closings, all years
   avgDaysToSell: integer('avg_days_to_sell'),
   avgSalePrice: integer('avg_sale_price'),
+  // v1.6 §A.4 — full recompute set.
+  homesSold: integer('homes_sold'), // 2025 window count (all-time fallback)
+  avgPercentOfList: integer('avg_percent_of_list'),
+  pctAboveListPrice: integer('pct_above_list_price'),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
 
@@ -254,6 +322,24 @@ export const leads = pgTable(
     priceRangeHigh: integer('price_range_high'),
     locationId: integer('location_id').references(() => locations.id),
     source: varchar('source', { length: 80 }).notNull().default('website'),
+    // 'seo' | 'ads' — which page type captured the lead (Section 3.3).
+    pageVariant: varchar('page_variant', { length: 50 }),
+    // Attribution (v1.6 §C.2) — captured client-side, persisted per lead.
+    utmSource: varchar('utm_source', { length: 200 }),
+    utmMedium: varchar('utm_medium', { length: 200 }),
+    utmCampaign: varchar('utm_campaign', { length: 200 }),
+    utmContent: varchar('utm_content', { length: 200 }),
+    utmTerm: varchar('utm_term', { length: 200 }),
+    gclid: varchar('gclid', { length: 500 }),
+    gbraid: varchar('gbraid', { length: 500 }),
+    wbraid: varchar('wbraid', { length: 500 }),
+    referrer: varchar('referrer', { length: 1000 }),
+    landingPageUrl: varchar('landing_page_url', { length: 1000 }),
+    deviceType: varchar('device_type', { length: 20 }), // 'mobile' | 'tablet' | 'desktop'
+    firstSeenAt: timestamp('first_seen_at'),
+    lastSeenAt: timestamp('last_seen_at'),
+    // Normalized property address for cross-session dedup (v1.6 §D.3).
+    normalizedAddress: varchar('normalized_address', { length: 500 }),
     isDeleted: boolean('is_deleted').notNull().default(false), // soft delete
     // Timestamps that were bigint in the old MySQL schema (Section 3.2 fix).
     acceptedAt: timestamp('accepted_at'),
@@ -267,6 +353,8 @@ export const leads = pgTable(
     sessionIdx: index('leads_session_idx').on(t.sessionId),
     statusIdx: index('leads_status_idx').on(t.status),
     createdIdx: index('leads_created_idx').on(t.createdAt),
+    emailIdx: index('leads_email_idx').on(t.email),
+    normalizedAddrIdx: index('leads_normalized_addr_idx').on(t.normalizedAddress),
   }),
 );
 
@@ -291,6 +379,9 @@ export const leadOffers = pgTable(
     acceptedAt: timestamp('accepted_at'),
     declinedAt: timestamp('declined_at'),
     expiredAt: timestamp('expired_at'),
+    // Generic responded-at for the offer history timeline (Section 17.2) —
+    // set on accept, decline, expiry, or manual close.
+    respondedAt: timestamp('responded_at'),
     firstUpdateDue: timestamp('first_update_due'), // offerSentAt + 48h
     firstUpdateSubmittedAt: timestamp('first_update_submitted_at'),
     escalationSentAt: timestamp('escalation_sent_at'),
@@ -339,7 +430,43 @@ export const agentScoreLog = pgTable('agent_score_log', {
   note: text('note'), // required for manual_adjustment
   leadId: integer('lead_id').references(() => leads.id),
   leadOfferId: integer('lead_offer_id').references(() => leadOffers.id),
+  // Score negation on lead delete (v1.6 §E.7 / §K.3). Reversed penalties are
+  // flagged here and a paired lead_deleted_reversal row records the give-back.
+  isNegated: boolean('is_negated').default(false),
+  negatedReason: varchar('negated_reason', { length: 500 }),
   createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
+// Lead events — full lifecycle timeline (v1.6 §D.4)
+// ---------------------------------------------------------------------------
+export const leadEvents = pgTable(
+  'lead_events',
+  {
+    id: serial('id').primaryKey(),
+    leadId: integer('lead_id')
+      .notNull()
+      .references(() => leads.id, { onDelete: 'cascade' }),
+    // 'address_entered' | 'valuation_submitted' | 'duplicate_submission' |
+    // 'appointment_requested' | 'offer_sent' | 'offer_accepted' | 'offer_declined' |
+    // 'offer_expired' | 'manually_assigned' | 'status_updated'
+    eventType: varchar('event_type', { length: 100 }).notNull(),
+    note: text('note'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    leadIdx: index('lead_events_lead_idx').on(t.leadId),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// Agent queue — persisted weighted round-robin rotation (v1.6 §G.2)
+// ---------------------------------------------------------------------------
+export const agentQueue = pgTable('agent_queue', {
+  id: serial('id').primaryKey(),
+  rotationList: text('rotation_list').notNull(), // JSON array of agent ids (with slot duplicates)
+  pointer: integer('pointer').notNull().default(0),
+  lastRebuilt: timestamp('last_rebuilt').notNull().defaultNow(),
 });
 
 // ---------------------------------------------------------------------------
@@ -365,23 +492,83 @@ export const agentLeadOrder = pgTable(
 // ---------------------------------------------------------------------------
 // API usage logs (valuation calls etc.)
 // ---------------------------------------------------------------------------
-export const apiUsageLogs = pgTable('api_usage_logs', {
+export const apiUsageLogs = pgTable(
+  'api_usage_logs',
+  {
+    id: serial('id').primaryKey(),
+    endpoint: varchar('endpoint', { length: 120 }).notNull(),
+    ip: varchar('ip', { length: 64 }),
+    statusCode: integer('status_code'),
+    // Enriched columns for the RentCast usage dashboard (v1.6 §H / §K.7).
+    service: varchar('service', { length: 50 }),
+    propertyAddress: varchar('property_address', { length: 500 }),
+    estimatedValue: integer('estimated_value'),
+    priceRangeLow: integer('price_range_low'),
+    priceRangeHigh: integer('price_range_high'),
+    success: boolean('success'),
+    errorMessage: text('error_message'),
+    responseTimeMs: integer('response_time_ms'),
+    meta: text('meta'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    serviceIdx: index('api_usage_service_idx').on(t.service),
+    createdIdx: index('api_usage_created_idx').on(t.createdAt),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// Neon-backed fixed-window rate limits (Section 3.3 / 8). No Redis.
+// Composite unique on (ip, endpoint, windowStart) — the background upsert
+// increments hitCount per window. Cron purges rows older than 24h.
+// ---------------------------------------------------------------------------
+export const rateLimits = pgTable(
+  'rate_limits',
+  {
+    id: serial('id').primaryKey(),
+    ip: varchar('ip', { length: 64 }).notNull(),
+    endpoint: varchar('endpoint', { length: 100 }).notNull(),
+    windowStart: timestamp('window_start').notNull(),
+    hitCount: integer('hit_count').notNull().default(1),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    uniq: uniqueIndex('rate_limits_ip_endpoint_window_idx').on(
+      t.ip,
+      t.endpoint,
+      t.windowStart,
+    ),
+    windowIdx: index('rate_limits_window_idx').on(t.windowStart),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// MS Graph OAuth token (single row) — persists the token across serverless
+// invocations so it isn't silently lost between calls (Section 3.3 / 6.3).
+// ---------------------------------------------------------------------------
+export const msGraphTokens = pgTable('ms_graph_tokens', {
   id: serial('id').primaryKey(),
-  endpoint: varchar('endpoint', { length: 120 }).notNull(),
-  ip: varchar('ip', { length: 64 }),
-  statusCode: integer('status_code'),
-  meta: text('meta'),
-  createdAt: timestamp('created_at').notNull().defaultNow(),
+  accountEmail: varchar('account_email', { length: 200 }).notNull().unique(),
+  accessToken: text('access_token').notNull(),
+  refreshToken: text('refresh_token').notNull().default(''), // unused in client-credentials flow
+  expiresAt: timestamp('expires_at').notNull(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
 
 // ---------------------------------------------------------------------------
-// Durable fixed-window rate limits (Neon-backed; replaces Upstash Redis)
+// Email send log — every MS Graph send attempt (Section 3.3 / 6.4).
+// Replaces the Resend dashboard; viewable at /admin/email-log.
 // ---------------------------------------------------------------------------
-export const rateLimits = pgTable('rate_limits', {
-  key: varchar('key', { length: 255 }).primaryKey(),
-  count: integer('count').notNull().default(1),
-  resetAt: timestamp('reset_at').notNull(),
-  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+export const emailSendLog = pgTable('email_send_log', {
+  id: serial('id').primaryKey(),
+  toEmail: varchar('to_email', { length: 200 }).notNull(),
+  subject: varchar('subject', { length: 500 }).notNull(),
+  templateName: varchar('template_name', { length: 100 }).notNull(),
+  status: varchar('status', { length: 20 }).notNull(), // 'sent' | 'failed'
+  errorMessage: text('error_message'),
+  sentAt: timestamp('sent_at').notNull().defaultNow(),
+  relatedLeadId: integer('related_lead_id'),
+  relatedAgentId: integer('related_agent_id'),
 });
 
 // ---------------------------------------------------------------------------
@@ -396,6 +583,20 @@ export const appointmentRequests = pgTable('appointment_requests', {
   preferredTime: varchar('preferred_time', { length: 200 }),
   notes: text('notes'),
   source: varchar('source', { length: 80 }).notNull().default('thank-you'),
+  // Attribution (v1.6 §C.2) — mirrors leads.
+  utmSource: varchar('utm_source', { length: 200 }),
+  utmMedium: varchar('utm_medium', { length: 200 }),
+  utmCampaign: varchar('utm_campaign', { length: 200 }),
+  utmContent: varchar('utm_content', { length: 200 }),
+  utmTerm: varchar('utm_term', { length: 200 }),
+  gclid: varchar('gclid', { length: 500 }),
+  gbraid: varchar('gbraid', { length: 500 }),
+  wbraid: varchar('wbraid', { length: 500 }),
+  referrer: varchar('referrer', { length: 1000 }),
+  landingPageUrl: varchar('landing_page_url', { length: 1000 }),
+  deviceType: varchar('device_type', { length: 20 }),
+  firstSeenAt: timestamp('first_seen_at'),
+  lastSeenAt: timestamp('last_seen_at'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
@@ -446,3 +647,12 @@ export type ApiKey = typeof apiKeys.$inferSelect;
 export type AppointmentRequest = typeof appointmentRequests.$inferSelect;
 export type NotificationSettings = typeof notificationSettings.$inferSelect;
 export type HomePageMetrics = typeof homePageMetrics.$inferSelect;
+export type MsGraphToken = typeof msGraphTokens.$inferSelect;
+export type EmailSendLogRow = typeof emailSendLog.$inferSelect;
+export type RateLimitRow = typeof rateLimits.$inferSelect;
+export type Closing = typeof closings.$inferSelect;
+export type NewClosing = typeof closings.$inferInsert;
+export type UploadBatch = typeof uploadBatches.$inferSelect;
+export type LeadEvent = typeof leadEvents.$inferSelect;
+export type AgentQueueRow = typeof agentQueue.$inferSelect;
+export type ApiUsageLogRow = typeof apiUsageLogs.$inferSelect;

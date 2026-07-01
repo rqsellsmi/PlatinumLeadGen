@@ -1,19 +1,24 @@
 import Link from 'next/link';
+import Logo from '@/components/Logo';
 
-/** Minimal shared public header. */
+/** Shared public site header (Section 15). */
 export default function SiteHeader() {
   return (
-    <header className="border-b border-slate-200 bg-white">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
-        <Link href="/" className="text-lg font-bold tracking-tight text-brand-blue">
-          RE/MAX <span className="text-brand-red">Platinum</span>
-        </Link>
-        <nav className="flex items-center gap-6 text-sm font-medium text-slate-700">
-          <Link href="/" className="hover:text-brand-blue">
+    <header className="sticky top-0 z-30 border-b border-line bg-white/95 backdrop-blur">
+      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3.5">
+        <Logo variant="blue" width={140} priority />
+        <nav className="flex items-center gap-7 text-sm font-semibold text-charcoal">
+          <Link href="/" className="hidden hover:text-platinum-blue sm:inline">
             Home
           </Link>
-          <Link href="/sell" className="hover:text-brand-blue">
+          <Link href="/sell" className="hidden hover:text-platinum-blue sm:inline">
             Cities
+          </Link>
+          <Link
+            href="/sell"
+            className="rounded-pill bg-platinum-red px-5 py-2 text-white hover:bg-platinum-redHover"
+          >
+            Free Home Value
           </Link>
         </nav>
       </div>

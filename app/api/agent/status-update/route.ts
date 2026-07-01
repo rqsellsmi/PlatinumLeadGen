@@ -7,6 +7,7 @@ import { db } from '@/lib/db';
 import { leadOffers, leads, statusUpdates } from '@/drizzle/schema';
 import { getCurrentAgent } from '@/lib/agentSession';
 import { applyScore } from '@/lib/scoring';
+import { logLeadEvent } from '@/lib/leadEvents';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -60,6 +61,12 @@ export async function POST(req: NextRequest) {
       .update(leads)
       .set({ status: newStatus, lastStatusChangedAt: now, updatedAt: now })
       .where(eq(leads.id, offer.leadId));
+
+    await logLeadEvent(
+      offer.leadId,
+      'status_updated',
+      body.note ? `${newStatus} — ${body.note}` : newStatus,
+    );
 
     // Mark first update if this is the agent's first one for this offer.
     const isFirstUpdate = offer.firstUpdateSubmittedAt == null;

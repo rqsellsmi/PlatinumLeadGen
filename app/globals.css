@@ -2,20 +2,50 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --brand-blue: #1e3a5f;
-  --brand-red: #dc1c2e;
-}
-
 html {
   scroll-behavior: smooth;
 }
 
 body {
-  @apply bg-white text-slate-900 antialiased;
+  @apply bg-white text-ink antialiased;
+}
+
+/* Large numbers use the condensed display face for impact (Section 15.2). */
+.font-numeric {
+  font-family: var(--font-barlow), var(--font-montserrat), sans-serif;
+  font-feature-settings: 'tnum';
 }
 
 /* Reusable utility shortcuts */
 .container-page {
   @apply mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8;
+}
+
+/* Slide-over panel + overlay (Section 15.4) */
+@keyframes slideOver {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* iOS: keep form inputs at >=16px to prevent auto-zoom on focus (Section 22.8) */
+@media (max-width: 640px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
 }
