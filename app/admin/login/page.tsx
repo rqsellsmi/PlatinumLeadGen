@@ -23,8 +23,8 @@ export default function AdminLoginPage() {
       <Card className="w-full max-w-sm">
         <CardBody>
           <div className="mb-6 text-center">
-            <h1 className="text-xl font-bold text-brand-blue">RE/MAX Platinum</h1>
-            <p className="text-sm text-slate-500">Admin sign in</p>
+            <h1 className="text-xl font-bold text-platinum-blue">RE/MAX Platinum</h1>
+            <p className="text-sm text-mute-light">Admin sign in</p>
           </div>
           <form action={formAction} className="space-y-4">
             <div>
@@ -42,7 +42,7 @@ export default function AdminLoginPage() {
               />
             </div>
             {state.error && (
-              <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-brand-red">{state.error}</p>
+              <p className="rounded-lg bg-danger-bg px-3 py-2 text-sm text-platinum-red">{state.error}</p>
             )}
             <SubmitButton />
           </form>

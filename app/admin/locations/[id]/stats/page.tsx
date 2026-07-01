@@ -36,15 +36,15 @@ export default async function LocationStatsPage({ params }: { params: { id: stri
   return (
     <div className="space-y-6">
       <div>
-        <Link href="/admin/locations" className="text-sm text-brand-blue hover:underline">
+        <Link href="/admin/locations" className="text-sm font-semibold text-platinum-blue hover:underline">
           ← Back to locations
         </Link>
-        <h1 className="mt-1 text-2xl font-bold text-slate-900">Market stats — {loc.name}</h1>
+        <h1 className="mt-1 text-2xl font-bold text-charcoal">Market stats — {loc.name}</h1>
       </div>
 
       <Card>
         <CardHeader>
-          <h2 className="font-semibold text-slate-800">Current stats</h2>
+          <h2 className="font-bold text-charcoal">Current stats</h2>
         </CardHeader>
         <CardBody>
           <form action={saveStats} className="grid grid-cols-1 gap-4 md:grid-cols-3">

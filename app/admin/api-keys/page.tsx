@@ -19,17 +19,17 @@ export default async function ApiKeysPage({
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">API keys</h1>
-        <p className="text-sm text-slate-500">External webhook consumers.</p>
+        <h1 className="text-2xl font-bold text-charcoal">API keys</h1>
+        <p className="text-sm text-mute">External webhook consumers.</p>
       </div>
 
       {created && (
-        <Card className="border-brand-blue">
+        <Card className="border-platinum-blue">
           <CardBody>
-            <p className="text-sm font-semibold text-brand-blue">
+            <p className="text-sm font-semibold text-platinum-blue">
               New API key created — copy it now. It will not be shown again.
             </p>
-            <code className="mt-2 block break-all rounded-md bg-slate-900 px-3 py-2 text-sm text-green-300">
+            <code className="mt-2 block break-all rounded-md bg-charcoal px-3 py-2 text-sm text-success-bg">
               {created}
             </code>
           </CardBody>
@@ -38,7 +38,7 @@ export default async function ApiKeysPage({
 
       <Card>
         <CardHeader>
-          <h2 className="font-semibold text-slate-800">Generate new key</h2>
+          <h2 className="font-bold text-charcoal">Generate new key</h2>
         </CardHeader>
         <CardBody>
           <form action={createApiKey} className="flex items-end gap-3">
@@ -51,41 +51,39 @@ export default async function ApiKeysPage({
         </CardBody>
       </Card>
 
-      <Card>
+      <div className="overflow-hidden rounded-card border border-line bg-white">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200 text-sm">
-            <thead className="bg-brand-blue text-white">
-              <tr>
-                <th className="px-4 py-2 text-left font-semibold">Name</th>
-                <th className="px-4 py-2 text-left font-semibold">Prefix</th>
-                <th className="px-4 py-2 text-left font-semibold">Status</th>
-                <th className="px-4 py-2 text-left font-semibold">Last used</th>
-                <th className="px-4 py-2 text-right font-semibold">Actions</th>
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="border-b border-line bg-[#FBFAF6] text-[11px] font-bold uppercase tracking-[0.06em] text-mute-light">
+                <th className="px-5 py-3 text-left">Name</th>
+                <th className="px-5 py-3 text-left">Prefix</th>
+                <th className="px-5 py-3 text-left">Status</th>
+                <th className="px-5 py-3 text-left">Last used</th>
+                <th className="px-5 py-3 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody>
               {keys.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-6 text-center text-slate-500">
+                  <td colSpan={5} className="px-5 py-12 text-center text-mute">
                     No API keys yet.
                   </td>
                 </tr>
               )}
               {keys.map((key) => (
-                <tr key={key.id} className="hover:bg-slate-50">
-                  <td className="px-4 py-2 font-medium text-slate-800">{key.name}</td>
-                  <td className="px-4 py-2 font-mono text-slate-500">{key.keyPrefix}…</td>
-                  <td className="px-4 py-2">
-                    {key.isActive ? (
-                      <Badge className="bg-green-100 text-green-700">Active</Badge>
-                    ) : (
-                      <Badge className="bg-slate-100 text-slate-500">Revoked</Badge>
-                    )}
+                <tr key={key.id} className="border-b border-line-hair last:border-0 hover:bg-offwhite">
+                  <td className="px-5 py-3 font-bold text-charcoal">{key.name}</td>
+                  <td className="px-5 py-3 font-mono text-mute-light">{key.keyPrefix}…</td>
+                  <td className="px-5 py-3">
+                    <Badge tone={key.isActive ? 'success' : 'neutral'}>
+                      {key.isActive ? 'Active' : 'Revoked'}
+                    </Badge>
                   </td>
-                  <td className="px-4 py-2 text-slate-500">
+                  <td className="px-5 py-3 text-mute-light">
                     {key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleString('en-US') : 'Never'}
                   </td>
-                  <td className="px-4 py-2 text-right">
+                  <td className="px-5 py-3 text-right">
                     {key.isActive && (
                       <form action={revokeApiKey} className="inline">
                         <input type="hidden" name="keyId" value={key.id} />
@@ -100,7 +98,7 @@ export default async function ApiKeysPage({
             </tbody>
           </table>
         </div>
-      </Card>
+      </div>
     </div>
   );
 }

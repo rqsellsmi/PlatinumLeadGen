@@ -19,13 +19,13 @@ export default async function SettingsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">Settings</h1>
-        <p className="text-sm text-slate-500">Notification and routing configuration.</p>
+        <h1 className="text-2xl font-bold text-charcoal">Settings</h1>
+        <p className="text-sm text-mute">Notification and routing configuration.</p>
       </div>
 
       <Card>
         <CardHeader>
-          <h2 className="font-semibold text-slate-800">Notification settings</h2>
+          <h2 className="font-bold text-charcoal">Notification settings</h2>
         </CardHeader>
         <CardBody>
           <form action={saveSettings} className="grid grid-cols-1 gap-4 md:grid-cols-2">

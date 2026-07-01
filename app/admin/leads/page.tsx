@@ -2,8 +2,9 @@ import Link from 'next/link';
 import { and, count, desc, eq, gte, ilike, lte, or, type SQL } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { leads } from '@/drizzle/schema';
-import { Card, CardBody, Button, Input, Select, Label, Badge } from '@/components/ui';
+import { Card, CardBody, Button, Input, Select, Label, Badge, statusTone } from '@/components/ui';
 import { requireAdmin } from '@/components/admin/requireAdmin';
+import { formatPriceRange, relativeTime } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -154,45 +155,51 @@ export default async function LeadsPage({
         </CardBody>
       </Card>
 
-      <Card>
+      <div className="overflow-hidden rounded-card border border-line bg-white">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200 text-sm">
-            <thead className="bg-brand-blue text-white">
-              <tr>
-                <th className="px-4 py-2 text-left font-semibold">#</th>
-                <th className="px-4 py-2 text-left font-semibold">Name</th>
-                <th className="px-4 py-2 text-left font-semibold">Address</th>
-                <th className="px-4 py-2 text-left font-semibold">Type</th>
-                <th className="px-4 py-2 text-left font-semibold">Status</th>
-                <th className="px-4 py-2 text-left font-semibold">Created</th>
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="border-b border-line bg-[#FBFAF6] text-[11px] font-bold uppercase tracking-[0.06em] text-mute-light">
+                <th className="px-5 py-3 text-left">Lead</th>
+                <th className="px-5 py-3 text-left">Est. value</th>
+                <th className="px-5 py-3 text-left">Type</th>
+                <th className="px-5 py-3 text-left">Status</th>
+                <th className="px-5 py-3 text-left">Created</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody>
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-6 text-center text-slate-500">
+                  <td colSpan={5} className="px-5 py-12 text-center text-mute">
                     No leads found.
                   </td>
                 </tr>
               )}
               {rows.map((lead) => (
-                <tr key={lead.id} className="hover:bg-slate-50">
-                  <td className="px-4 py-2">
-                    <Link href={`/admin/leads/${lead.id}`} className="font-medium text-brand-blue">
-                      {lead.id}
+                <tr key={lead.id} className="border-b border-line-hair last:border-0 hover:bg-offwhite">
+                  <td className="px-5 py-3.5">
+                    <Link href={`/admin/leads/${lead.id}`} className="block">
+                      <span className="font-bold text-charcoal">
+                        {[lead.firstName, lead.lastName].filter(Boolean).join(' ') || 'Unnamed lead'}
+                      </span>
+                      <span className="block truncate text-[13px] text-mute-light">
+                        {lead.propertyAddress ?? '—'}
+                      </span>
+                      <span className="mt-0.5 block text-[11px] font-semibold text-mute-lighter">
+                        {[lead.source, relativeTime(lead.createdAt)].filter(Boolean).join(' · ')}
+                      </span>
                     </Link>
                   </td>
-                  <td className="px-4 py-2">
-                    <Link href={`/admin/leads/${lead.id}`} className="text-brand-blue hover:underline">
-                      {[lead.firstName, lead.lastName].filter(Boolean).join(' ') || '—'}
-                    </Link>
+                  <td className="px-5 py-3.5 font-numeric text-lg font-bold text-charcoal">
+                    {formatPriceRange(lead.priceRangeLow, lead.priceRangeHigh, lead.estimatedValue) ?? '—'}
                   </td>
-                  <td className="px-4 py-2 text-slate-600">{lead.propertyAddress ?? '—'}</td>
-                  <td className="px-4 py-2">
-                    <Badge>{lead.leadType}</Badge>
+                  <td className="px-5 py-3.5">
+                    <Badge tone="info">{lead.leadType}</Badge>
                   </td>
-                  <td className="px-4 py-2 capitalize">{lead.status}</td>
-                  <td className="px-4 py-2 text-slate-500">
+                  <td className="px-5 py-3.5">
+                    <Badge tone={statusTone(lead.status)}>{lead.status}</Badge>
+                  </td>
+                  <td className="px-5 py-3.5 text-mute-light">
                     {lead.createdAt ? new Date(lead.createdAt).toLocaleDateString('en-US') : '—'}
                   </td>
                 </tr>
@@ -200,10 +207,10 @@ export default async function LeadsPage({
             </tbody>
           </table>
         </div>
-      </Card>
+      </div>
 
       <div className="flex items-center justify-between">
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-mute-light">
           Page {page} of {totalPages}
         </p>
         <div className="flex gap-2">
