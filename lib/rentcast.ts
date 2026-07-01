@@ -1,18 +1,13 @@
 /**
  * RentCast AVM client (Section 1.2 / 4.7).
- * Used by /api/valuation to fetch an estimated home value + range, and to
- * resolve coordinates for a property address.
+ * One of the interchangeable valuation providers behind lib/valuation.ts.
+ * Returns the shared ValuationResult shape; RentCast has no property-detail
+ * data, so `basics`, `confidenceScore`, and `saleHistory` come back empty.
  */
 
-const RENTCAST_BASE = 'https://api.rentcast.io/v1';
+import type { ValuationResult } from './valuation';
 
-export interface ValuationResult {
-  estimatedValue: number | null;
-  priceRangeLow: number | null;
-  priceRangeHigh: number | null;
-  latitude: number | null;
-  longitude: number | null;
-}
+const RENTCAST_BASE = 'https://api.rentcast.io/v1';
 
 function apiKey(): string {
   const k = process.env.RENTCAST_API_KEY;
@@ -24,7 +19,7 @@ function apiKey(): string {
  * Call the RentCast AVM value endpoint for an address.
  * Returns nulls (not an error) when RentCast has no data for the address.
  */
-export async function getValuation(address: string): Promise<ValuationResult> {
+export async function getRentcastValuation(address: string): Promise<ValuationResult> {
   const url = new URL(`${RENTCAST_BASE}/avm/value`);
   url.searchParams.set('address', address);
 
@@ -34,10 +29,20 @@ export async function getValuation(address: string): Promise<ValuationResult> {
     cache: 'no-store',
   });
 
+  const empty: ValuationResult = {
+    estimatedValue: null,
+    priceRangeLow: null,
+    priceRangeHigh: null,
+    latitude: null,
+    longitude: null,
+    confidenceScore: null,
+    basics: null,
+    saleHistory: [],
+    provider: 'rentcast',
+  };
+
   if (!res.ok) {
-    if (res.status === 404) {
-      return { estimatedValue: null, priceRangeLow: null, priceRangeHigh: null, latitude: null, longitude: null };
-    }
+    if (res.status === 404) return empty;
     throw new Error(`RentCast error ${res.status}`);
   }
 
@@ -50,6 +55,7 @@ export async function getValuation(address: string): Promise<ValuationResult> {
   };
 
   return {
+    ...empty,
     estimatedValue: data.price ?? null,
     priceRangeLow: data.priceRangeLow ?? (data.price ? Math.round(data.price * 0.92) : null),
     priceRangeHigh: data.priceRangeHigh ?? (data.price ? Math.round(data.price * 1.08) : null),

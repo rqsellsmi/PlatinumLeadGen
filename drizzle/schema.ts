@@ -545,6 +545,47 @@ export const apiUsageLogs = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// Valuations — the two-tier gated report store.
+// A row is written when a visitor enters an address (pre-contact). The browser
+// only ever receives the widened ±8% teaser range + basics + `token`. The
+// precise estimate, actual provider range, confidence, and sale history stay
+// server-side. On lead submit we set `leadId`; the report page only reveals the
+// full detail once `leadId` is set — so the gate is enforced server-side and
+// can't be bypassed from the client.
+// ---------------------------------------------------------------------------
+export const valuations = pgTable(
+  'valuations',
+  {
+    id: serial('id').primaryKey(),
+    token: varchar('token', { length: 64 }).notNull(),
+    provider: varchar('provider', { length: 20 }).notNull().default('rentcast'),
+    address: varchar('address', { length: 300 }),
+    estimatedValue: integer('estimated_value'),
+    priceRangeLow: integer('price_range_low'), // actual (tight) provider range
+    priceRangeHigh: integer('price_range_high'),
+    teaserRangeLow: integer('teaser_range_low'), // widened ±8%, shown pre-contact
+    teaserRangeHigh: integer('teaser_range_high'),
+    confidenceScore: integer('confidence_score'),
+    beds: real('beds'),
+    baths: real('baths'),
+    sqft: integer('sqft'),
+    yearBuilt: integer('year_built'),
+    lotSizeSqft: integer('lot_size_sqft'),
+    propertyType: varchar('property_type', { length: 80 }),
+    saleHistory: text('sale_history'), // JSON array of { date, price }
+    latitude: real('latitude'),
+    longitude: real('longitude'),
+    leadId: integer('lead_id').references(() => leads.id), // set on conversion; reveal gate
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    tokenIdx: uniqueIndex('valuations_token_idx').on(t.token),
+    leadIdx: index('valuations_lead_idx').on(t.leadId),
+    createdIdx: index('valuations_created_idx').on(t.createdAt),
+  }),
+);
+
+// ---------------------------------------------------------------------------
 // Neon-backed fixed-window rate limits (Section 3.3 / 8). No Redis.
 // Composite unique on (ip, endpoint, windowStart) — the background upsert
 // increments hitCount per window. Cron purges rows older than 24h.
@@ -684,3 +725,5 @@ export type UploadBatch = typeof uploadBatches.$inferSelect;
 export type LeadEvent = typeof leadEvents.$inferSelect;
 export type AgentQueueRow = typeof agentQueue.$inferSelect;
 export type ApiUsageLogRow = typeof apiUsageLogs.$inferSelect;
+export type Valuation = typeof valuations.$inferSelect;
+export type NewValuation = typeof valuations.$inferInsert;

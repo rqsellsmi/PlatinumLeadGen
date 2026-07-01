@@ -43,6 +43,13 @@
       "when": 1783200000000,
       "tag": "0005_import_photos",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1783300000000,
+      "tag": "0006_valuations",
+      "breakpoints": true
     }
   ]
 }

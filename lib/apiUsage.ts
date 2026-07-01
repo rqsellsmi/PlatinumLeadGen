@@ -2,11 +2,13 @@
  * RentCast API usage dashboard queries (v1.6 §H / §K.7).
  * PostgreSQL date grouping uses TO_CHAR (not MySQL's DATE_FORMAT).
  */
-import { and, desc, eq, gte, sql } from 'drizzle-orm';
+import { and, desc, gte, inArray, sql } from 'drizzle-orm';
 import { db } from './db';
 import { apiUsageLogs } from '../drizzle/schema';
 
-const SERVICE = 'rentcast';
+// Count both valuation providers so the dashboard is accurate whichever one
+// the VALUATION_PROVIDER flag currently selects.
+const SERVICES = ['rentcast', 'attom'];
 
 function monthStart(): Date {
   const d = new Date();
@@ -31,7 +33,7 @@ export async function monthUsageStats(): Promise<UsageStats> {
       avg: sql<number | null>`avg(${apiUsageLogs.responseTimeMs})`,
     })
     .from(apiUsageLogs)
-    .where(and(eq(apiUsageLogs.service, SERVICE), gte(apiUsageLogs.createdAt, monthStart())));
+    .where(and(inArray(apiUsageLogs.service, SERVICES), gte(apiUsageLogs.createdAt, monthStart())));
   const total = Number(rows[0]?.total ?? 0);
   const successful = Number(rows[0]?.successful ?? 0);
   return {
@@ -59,7 +61,7 @@ export async function dailyUsage(days = 30): Promise<DailyUsage[]> {
       success: sql<number>`sum(case when ${apiUsageLogs.success} then 1 else 0 end)::int`,
     })
     .from(apiUsageLogs)
-    .where(and(eq(apiUsageLogs.service, SERVICE), gte(apiUsageLogs.createdAt, since)))
+    .where(and(inArray(apiUsageLogs.service, SERVICES), gte(apiUsageLogs.createdAt, since)))
     .groupBy(sql`to_char(${apiUsageLogs.createdAt}, 'YYYY-MM-DD')`)
     .orderBy(sql`to_char(${apiUsageLogs.createdAt}, 'YYYY-MM-DD')`);
   return rows.map((r) => {
@@ -92,7 +94,7 @@ export async function recentCalls(limit = 50): Promise<RecentCall[]> {
       errorMessage: apiUsageLogs.errorMessage,
     })
     .from(apiUsageLogs)
-    .where(eq(apiUsageLogs.service, SERVICE))
+    .where(inArray(apiUsageLogs.service, SERVICES))
     .orderBy(desc(apiUsageLogs.createdAt))
     .limit(limit);
   return rows.map((r) => ({

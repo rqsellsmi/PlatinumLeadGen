@@ -9,7 +9,8 @@ import { db } from '@/lib/db';
 import { leads, locations, leadOffers, agents } from '@/drizzle/schema';
 import { leadSubmitSchema } from '@/lib/validation';
 import { autoOfferLead } from '@/lib/autoOffer';
-import { getValuation } from '@/lib/rentcast';
+import { getValuation } from '@/lib/valuation';
+import { getValuationByToken, linkValuationToLead } from '@/lib/valuationStore';
 import { sendEmail, homeownerConfirmationEmail, leadResubmittedEmail } from '@/lib/email';
 import { checkPreset, clientIp } from '@/lib/rateLimit';
 import { attributionColumns } from '@/lib/attributionServer';
@@ -78,17 +79,30 @@ export async function POST(req: NextRequest) {
     if (contactMatch) {
       await logLeadEvent(contactMatch.id, 'duplicate_submission', `Resubmitted via ${pageVariant} page`);
       await notifyAssignedAgentOfResubmit(contactMatch, email, phone);
+      if (input.valuationToken) await linkValuationToLead(input.valuationToken, contactMatch.id);
       // From Google's perspective the user converted — client still fires the
       // conversion (§D.2). No new lead, no new offer.
       return NextResponse.json({ success: true, leadId: contactMatch.id, isDuplicate: true });
     }
 
-    // Valuation fill-in if coordinates missing.
+    // Valuation fill-in. Prefer the server-stored valuation (linked by token)
+    // as the authoritative source — the browser only ever saw the teaser range,
+    // never these precise numbers.
     let propertyLat = input.propertyLat ?? null;
     let propertyLng = input.propertyLng ?? null;
     let estimatedValue = input.estimatedValue ?? null;
     let priceRangeLow = input.priceRangeLow ?? null;
     let priceRangeHigh = input.priceRangeHigh ?? null;
+    if (input.valuationToken) {
+      const stored = await getValuationByToken(input.valuationToken);
+      if (stored) {
+        if (estimatedValue == null) estimatedValue = stored.estimatedValue;
+        if (priceRangeLow == null) priceRangeLow = stored.priceRangeLow;
+        if (priceRangeHigh == null) priceRangeHigh = stored.priceRangeHigh;
+        if (propertyLat == null) propertyLat = stored.latitude;
+        if (propertyLng == null) propertyLng = stored.longitude;
+      }
+    }
     if ((propertyLat == null || propertyLng == null) && input.propertyAddress) {
       try {
         const v = await getValuation(input.propertyAddress);
@@ -146,6 +160,7 @@ export async function POST(req: NextRequest) {
           // Address belongs to an existing contacted lead → duplicate.
           await logLeadEvent(addrMatch.id, 'duplicate_submission', `Address resubmitted via ${pageVariant} page`);
           await notifyAssignedAgentOfResubmit(addrMatch, email, phone);
+          if (input.valuationToken) await linkValuationToLead(input.valuationToken, addrMatch.id);
           return NextResponse.json({ success: true, leadId: addrMatch.id, isDuplicate: true });
         }
       }
@@ -164,6 +179,10 @@ export async function POST(req: NextRequest) {
     }
 
     await logLeadEvent(leadId, 'valuation_submitted', input.propertyAddress ?? null);
+
+    // Link the stored valuation to this lead — this is the reveal gate for the
+    // detailed report page.
+    if (input.valuationToken) await linkValuationToLead(input.valuationToken, leadId);
 
     // Increment social proof count for this location (never decremented).
     if (locationId != null) {

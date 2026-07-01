@@ -19,10 +19,19 @@ interface PlaceData {
   propertyLat: number | null;
   propertyLng: number | null;
 }
-interface ValuationResult {
-  estimatedValue: number;
-  priceRangeLow: number;
-  priceRangeHigh: number;
+/** Pre-contact teaser returned by /api/valuation — no precise estimate. */
+interface Teaser {
+  token: string | null;
+  rangeLow: number | null;
+  rangeHigh: number | null;
+  basics: {
+    beds: number | null;
+    baths: number | null;
+    sqft: number | null;
+    yearBuilt: number | null;
+    lotSizeSqft: number | null;
+    propertyType: string | null;
+  } | null;
 }
 
 const TIMEFRAMES = [
@@ -59,7 +68,7 @@ export default function HeroValuation({
   });
   const [open, setOpen] = React.useState(false);
   const [modalStep, setModalStep] = React.useState<1 | 2>(2);
-  const [valuation, setValuation] = React.useState<ValuationResult | null>(null);
+  const [valuation, setValuation] = React.useState<Teaser | null>(null);
   const [valuationFailed, setValuationFailed] = React.useState(false);
 
   const [firstName, setFirstName] = React.useState('');
@@ -146,17 +155,13 @@ export default function HeroValuation({
               propertyLng: data.propertyLng,
             }),
           });
-          const json = (await res.json()) as Partial<ValuationResult>;
-          if (
-            res.ok &&
-            json.estimatedValue != null &&
-            json.priceRangeLow != null &&
-            json.priceRangeHigh != null
-          ) {
+          const json = (await res.json()) as Partial<Teaser>;
+          if (res.ok && json.rangeLow != null && json.rangeHigh != null) {
             setValuation({
-              estimatedValue: json.estimatedValue,
-              priceRangeLow: json.priceRangeLow,
-              priceRangeHigh: json.priceRangeHigh,
+              token: json.token ?? null,
+              rangeLow: json.rangeLow,
+              rangeHigh: json.rangeHigh,
+              basics: json.basics ?? null,
             });
           } else {
             setValuationFailed(true);
@@ -236,9 +241,7 @@ export default function HeroValuation({
           propertyAddress: place.propertyAddress,
           propertyLat: place.propertyLat,
           propertyLng: place.propertyLng,
-          estimatedValue: valuation?.estimatedValue,
-          priceRangeLow: valuation?.priceRangeLow,
-          priceRangeHigh: valuation?.priceRangeHigh,
+          valuationToken: valuation?.token ?? undefined,
           leadType: 'valuation',
           locationSlug: locationSlug || '',
           pageVariant,
@@ -258,15 +261,12 @@ export default function HeroValuation({
       sessionStorage.setItem('lead_phone', phone);
       sessionStorage.setItem('lead_name', fullName);
       sessionStorage.setItem('lead_address', place.propertyAddress);
-      if (valuation) {
-        if (valuation.estimatedValue != null)
-          sessionStorage.setItem('lead_est_value', String(valuation.estimatedValue));
-        sessionStorage.setItem('lead_range_low', String(valuation.priceRangeLow));
-        sessionStorage.setItem('lead_range_high', String(valuation.priceRangeHigh));
-      }
       sessionStorage.setItem(LEAD_SUBMITTED_FLAG, '1');
+      // The precise estimate + detail live server-side; the report page reveals
+      // them by token once the lead is linked (the gate). Carry the token.
       const cityParam = locationSlug ? `&city=${encodeURIComponent(locationSlug)}` : '';
-      window.location.href = `/thank-you?type=valuation${cityParam}&variant=${pageVariant}`;
+      const tokenParam = valuation?.token ? `&v=${encodeURIComponent(valuation.token)}` : '';
+      window.location.href = `/thank-you?type=valuation${cityParam}&variant=${pageVariant}${tokenParam}`;
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong. Please try again.');
       setLoading(false);
@@ -380,13 +380,32 @@ export default function HeroValuation({
               </div>
             ) : (
               <form onSubmit={submitDetails} className="space-y-4">
-                {valuation ? (
+                {valuation && valuation.rangeLow != null && valuation.rangeHigh != null ? (
                   <div className="rounded-card bg-cream px-5 py-6 text-center">
                     <p className="text-[11px] font-bold uppercase tracking-[0.06em] text-mute-light">
-                      Estimated value for {place.propertyAddress}
+                      Ballpark range for {place.propertyAddress}
                     </p>
                     <p className="mt-1 font-numeric text-3xl font-bold text-charcoal sm:text-4xl">
-                      {formatCurrency(valuation.priceRangeLow)} – {formatCurrency(valuation.priceRangeHigh)}
+                      {formatCurrency(valuation.rangeLow)} – {formatCurrency(valuation.rangeHigh)}
+                    </p>
+                    {valuation.basics &&
+                    (valuation.basics.beds != null ||
+                      valuation.basics.baths != null ||
+                      valuation.basics.sqft != null ||
+                      valuation.basics.yearBuilt != null) ? (
+                      <div className="mt-3 flex flex-wrap justify-center gap-x-4 gap-y-1 text-sm text-mute">
+                        {valuation.basics.beds != null ? <span>{valuation.basics.beds} bd</span> : null}
+                        {valuation.basics.baths != null ? <span>{valuation.basics.baths} ba</span> : null}
+                        {valuation.basics.sqft != null ? (
+                          <span>{valuation.basics.sqft.toLocaleString()} sqft</span>
+                        ) : null}
+                        {valuation.basics.yearBuilt != null ? (
+                          <span>Built {valuation.basics.yearBuilt}</span>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    <p className="mt-3 text-xs text-mute-light">
+                      Enter your details below to unlock the precise estimate and full report.
                     </p>
                   </div>
                 ) : (

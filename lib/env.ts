@@ -34,6 +34,9 @@ const RECOMMENDED_GROUPS: Group[] = [
   { label: 'MS_GRAPH_FROM_EMAIL', anyOf: ['MS_GRAPH_FROM_EMAIL', 'MICROSOFT_SENDER_EMAIL'] },
   { label: 'MS_GRAPH_ADMIN_EMAIL', anyOf: ['MS_GRAPH_ADMIN_EMAIL', 'EMAIL_ADMIN_EMAIL'] },
   { label: 'RENTCAST_API_KEY', anyOf: ['RENTCAST_API_KEY'] },
+  // ATTOM is the alternate valuation provider (VALUATION_PROVIDER=attom). Only
+  // needed when that flag is set; RentCast covers the default case.
+  { label: 'ATTOM_API_KEY', anyOf: ['ATTOM_API_KEY'] },
   { label: 'NEXT_PUBLIC_GOOGLE_MAPS_API_KEY', anyOf: ['NEXT_PUBLIC_GOOGLE_MAPS_API_KEY'] },
   { label: 'SITE_URL', anyOf: ['SITE_URL'] },
   { label: 'CRON_SECRET', anyOf: ['CRON_SECRET'] },

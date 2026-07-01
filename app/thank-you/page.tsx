@@ -12,6 +12,7 @@ import {
   locationMatchCities,
   type HomeRecentSale,
 } from '@/lib/queries';
+import { getRevealedValuation, type RevealedValuation } from '@/lib/valuationStore';
 import type { MarketStat } from '@/drizzle/schema';
 
 export const dynamic = 'force-dynamic';
@@ -25,13 +26,17 @@ export const metadata: Metadata = {
 export default async function ThankYouPage({
   searchParams,
 }: {
-  searchParams: { city?: string };
+  searchParams: { city?: string; v?: string };
 }) {
   const citySlug = (searchParams.city ?? '').trim();
+  const token = (searchParams.v ?? '').trim();
 
   let cityName = '';
   let snapshot: MarketStat | null = null;
   let comps: HomeRecentSale[] = [];
+
+  // Reveal the full valuation ONLY if the token maps to a converted lead.
+  const report: RevealedValuation | null = token ? await getRevealedValuation(token) : null;
 
   if (citySlug) {
     const loc = await getLocationBySlug(citySlug);
@@ -50,7 +55,7 @@ export default async function ThankYouPage({
       <SiteHeader />
       <main className="mx-auto max-w-3xl px-4 py-12 sm:py-16">
         <Suspense fallback={null}>
-          <ThankYouClient comps={comps} snapshot={snapshot} cityName={cityName} />
+          <ThankYouClient report={report} comps={comps} snapshot={snapshot} cityName={cityName} />
         </Suspense>
         <div className="mt-10 text-center">
           <Link href="/" className="text-sm font-semibold text-platinum-blue hover:underline">

@@ -1,12 +1,12 @@
 'use client';
 
 import * as React from 'react';
-import Image from 'next/image';
 import { useSearchParams } from 'next/navigation';
 import { Button, Card, CardBody } from '@/components/ui';
 import { dataLayerPush } from '@/lib/clientAnalytics';
 import { formatCurrency, formatMonthYear } from '@/lib/utils';
 import type { HomeRecentSale } from '@/lib/queries';
+import type { RevealedValuation } from '@/lib/valuationStore';
 import type { MarketStat } from '@/drizzle/schema';
 import AppointmentForm from './AppointmentForm';
 
@@ -34,18 +34,13 @@ function withinOfferWindow(): boolean {
   return hour >= 7 && hour < 20;
 }
 
-function num(key: string): number | null {
-  const v = sessionStorage.getItem(key);
-  if (!v) return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-
 export default function ThankYouClient({
+  report,
   comps,
   snapshot,
   cityName,
 }: {
+  report: RevealedValuation | null;
   comps: HomeRecentSale[];
   snapshot: MarketStat | null;
   cityName: string;
@@ -59,9 +54,6 @@ export default function ThankYouClient({
   const [copied, setCopied] = React.useState(false);
   const [responseMsg, setResponseMsg] = React.useState('within 3 hours');
   const [condition, setCondition] = React.useState(1); // "Average"
-  const [range, setRange] = React.useState<{ low: number; high: number; est: number | null } | null>(
-    null,
-  );
 
   React.useEffect(() => {
     const type = params.get('type') ?? 'valuation';
@@ -71,15 +63,11 @@ export default function ThankYouClient({
     const ph = sessionStorage.getItem('lead_phone') ?? '';
     const lid = sessionStorage.getItem('lead_id');
     setName(sessionStorage.getItem('lead_name') ?? '');
-    setAddress(sessionStorage.getItem('lead_address') ?? '');
+    setAddress(report?.address ?? sessionStorage.getItem('lead_address') ?? '');
     setPhone(ph);
     setEmail(em);
     setLeadId(lid ? Number(lid) : null);
     setResponseMsg(withinOfferWindow() ? 'within 3 hours' : 'first thing tomorrow morning');
-
-    const low = num('lead_range_low');
-    const high = num('lead_range_high');
-    if (low != null && high != null) setRange({ low, high, est: num('lead_est_value') });
 
     dataLayerPush('lead_conversion', {
       lead_type: type,
@@ -89,7 +77,7 @@ export default function ThankYouClient({
       email: em,
       phone: ph,
     });
-  }, [params]);
+  }, [params, report]);
 
   async function copyLink() {
     try {
@@ -105,9 +93,23 @@ export default function ThankYouClient({
   const firstName = name.split(' ')[0] || '';
   const topComps = comps.slice(0, 3);
 
+  const est = report?.estimatedValue ?? null;
+  const low = report?.priceRangeLow ?? null;
+  const high = report?.priceRangeHigh ?? null;
+  const basics = report?.basics ?? null;
+  const lastSale = report?.saleHistory?.[0] ?? null;
+  const hasReport = est != null || (low != null && high != null);
+  const hasBasics =
+    !!basics &&
+    (basics.beds != null ||
+      basics.baths != null ||
+      basics.sqft != null ||
+      basics.yearBuilt != null ||
+      basics.lotSizeSqft != null);
+
   return (
     <>
-      {range ? (
+      {hasReport ? (
         <section>
           <p className="text-[12px] font-bold uppercase tracking-[0.12em] text-platinum-red">
             Home valuation report{firstName ? ` · prepared for ${firstName}` : ''}
@@ -124,32 +126,68 @@ export default function ThankYouClient({
               Estimated market value
             </p>
             <p className="mt-1 font-numeric text-4xl font-bold leading-none sm:text-5xl">
-              {formatCurrency(Math.round(range.low * factor))} –{' '}
-              {formatCurrency(Math.round(range.high * factor))}
+              {low != null && high != null
+                ? `${formatCurrency(Math.round(low * factor))} – ${formatCurrency(Math.round(high * factor))}`
+                : formatCurrency(Math.round((est as number) * factor))}
             </p>
-            {range.est != null ? (
+            {est != null ? (
               <p className="mt-2 text-sm text-mute-lighter">
                 Most likely{' '}
                 <span className="font-bold text-white">
-                  {formatCurrency(Math.round(range.est * factor))}
+                  {formatCurrency(Math.round(est * factor))}
                 </span>
-                {topComps.length ? ` · based on ${comps.length} comparable sales` : ''}
+                {report?.confidenceScore != null
+                  ? ` · ${report.confidenceScore}% confidence`
+                  : topComps.length
+                    ? ` · based on ${comps.length} comparable sales`
+                    : ''}
               </p>
             ) : null}
             <div className="relative mt-5 h-1.5 rounded-pill bg-white/20">
               <div className="absolute inset-y-0 left-0 right-0 rounded-pill bg-gradient-to-r from-white/30 via-platinum-red to-white/30" />
             </div>
-            <div className="mt-1.5 flex justify-between text-xs text-mute-lighter">
-              <span>{formatCurrency(Math.round(range.low * factor))}</span>
-              <span>{formatCurrency(Math.round(range.high * factor))}</span>
-            </div>
+            {low != null && high != null ? (
+              <div className="mt-1.5 flex justify-between text-xs text-mute-lighter">
+                <span>{formatCurrency(Math.round(low * factor))}</span>
+                <span>{formatCurrency(Math.round(high * factor))}</span>
+              </div>
+            ) : null}
           </div>
+
+          {/* Property facts (populated by ATTOM) */}
+          {hasBasics ? (
+            <div className="mt-5 rounded-card border border-line bg-white p-5">
+              <p className="font-bold text-charcoal">About this home</p>
+              <dl className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
+                {basics!.beds != null ? <Stat label="Bedrooms" value={String(basics!.beds)} /> : null}
+                {basics!.baths != null ? <Stat label="Bathrooms" value={String(basics!.baths)} /> : null}
+                {basics!.sqft != null ? (
+                  <Stat label="Living area" value={`${basics!.sqft.toLocaleString()} sqft`} />
+                ) : null}
+                {basics!.yearBuilt != null ? (
+                  <Stat label="Year built" value={String(basics!.yearBuilt)} />
+                ) : null}
+                {basics!.lotSizeSqft != null ? (
+                  <Stat label="Lot size" value={`${basics!.lotSizeSqft.toLocaleString()} sqft`} />
+                ) : null}
+              </dl>
+              {lastSale && (lastSale.price != null || lastSale.date != null) ? (
+                <p className="mt-4 text-sm text-mute-light">
+                  Last sold
+                  {lastSale.price != null ? (
+                    <span className="font-semibold text-charcoal"> {formatCurrency(lastSale.price)}</span>
+                  ) : null}
+                  {lastSale.date ? ` · ${formatMonthYear(lastSale.date)}` : ''}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
 
           {/* Refine by condition */}
           <div className="mt-5 rounded-card border border-line bg-white p-5">
             <p className="font-bold text-charcoal">Refine your estimate</p>
             <p className="text-sm text-mute-light">
-              The range above assumes average condition. Tell us more and we&apos;ll sharpen it.
+              The figures above assume average condition. Tell us more and we&apos;ll sharpen it.
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               {CONDITIONS.map((c, i) => (
@@ -168,13 +206,15 @@ export default function ThankYouClient({
                 </button>
               ))}
             </div>
-            <p className="mt-3 text-sm">
-              <span className="text-mute">Adjusted estimate: </span>
-              <span className="font-bold text-platinum-red">
-                {formatCurrency(Math.round(range.low * factor))} –{' '}
-                {formatCurrency(Math.round(range.high * factor))}
-              </span>
-            </p>
+            {low != null && high != null ? (
+              <p className="mt-3 text-sm">
+                <span className="text-mute">Adjusted estimate: </span>
+                <span className="font-bold text-platinum-red">
+                  {formatCurrency(Math.round(low * factor))} –{' '}
+                  {formatCurrency(Math.round(high * factor))}
+                </span>
+              </p>
+            ) : null}
           </div>
 
           {/* Comps */}
