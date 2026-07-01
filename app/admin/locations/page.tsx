@@ -11,8 +11,6 @@ export const dynamic = 'force-dynamic';
 const EDITORS = [
   { suffix: 'seo', label: 'SEO' },
   { suffix: 'stats', label: 'Stats' },
-  { suffix: 'sales', label: 'Sales' },
-  { suffix: 'testimonials', label: 'Testimonials' },
 ];
 
 export default async function LocationsPage() {
@@ -22,13 +20,19 @@ export default async function LocationsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">Locations</h1>
-        <p className="text-sm text-slate-500">{list.length} city pages.</p>
+        <h1 className="text-2xl font-bold text-charcoal">Locations</h1>
+        <p className="text-sm text-mute">
+          {list.length} city pages. Manage testimonials &amp; recent sales from the{' '}
+          <Link href="/admin/testimonials" className="font-semibold text-platinum-blue hover:underline">
+            Content
+          </Link>{' '}
+          section.
+        </p>
       </div>
 
       <Card>
         <CardHeader>
-          <h2 className="font-semibold text-slate-800">Add location</h2>
+          <h2 className="font-bold text-charcoal">Add location</h2>
         </CardHeader>
         <CardBody>
           <form action={createLocation} className="grid grid-cols-1 gap-4 md:grid-cols-4">
@@ -50,40 +54,40 @@ export default async function LocationsPage() {
             </div>
             <div className="md:col-span-4">
               <Button type="submit">Add location</Button>
-              <p className="mt-1 text-xs text-slate-500">Slug is generated automatically from the name.</p>
+              <p className="mt-1 text-xs text-mute-light">Slug is generated automatically from the name.</p>
             </div>
           </form>
         </CardBody>
       </Card>
 
-      <Card>
+      <div className="overflow-hidden rounded-card border border-line bg-white">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200 text-sm">
-            <thead className="bg-brand-blue text-white">
-              <tr>
-                <th className="px-4 py-2 text-left font-semibold">Name</th>
-                <th className="px-4 py-2 text-left font-semibold">Slug</th>
-                <th className="px-4 py-2 text-left font-semibold">State</th>
-                <th className="px-4 py-2 text-left font-semibold">School District</th>
-                <th className="px-4 py-2 text-left font-semibold">Status</th>
-                <th className="px-4 py-2 text-left font-semibold">Editors</th>
-                <th className="px-4 py-2 text-right font-semibold">Actions</th>
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="border-b border-line bg-[#FBFAF6] text-[11px] font-bold uppercase tracking-[0.06em] text-mute-light">
+                <th className="px-5 py-3 text-left">Name</th>
+                <th className="px-5 py-3 text-left">Slug</th>
+                <th className="px-5 py-3 text-left">State</th>
+                <th className="px-5 py-3 text-left">School District</th>
+                <th className="px-5 py-3 text-left">Status</th>
+                <th className="px-5 py-3 text-left">Editors</th>
+                <th className="px-5 py-3 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody>
               {list.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-6 text-center text-slate-500">
+                  <td colSpan={7} className="px-5 py-12 text-center text-mute">
                     No locations yet.
                   </td>
                 </tr>
               )}
               {list.map((loc) => (
-                <tr key={loc.id} className="hover:bg-slate-50">
-                  <td className="px-4 py-2 font-medium text-slate-800">{loc.name}</td>
-                  <td className="px-4 py-2 text-slate-500">{loc.slug}</td>
-                  <td className="px-4 py-2 text-slate-600">{loc.state}</td>
-                  <td className="px-4 py-2">
+                <tr key={loc.id} className="border-b border-line-hair last:border-0 hover:bg-offwhite">
+                  <td className="px-5 py-3 font-bold text-charcoal">{loc.name}</td>
+                  <td className="px-5 py-3 text-mute-light">{loc.slug}</td>
+                  <td className="px-5 py-3 text-mute">{loc.state}</td>
+                  <td className="px-5 py-3">
                     <form action={updateLocationDistrict} className="flex items-center gap-1">
                       <input type="hidden" name="locationId" value={loc.id} />
                       <Input
@@ -98,27 +102,25 @@ export default async function LocationsPage() {
                       </Button>
                     </form>
                   </td>
-                  <td className="px-4 py-2">
-                    {loc.isActive ? (
-                      <Badge className="bg-green-100 text-green-700">Active</Badge>
-                    ) : (
-                      <Badge className="bg-slate-100 text-slate-500">Inactive</Badge>
-                    )}
+                  <td className="px-5 py-3">
+                    <Badge tone={loc.isActive ? 'success' : 'neutral'}>
+                      {loc.isActive ? 'Active' : 'Inactive'}
+                    </Badge>
                   </td>
-                  <td className="px-4 py-2">
-                    <div className="flex flex-wrap gap-2">
+                  <td className="px-5 py-3">
+                    <div className="flex flex-wrap gap-3">
                       {EDITORS.map((e) => (
                         <Link
                           key={e.suffix}
                           href={`/admin/locations/${loc.id}/${e.suffix}`}
-                          className="text-brand-blue hover:underline"
+                          className="font-semibold text-platinum-blue hover:underline"
                         >
                           {e.label}
                         </Link>
                       ))}
                     </div>
                   </td>
-                  <td className="px-4 py-2 text-right">
+                  <td className="px-5 py-3 text-right">
                     <form action={toggleLocationActive} className="inline">
                       <input type="hidden" name="locationId" value={loc.id} />
                       <input type="hidden" name="isActive" value={String(loc.isActive)} />
@@ -132,7 +134,7 @@ export default async function LocationsPage() {
             </tbody>
           </table>
         </div>
-      </Card>
+      </div>
     </div>
   );
 }

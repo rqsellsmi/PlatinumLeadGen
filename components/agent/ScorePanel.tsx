@@ -109,7 +109,7 @@ export default function ScorePanel() {
                   </div>
                   <span
                     className={`shrink-0 font-numeric font-bold ${
-                      e.delta >= 0 ? 'text-green-600' : 'text-platinum-red'
+                      e.delta >= 0 ? 'text-success' : 'text-platinum-red'
                     }`}
                   >
                     {e.delta >= 0 ? '+' : ''}

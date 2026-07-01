@@ -284,6 +284,28 @@ export const homePageMetrics = pgTable('home_page_metrics', {
 });
 
 // ---------------------------------------------------------------------------
+// Downloadable resources ("guides") — admin-managed PDFs assigned to pages.
+// `placement` is a JSON array of page keys (e.g. ["home"] or a city slug) so a
+// single download can be shown on one or more pages and managed in one place.
+// ---------------------------------------------------------------------------
+export const guides = pgTable('guides', {
+  id: serial('id').primaryKey(),
+  title: varchar('title', { length: 200 }).notNull(), // marketing headline, e.g. "Sell for more, with less stress"
+  coverTitle: varchar('cover_title', { length: 200 }), // name on the cover, e.g. "The SE Michigan Home Seller's Guide"
+  subtitle: varchar('subtitle', { length: 500 }),
+  fileUrl: varchar('file_url', { length: 500 }).notNull(), // the PDF
+  coverImageUrl: varchar('cover_image_url', { length: 500 }),
+  pagesLabel: varchar('pages_label', { length: 50 }), // e.g. "24 pages"
+  bulletsJson: text('bullets_json'), // JSON array of bullet strings
+  ctaLabel: varchar('cta_label', { length: 100 }),
+  placement: text('placement').notNull().default('[]'), // JSON array of page keys
+  isActive: boolean('is_active').notNull().default(true),
+  displayOrder: integer('display_order').notNull().default(0),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
 // Tracking scripts (GTM and others). locationId null = global / all pages.
 // ---------------------------------------------------------------------------
 export const trackingScripts = pgTable('tracking_scripts', {
@@ -636,6 +658,7 @@ export type Location = typeof locations.$inferSelect;
 export type MarketStat = typeof marketStats.$inferSelect;
 export type RecentSale = typeof recentSales.$inferSelect;
 export type Testimonial = typeof testimonials.$inferSelect;
+export type Guide = typeof guides.$inferSelect;
 export type NeighborhoodLink = typeof neighborhoodLinks.$inferSelect;
 export type TrackingScript = typeof trackingScripts.$inferSelect;
 export type Lead = typeof leads.$inferSelect;

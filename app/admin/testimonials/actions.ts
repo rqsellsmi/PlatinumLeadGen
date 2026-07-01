@@ -16,9 +16,10 @@ function str(v: FormDataEntryValue | null): string | null {
   return s || null;
 }
 
-async function revalidateLocation(locationId: number) {
+function revalidate() {
   revalidatePath('/sell/[slug]', 'page');
-  revalidatePath(`/admin/locations/${locationId}/testimonials`);
+  revalidatePath('/');
+  revalidatePath('/admin/testimonials');
 }
 
 function values(formData: FormData) {
@@ -40,9 +41,9 @@ function values(formData: FormData) {
 export async function createTestimonial(formData: FormData) {
   await requireAdmin();
   const locationId = Number(formData.get('locationId'));
-  if (!locationId) throw new Error('Invalid location');
+  if (!locationId) throw new Error('Please choose a city');
   await db.insert(testimonials).values({ locationId, ...values(formData) });
-  await revalidateLocation(locationId);
+  revalidate();
 }
 
 export async function updateTestimonial(formData: FormData) {
@@ -50,15 +51,18 @@ export async function updateTestimonial(formData: FormData) {
   const id = Number(formData.get('testimonialId'));
   const locationId = Number(formData.get('locationId'));
   if (!id) throw new Error('Invalid testimonial');
-  await db.update(testimonials).set(values(formData)).where(eq(testimonials.id, id));
-  await revalidateLocation(locationId);
+  if (!locationId) throw new Error('Please choose a city');
+  await db
+    .update(testimonials)
+    .set({ locationId, ...values(formData) })
+    .where(eq(testimonials.id, id));
+  revalidate();
 }
 
 export async function deleteTestimonial(formData: FormData) {
   await requireAdmin();
   const id = Number(formData.get('testimonialId'));
-  const locationId = Number(formData.get('locationId'));
   if (!id) throw new Error('Invalid testimonial');
   await db.delete(testimonials).where(eq(testimonials.id, id));
-  await revalidateLocation(locationId);
+  revalidate();
 }

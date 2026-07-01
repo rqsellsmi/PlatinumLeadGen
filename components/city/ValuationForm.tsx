@@ -273,8 +273,11 @@ export default function ValuationForm({ locationSlug, cityName, pageVariant = 's
   const mapsKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
 
   return (
-    <section id="valuation" className="scroll-mt-20 bg-white">
-      <div className="mx-auto max-w-2xl px-4 py-16">
+    <section id="valuation" className="scroll-mt-20 bg-cream">
+      <div className="mx-auto max-w-2xl px-4 py-16 sm:py-24">
+        <p className="mb-3.5 text-center text-[13px] font-bold uppercase tracking-[0.14em] text-platinum-red">
+          Free Home Valuation
+        </p>
         {mapsKey ? (
           <Script
             src={`https://maps.googleapis.com/maps/api/js?key=${mapsKey}&libraries=places`}

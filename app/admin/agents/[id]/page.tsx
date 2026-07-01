@@ -32,27 +32,25 @@ export default async function AgentDetailPage({ params }: { params: { id: string
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <Link href="/admin/agents" className="text-sm text-brand-blue hover:underline">
+          <Link href="/admin/agents" className="text-sm font-semibold text-platinum-blue hover:underline">
             ← Back to agents
           </Link>
-          <h1 className="mt-1 text-2xl font-bold text-slate-900">
+          <h1 className="mt-1 text-2xl font-bold text-charcoal">
             {agent.firstName} {agent.lastName}
           </h1>
         </div>
         <div className="flex items-center gap-2">
-          <Badge>Score {agent.score.toFixed(1)}</Badge>
-          {agent.isActive ? (
-            <Badge className="bg-green-100 text-green-700">Active</Badge>
-          ) : (
-            <Badge className="bg-slate-100 text-slate-500">Inactive</Badge>
-          )}
+          <Badge tone="info">Score {agent.score.toFixed(1)}</Badge>
+          <Badge tone={agent.isActive ? 'success' : 'neutral'}>
+            {agent.isActive ? 'Active' : 'Inactive'}
+          </Badge>
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <h2 className="font-semibold text-slate-800">Edit details</h2>
+            <h2 className="font-bold text-charcoal">Edit details</h2>
           </CardHeader>
           <CardBody>
             <form action={updateAgent} className="grid grid-cols-2 gap-4">
@@ -102,7 +100,7 @@ export default async function AgentDetailPage({ params }: { params: { id: string
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <h2 className="font-semibold text-slate-800">Set password</h2>
+              <h2 className="font-bold text-charcoal">Set password</h2>
             </CardHeader>
             <CardBody>
               <form action={setAgentPassword} className="flex items-end gap-3">
@@ -113,7 +111,7 @@ export default async function AgentDetailPage({ params }: { params: { id: string
                 </div>
                 <Button type="submit">Set</Button>
               </form>
-              <p className="mt-2 text-xs text-slate-500">
+              <p className="mt-2 text-xs text-mute-light">
                 {agent.passwordHash ? 'A password is currently set.' : 'No password set yet.'}
               </p>
             </CardBody>
@@ -121,7 +119,7 @@ export default async function AgentDetailPage({ params }: { params: { id: string
 
           <Card>
             <CardHeader>
-              <h2 className="font-semibold text-slate-800">Manual score adjustment</h2>
+              <h2 className="font-bold text-charcoal">Manual score adjustment</h2>
             </CardHeader>
             <CardBody>
               <form action={adjustScore} className="space-y-3">
@@ -156,41 +154,41 @@ export default async function AgentDetailPage({ params }: { params: { id: string
 
       <Card>
         <CardHeader>
-          <h2 className="font-semibold text-slate-800">Score log</h2>
+          <h2 className="font-bold text-charcoal">Score log</h2>
         </CardHeader>
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200 text-sm">
-            <thead className="bg-brand-blue text-white">
-              <tr>
-                <th className="px-4 py-2 text-left font-semibold">Date</th>
-                <th className="px-4 py-2 text-left font-semibold">Reason</th>
-                <th className="px-4 py-2 text-left font-semibold">Delta</th>
-                <th className="px-4 py-2 text-left font-semibold">Note</th>
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="border-b border-line bg-[#FBFAF6] text-[11px] font-bold uppercase tracking-[0.06em] text-mute-light">
+                <th className="px-5 py-3 text-left">Date</th>
+                <th className="px-5 py-3 text-left">Reason</th>
+                <th className="px-5 py-3 text-left">Delta</th>
+                <th className="px-5 py-3 text-left">Note</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody>
               {scoreLog.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="px-4 py-6 text-center text-slate-500">
+                  <td colSpan={4} className="px-5 py-10 text-center text-mute">
                     No score history.
                   </td>
                 </tr>
               )}
               {scoreLog.map((row) => (
-                <tr key={row.id} className="hover:bg-slate-50">
-                  <td className="px-4 py-2 text-slate-500">
+                <tr key={row.id} className="border-b border-line-hair last:border-0 hover:bg-offwhite">
+                  <td className="px-5 py-3 text-mute-light">
                     {row.createdAt ? new Date(row.createdAt).toLocaleString('en-US') : '—'}
                   </td>
-                  <td className="px-4 py-2">{row.reason}</td>
+                  <td className="px-5 py-3 text-charcoal">{row.reason}</td>
                   <td
-                    className={`px-4 py-2 font-medium ${
-                      row.delta >= 0 ? 'text-green-700' : 'text-brand-red'
+                    className={`px-5 py-3 font-numeric font-bold ${
+                      row.delta >= 0 ? 'text-success' : 'text-platinum-red'
                     }`}
                   >
                     {row.delta >= 0 ? '+' : ''}
                     {row.delta.toFixed(1)}
                   </td>
-                  <td className="px-4 py-2 text-slate-600">{row.note ?? '—'}</td>
+                  <td className="px-5 py-3 text-mute">{row.note ?? '—'}</td>
                 </tr>
               ))}
             </tbody>

@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Button, Input, Label, Card, CardBody, CardHeader } from '@/components/ui';
+import { Button, Input, Label } from '@/components/ui';
 import { fireSellerGuideConversion } from '@/lib/googleAdsConversions';
 import { getLeadAttribution } from '@/lib/attribution';
 
@@ -56,61 +56,65 @@ export default function SellerGuideSection({ locationSlug, guideUrl }: SellerGui
   }
 
   return (
-    <section className="bg-white">
-      <div className="mx-auto max-w-2xl px-4 py-16">
-        <Card>
-          <CardHeader>
-            <h2 className="text-2xl font-bold text-brand-blue">Free Home Seller&apos;s Guide</h2>
-            <p className="mt-1 text-sm text-slate-600">
-              Everything you need to know to sell for top dollar. Get your copy instantly.
+    <section className="bg-platinum-blue">
+      <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-8 px-4 py-14 sm:py-20">
+        <div className="flex-1 basis-80">
+          <p className="mb-3 text-[13px] font-bold uppercase tracking-[0.14em] text-[#A3D4F2]">
+            Free download
+          </p>
+          <h2 className="text-2xl font-extrabold tracking-tight text-white sm:text-3xl">
+            The Home Seller&apos;s Guide
+          </h2>
+          <p className="mt-2.5 leading-relaxed text-white/90">
+            Pricing, prep, and timing strategies for selling in today&apos;s market — free PDF.
+          </p>
+        </div>
+        <div className="flex-1 basis-80 rounded-2xl bg-white p-5">
+          {done ? (
+            <p className="flex items-center gap-2 py-2 text-base font-bold text-success">
+              ✓ Check your inbox — your guide is on the way.
+              <a href={guideUrl} className="font-semibold underline" target="_blank" rel="noopener noreferrer">
+                Download
+              </a>
             </p>
-          </CardHeader>
-          <CardBody>
-            {done ? (
-              <p className="rounded-md border border-brand-blue/20 bg-brand-light px-4 py-3 text-sm text-brand-blue">
-                Your guide is on its way! If the download didn&apos;t start,{' '}
-                <a href={guideUrl} className="font-semibold underline" target="_blank" rel="noopener noreferrer">
-                  click here
-                </a>
-                .
-              </p>
-            ) : (
-              <form onSubmit={handleSubmit} className="space-y-4">
-                {error ? (
-                  <div
-                    role="alert"
-                    className="rounded-md border border-brand-red/30 bg-brand-red/5 px-4 py-3 text-sm text-brand-red"
-                  >
-                    {error}
-                  </div>
-                ) : null}
-                <div>
-                  <Label htmlFor="guide-firstName">First Name</Label>
-                  <Input
-                    id="guide-firstName"
-                    value={firstName}
-                    onChange={(e) => setFirstName(e.target.value)}
-                    autoComplete="given-name"
-                  />
+          ) : (
+            <form onSubmit={handleSubmit} className="flex flex-col gap-2.5">
+              {error ? (
+                <div
+                  role="alert"
+                  className="rounded-lg border border-platinum-red/30 bg-danger-bg px-4 py-3 text-sm text-platinum-red"
+                >
+                  {error}
                 </div>
-                <div>
-                  <Label htmlFor="guide-email">Email *</Label>
-                  <Input
-                    id="guide-email"
-                    type="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    autoComplete="email"
-                  />
-                </div>
-                <Button type="submit" size="lg" className="w-full" disabled={loading}>
-                  {loading ? 'Preparing…' : 'Download Guide'}
-                </Button>
-              </form>
-            )}
-          </CardBody>
-        </Card>
+              ) : null}
+              <Label htmlFor="guide-firstName" className="sr-only">
+                First name
+              </Label>
+              <Input
+                id="guide-firstName"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                placeholder="First name"
+                autoComplete="given-name"
+              />
+              <Label htmlFor="guide-email" className="sr-only">
+                Email
+              </Label>
+              <Input
+                id="guide-email"
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="Email address"
+                autoComplete="email"
+              />
+              <Button type="submit" size="lg" className="w-full" disabled={loading}>
+                {loading ? 'Preparing…' : 'Download the guide →'}
+              </Button>
+            </form>
+          )}
+        </div>
       </div>
     </section>
   );

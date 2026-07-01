@@ -48,19 +48,9 @@ export default function OverviewDashboard({
   return (
     <div className="space-y-7">
       {/* Top bar */}
-      <div className="flex flex-col gap-4 border-b border-line pb-5 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-charcoal">Overview</h1>
-          <p className="text-sm text-mute">Lead flow across all four markets</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="hidden items-center rounded-pill border border-line px-4 py-2 text-sm text-mute-lighter sm:flex">
-            🔍 <span className="ml-2">Search leads, addresses…</span>
-          </div>
-          <Link href="/admin/leads/new">
-            <Button>+ Add lead</Button>
-          </Link>
-        </div>
+      <div className="border-b border-line pb-5">
+        <h1 className="text-2xl font-bold text-charcoal">Overview</h1>
+        <p className="text-sm text-mute">Lead flow across all four markets</p>
       </div>
 
       {/* KPI row */}

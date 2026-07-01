@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { recentSales } from '@/drizzle/schema';
 import { requireAdmin } from '@/components/admin/requireAdmin';
@@ -17,16 +17,17 @@ function dateOrNull(v: string | null): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-async function revalidateLocation(locationId: number) {
+function revalidate() {
   revalidatePath('/sell/[slug]', 'page');
-  revalidatePath(`/admin/locations/${locationId}/sales`);
+  revalidatePath('/admin/recent-sales');
 }
 
 export async function createSale(formData: FormData) {
   await requireAdmin();
   const locationId = Number(formData.get('locationId'));
   const address = String(formData.get('address') ?? '').trim();
-  if (!locationId || !address) throw new Error('Location and address are required');
+  if (!locationId) throw new Error('Please choose a city');
+  if (!address) throw new Error('Address is required');
   await db.insert(recentSales).values({
     locationId,
     address,
@@ -36,7 +37,7 @@ export async function createSale(formData: FormData) {
     photoUrl: String(formData.get('photoUrl') ?? '').trim() || null,
     displayOrder: intOrNull(formData.get('displayOrder')) ?? 0,
   });
-  await revalidateLocation(locationId);
+  revalidate();
 }
 
 export async function updateSale(formData: FormData) {
@@ -44,10 +45,13 @@ export async function updateSale(formData: FormData) {
   const id = Number(formData.get('saleId'));
   const locationId = Number(formData.get('locationId'));
   const address = String(formData.get('address') ?? '').trim();
-  if (!id || !address) throw new Error('Sale and address are required');
+  if (!id) throw new Error('Invalid sale');
+  if (!locationId) throw new Error('Please choose a city');
+  if (!address) throw new Error('Address is required');
   await db
     .update(recentSales)
     .set({
+      locationId,
       address,
       soldPrice: intOrNull(formData.get('soldPrice')),
       daysOnMarket: intOrNull(formData.get('daysOnMarket')),
@@ -56,26 +60,26 @@ export async function updateSale(formData: FormData) {
       displayOrder: intOrNull(formData.get('displayOrder')) ?? 0,
     })
     .where(eq(recentSales.id, id));
-  await revalidateLocation(locationId);
+  revalidate();
 }
 
 export async function deleteSale(formData: FormData) {
   await requireAdmin();
   const id = Number(formData.get('saleId'));
-  const locationId = Number(formData.get('locationId'));
   if (!id) throw new Error('Invalid sale');
   await db.delete(recentSales).where(eq(recentSales.id, id));
-  await revalidateLocation(locationId);
+  revalidate();
 }
 
 /**
  * Parse pasted CSV lines `address,soldPrice,daysOnMarket,closeDate,photoUrl`
- * and bulk-insert. Blank lines and a leading header row are skipped.
+ * for the chosen city and bulk-insert. Blank lines and a leading header row
+ * are skipped.
  */
 export async function importSalesCsv(formData: FormData) {
   await requireAdmin();
   const locationId = Number(formData.get('locationId'));
-  if (!locationId) throw new Error('Invalid location');
+  if (!locationId) throw new Error('Please choose a city');
   const csv = String(formData.get('csv') ?? '');
 
   const rows: (typeof recentSales.$inferInsert)[] = [];
@@ -98,5 +102,5 @@ export async function importSalesCsv(formData: FormData) {
   }
 
   if (rows.length > 0) await db.insert(recentSales).values(rows);
-  await revalidateLocation(locationId);
+  revalidate();
 }

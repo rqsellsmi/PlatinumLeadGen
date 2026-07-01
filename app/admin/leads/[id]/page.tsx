@@ -167,10 +167,11 @@ export default async function LeadDetailPage({ params }: { params: { id: string 
             <form action={reassignLeadAction}>
               <input type="hidden" name="leadId" value={lead.id} />
               <Button type="submit" variant="secondary" className="w-full">
-                Re-route to next agent
+                Auto-assign via round-robin
               </Button>
               <p className="mt-1 text-xs text-mute-light">
-                Runs the routing queue, excluding prior recipients.
+                Offers the lead to the next agent in the rotation, excluding prior recipients. To
+                pick a specific agent, use Reassign under Offer history.
               </p>
             </form>
 

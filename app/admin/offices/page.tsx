@@ -25,13 +25,13 @@ export default async function OfficesPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">Offices</h1>
-        <p className="text-sm text-slate-500">{list.length} offices.</p>
+        <h1 className="text-2xl font-bold text-charcoal">Offices</h1>
+        <p className="text-sm text-mute">{list.length} offices.</p>
       </div>
 
       <Card>
         <CardHeader>
-          <h2 className="font-semibold text-slate-800">Add office</h2>
+          <h2 className="font-bold text-charcoal">Add office</h2>
         </CardHeader>
         <CardBody>
           <form action={createOffice} className="grid grid-cols-1 gap-4 md:grid-cols-4">

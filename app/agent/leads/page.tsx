@@ -1,15 +1,11 @@
 import { redirect } from 'next/navigation';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { leads, leadOffers, agentLeadOrder } from '@/drizzle/schema';
+import { leads, leadOffers } from '@/drizzle/schema';
 import { getCurrentAgent } from '@/lib/agentSession';
-import AgentDashboard, {
-  type AgentLeadItem,
-  type AgentKpi,
-  type LeadStatus,
-} from '@/components/agent/AgentDashboard';
+import AgentDashboard, { type AgentKpi } from '@/components/agent/AgentDashboard';
 import ScorePanel from '@/components/agent/ScorePanel';
-import { formatPriceRange, relativeTime } from '@/lib/utils';
+import { loadAgentAcceptedLeads } from '@/lib/agentLeads';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,46 +19,22 @@ function greetingFor(name: string): string {
   return `Good ${part}, ${name}`;
 }
 
-export default async function AgentLeadsPage() {
+export default async function AgentLeadsPage({
+  searchParams,
+}: {
+  searchParams: { q?: string };
+}) {
   const agent = await getCurrentAgent();
   if (!agent) redirect('/agent/login');
 
-  const rows = await db
-    .select({
-      leadOfferId: leadOffers.id,
-      status: leads.status,
-      acceptedAt: leadOffers.acceptedAt,
-      offerSentAt: leadOffers.offerSentAt,
-      firstName: leads.firstName,
-      lastName: leads.lastName,
-      propertyAddress: leads.propertyAddress,
-      propertyCity: leads.propertyCity,
-      estimatedValue: leads.estimatedValue,
-      priceRangeLow: leads.priceRangeLow,
-      priceRangeHigh: leads.priceRangeHigh,
-      timeframe: leads.timeframe,
-      position: agentLeadOrder.position,
-    })
-    .from(leadOffers)
-    .innerJoin(leads, eq(leadOffers.leadId, leads.id))
-    .leftJoin(
-      agentLeadOrder,
-      and(eq(agentLeadOrder.leadOfferId, leadOffers.id), eq(agentLeadOrder.agentId, agent.id)),
-    )
-    .where(and(eq(leadOffers.agentId, agent.id), eq(leadOffers.status, 'accepted')))
-    .orderBy(sql`${agentLeadOrder.position} asc nulls last`, desc(leadOffers.acceptedAt));
-
-  const items: AgentLeadItem[] = rows.map((r) => ({
-    leadOfferId: r.leadOfferId,
-    name: [r.firstName, r.lastName].filter(Boolean).join(' ') || 'Unnamed lead',
-    address: [r.propertyAddress, r.propertyCity].filter(Boolean).join(', ') || null,
-    status: r.status as LeadStatus,
-    priceRange: formatPriceRange(r.priceRangeLow, r.priceRangeHigh, r.estimatedValue),
-    timeframe: r.timeframe,
-    agoLabel: relativeTime(r.acceptedAt ?? r.offerSentAt),
-    daysSinceAccepted:
-      r.acceptedAt != null ? Math.floor((Date.now() - new Date(r.acceptedAt).getTime()) / 86_400_000) : null,
-  }));
+  const items = await loadAgentAcceptedLeads(agent.id);
+  const q = (searchParams.q ?? '').trim().toLowerCase();
+  const visibleItems = q
+    ? items.filter(
+        (i) =>
+          i.name.toLowerCase().includes(q) || (i.address ?? '').toLowerCase().includes(q),
+      )
+    : items;
 
   const active = items.length;
   const toContact = items.filter((i) => i.status === 'new').length;
@@ -94,10 +66,15 @@ export default async function AgentLeadsPage() {
   const closedThisMo = Number(closedRow[0]?.n ?? 0);
 
   const kpis: AgentKpi[] = [
-    { label: 'Active leads', value: String(active) },
-    { label: 'To contact', value: String(toContact), tone: toContact > 0 ? 'danger' : 'neutral' },
-    { label: 'Avg response', value: avgMins },
-    { label: 'Closed this mo.', value: String(closedThisMo), tone: 'success' },
+    { label: 'Active leads', value: String(active), sub: 'in your pipeline' },
+    {
+      label: 'To contact',
+      value: String(toContact),
+      sub: toContact > 0 ? 'need a first call' : 'all caught up',
+      tone: toContact > 0 ? 'danger' : 'neutral',
+    },
+    { label: 'Avg response', value: avgMins, sub: 'time to accept' },
+    { label: 'Closed this mo.', value: String(closedThisMo), sub: 'this month', tone: 'success' },
   ];
 
   return (
@@ -105,9 +82,13 @@ export default async function AgentLeadsPage() {
       <ScorePanel />
       <AgentDashboard
         greeting={greetingFor(agent.firstName)}
-        subline={`${active} active lead${active === 1 ? '' : 's'} · ${toContact} to contact`}
+        subline={
+          q
+            ? `${visibleItems.length} lead${visibleItems.length === 1 ? '' : 's'} matching “${searchParams.q}”`
+            : `${active} active lead${active === 1 ? '' : 's'} · ${toContact} to contact`
+        }
         kpis={kpis}
-        items={items}
+        items={visibleItems}
       />
     </div>
   );

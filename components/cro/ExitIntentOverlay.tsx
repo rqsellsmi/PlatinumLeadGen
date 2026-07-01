@@ -1,13 +1,8 @@
 'use client';
 
 import * as React from 'react';
-import {
-  dataLayerPush,
-  scrollToValuation,
-  EXIT_INTENT_FLAG,
-  LEAD_SUBMITTED_FLAG,
-  PREFILL_ADDRESS_KEY,
-} from '@/lib/clientAnalytics';
+import { dataLayerPush, EXIT_INTENT_FLAG, LEAD_SUBMITTED_FLAG } from '@/lib/clientAnalytics';
+import { OPEN_VALUATION_EVENT } from '@/components/HeroValuation';
 
 /**
  * Exit-intent overlay (Section 22.2). Desktop only. Triggers on mouseleave
@@ -38,12 +33,10 @@ export default function ExitIntentOverlay() {
   function submit(e: React.FormEvent) {
     e.preventDefault();
     dataLayerPush('exit_intent_converted');
-    if (address.trim()) {
-      sessionStorage.setItem(PREFILL_ADDRESS_KEY, address.trim());
-      window.dispatchEvent(new CustomEvent('prefill-address', { detail: address.trim() }));
-    }
     setOpen(false);
-    scrollToValuation();
+    window.dispatchEvent(
+      new CustomEvent(OPEN_VALUATION_EVENT, { detail: { address: address.trim() || undefined } }),
+    );
   }
 
   if (!open) return null;

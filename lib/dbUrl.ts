@@ -6,8 +6,16 @@
  * "Environment Variable Prefix" (e.g. DATABASE_URL, POSTGRES_URL, or a custom
  * prefix like STORAGE_URL). We accept the common ones so the app connects no
  * matter which prefix was selected. Prefer the pooled URL.
+ *
+ * APP_DATABASE_URL is checked FIRST as a manual, unmanaged override. Because
+ * the Neon integration locks DATABASE_URL/POSTGRES_URL (and applies them to
+ * both Production and Preview), set APP_DATABASE_URL — scoped to a single
+ * Vercel environment like Preview — to point that environment at a different
+ * Neon branch without touching the integration-managed variables. Leave it
+ * unset in Production and the managed DATABASE_URL is used as before.
  */
 const CANDIDATES = [
+  'APP_DATABASE_URL',
   'DATABASE_URL',
   'POSTGRES_URL',
   'POSTGRES_PRISMA_URL',

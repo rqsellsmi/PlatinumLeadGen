@@ -15,7 +15,6 @@ import SiteFooter from '@/components/SiteFooter';
 import HeroSection from '@/components/city/HeroSection';
 import SocialProofBar from '@/components/city/SocialProofBar';
 import MarketStatsBar from '@/components/city/MarketStatsBar';
-import ValuationForm from '@/components/city/ValuationForm';
 import RecentSales from '@/components/city/RecentSales';
 import HowItWorks from '@/components/city/HowItWorks';
 import SellerGuideSection from '@/components/city/SellerGuideSection';
@@ -26,7 +25,8 @@ import TrackingScripts from '@/components/city/TrackingScripts';
 import StickyCtaBar from '@/components/cro/StickyCtaBar';
 import ExitIntentOverlay from '@/components/cro/ExitIntentOverlay';
 
-export const revalidate = 3600;
+// Render at request time so new/edited cities appear immediately.
+export const dynamic = 'force-dynamic';
 
 const SITE_URL = process.env.SITE_URL ?? 'https://remax-platinumonline.com';
 
@@ -95,7 +95,12 @@ export default async function CityPage({ params }: { params: { slug: string } })
           headline={headline}
           subheadline={subheadline}
           cityName={cityName}
+          locationSlug={location.slug}
+          pageVariant="seo"
           eyebrow={location.name}
+          rating={location.googleReviewRating}
+          reviewCount={location.googleReviewCount}
+          homesSold={location.socialProofCount ?? stats?.homesSold ?? null}
         />
         <SocialProofBar
           cityName={cityName}
@@ -105,7 +110,6 @@ export default async function CityPage({ params }: { params: { slug: string } })
           topTestimonial={testimonials.find((t) => t.isActive) ?? null}
         />
         <MarketStatsBar stats={stats} cityName={cityName} homesSold={stats?.homesSold ?? 0} />
-        <ValuationForm locationSlug={location.slug} cityName={cityName} pageVariant="seo" />
         <RecentSales sales={recentSales} cityName={cityName} />
         <HowItWorks />
         {location.guideUrl ? (

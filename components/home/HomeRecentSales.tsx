@@ -1,11 +1,6 @@
 import Image from 'next/image';
-import type { RecentSale } from '@/drizzle/schema';
+import type { HomeRecentSale } from '@/lib/queries';
 import { formatCurrency, formatMonthYear } from '@/lib/utils';
-
-interface RecentSalesProps {
-  sales: RecentSale[];
-  cityName: string;
-}
 
 const FALLBACK_IMAGE =
   'data:image/svg+xml;charset=utf-8,' +
@@ -13,21 +8,21 @@ const FALLBACK_IMAGE =
     `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400"><rect width="600" height="400" fill="#232323"/><text x="50%" y="50%" fill="#F7F5EE" font-family="sans-serif" font-size="28" text-anchor="middle" dominant-baseline="middle">RE/MAX Platinum</text></svg>`,
   );
 
-/** Grid of up to 6 recently sold homes. Renders nothing when empty. */
-export default function RecentSales({ sales, cityName }: RecentSalesProps) {
+/** Aggregate recent-sales grid for the homepage. Renders nothing when empty. */
+export default function HomeRecentSales({ sales }: { sales: HomeRecentSale[] }) {
   if (!sales.length) return null;
 
   return (
-    <section id="recent-sales" className="scroll-mt-20 bg-white">
+    <section className="bg-white">
       <div className="mx-auto max-w-6xl px-4 py-16 sm:py-24">
         <p className="mb-3.5 text-[13px] font-bold uppercase tracking-[0.14em] text-platinum-red">
           Recently sold by Platinum
         </p>
         <h2 className="text-3xl font-extrabold tracking-tight text-charcoal sm:text-4xl">
-          Recent Home Sales in {cityName}, MI
+          Recent Home Sales Across Southeast Michigan
         </h2>
         <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {sales.slice(0, 6).map((sale) => (
+          {sales.map((sale) => (
             <article
               key={sale.id}
               className="overflow-hidden rounded-lg border border-line bg-white transition-shadow hover:shadow-[0_12px_32px_rgba(20,20,24,0.12)]"
@@ -50,6 +45,9 @@ export default function RecentSales({ sales, cityName }: RecentSalesProps) {
                   {formatCurrency(sale.soldPrice)}
                 </p>
                 <p className="mt-2.5 font-semibold text-charcoal">{sale.address}</p>
+                {sale.cityName ? (
+                  <p className="text-sm text-mute-light">{sale.cityName.split(',')[0]}</p>
+                ) : null}
                 <div className="mt-3.5 flex items-center justify-between border-t border-line pt-3.5 text-sm text-mute-light">
                   {sale.daysOnMarket != null ? (
                     <span className="font-bold text-success">{sale.daysOnMarket} days on market</span>

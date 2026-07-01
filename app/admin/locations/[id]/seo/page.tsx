@@ -22,16 +22,16 @@ export default async function LocationSeoPage({ params }: { params: { id: string
   return (
     <div className="space-y-6">
       <div>
-        <Link href="/admin/locations" className="text-sm text-brand-blue hover:underline">
+        <Link href="/admin/locations" className="text-sm font-semibold text-platinum-blue hover:underline">
           ← Back to locations
         </Link>
-        <h1 className="mt-1 text-2xl font-bold text-slate-900">SEO — {loc.name}</h1>
-        <p className="text-sm text-slate-500">/sell/{loc.slug}</p>
+        <h1 className="mt-1 text-2xl font-bold text-charcoal">SEO — {loc.name}</h1>
+        <p className="text-sm text-mute-light">/sell/{loc.slug}</p>
       </div>
 
       <Card>
         <CardHeader>
-          <h2 className="font-semibold text-slate-800">Page copy & FAQ</h2>
+          <h2 className="font-bold text-charcoal">Page copy &amp; FAQ</h2>
         </CardHeader>
         <CardBody>
           <SeoForm
