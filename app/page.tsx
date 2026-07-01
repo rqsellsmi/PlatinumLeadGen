@@ -15,6 +15,7 @@ import HomeMetricsBar from '@/components/home/HomeMetricsBar';
 import HomeRecentSales from '@/components/home/HomeRecentSales';
 import ExploreMarket from '@/components/home/ExploreMarket';
 import GuideDownloadBlock from '@/components/home/GuideDownloadBlock';
+import ValueCta from '@/components/home/ValueCta';
 
 // Render at request time so the page always reflects the live database (the
 // admin pages are already dynamic). ISR can be re-enabled after launch.
@@ -138,6 +139,9 @@ export default async function HomePage() {
             </div>
           </section>
         ) : null}
+
+        {/* Closing CTA band */}
+        <ValueCta />
       </main>
       <SiteFooter />
     </>
