@@ -1,8 +1,8 @@
-import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getCurrentAgent, clearAgentSessionCookie } from '@/lib/agentSession';
 import Logo from '@/components/Logo';
 import AvailabilityToggle from '@/components/agent/AvailabilityToggle';
+import AgentNav from '@/components/agent/AgentNav';
 
 /**
  * Agent portal shell (Section 15.4 / 16.4). Dark charcoal sidebar with the
@@ -37,14 +37,7 @@ export default async function AgentLayout({ children }: { children: React.ReactN
             Agent Portal
           </p>
         </div>
-        <nav className="flex-1 space-y-1 px-3 py-2">
-          <Link
-            href="/agent/leads"
-            className="block rounded-lg px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-charcoal-light"
-          >
-            My Leads
-          </Link>
-        </nav>
+        <AgentNav />
         <div className="space-y-4 px-4 py-4">
           <AvailabilityToggle initial={agent.isAvailable} />
           <div className="flex items-center gap-3 border-t border-white/10 pt-4">
@@ -64,7 +57,22 @@ export default async function AgentLayout({ children }: { children: React.ReactN
       </aside>
 
       <div className="flex-1">
-        <header className="flex items-center justify-end border-b border-line bg-white px-8 py-3.5">
+        <header className="flex items-center justify-between gap-4 border-b border-line bg-white px-8 py-3.5">
+          <form
+            action="/agent/leads"
+            method="get"
+            className="flex items-center gap-2 rounded-pill border border-line bg-offwhite px-4 py-2"
+          >
+            <span aria-hidden className="text-mute-lighter">
+              🔍
+            </span>
+            <input
+              name="q"
+              placeholder="Search my leads…"
+              aria-label="Search my leads"
+              className="w-40 bg-transparent text-sm text-charcoal outline-none placeholder:text-mute-lighter sm:w-56"
+            />
+          </form>
           <span
             className={`inline-flex items-center gap-2 rounded-pill px-3 py-1 text-sm font-bold ${
               agent.isAvailable ? 'bg-success-bg text-success' : 'bg-line-hair text-mute'

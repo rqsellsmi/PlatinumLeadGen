@@ -81,7 +81,31 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           </form>
         </div>
       </aside>
-      <main className="flex-1 overflow-x-auto px-8 py-8">{children}</main>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex items-center justify-between gap-4 border-b border-line bg-white px-8 py-3">
+          <form
+            action="/admin/leads"
+            method="get"
+            className="flex items-center gap-2 rounded-pill border border-line bg-offwhite px-4 py-2"
+          >
+            <span aria-hidden className="text-mute-lighter">
+              🔍
+            </span>
+            <input
+              name="q"
+              placeholder="Search leads, addresses, emails…"
+              aria-label="Search leads"
+              className="w-48 bg-transparent text-sm text-charcoal outline-none placeholder:text-mute-lighter sm:w-72"
+            />
+          </form>
+          <Link href="/admin/leads/new">
+            <span className="inline-flex items-center rounded-pill bg-platinum-red px-4 py-2 text-sm font-bold text-white hover:bg-platinum-redHover">
+              + Add lead
+            </span>
+          </Link>
+        </header>
+        <main className="flex-1 overflow-x-auto px-8 py-8">{children}</main>
+      </div>
     </div>
   );
 }

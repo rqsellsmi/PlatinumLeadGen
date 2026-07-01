@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { asc, eq, sql, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { agents, offices, leadOffers } from '@/drizzle/schema';
+import { agents, offices, leadOffers, leads } from '@/drizzle/schema';
 import { Card, CardHeader, CardBody, Button, Input, Label, Select, Badge } from '@/components/ui';
 import { requireAdmin } from '@/components/admin/requireAdmin';
 import { scoreTier } from '@/lib/scoreTiers';
@@ -18,21 +18,59 @@ const AVATAR_BG = ['bg-platinum-blue', 'bg-platinum-red', 'bg-charcoal', 'bg-bra
 export default async function AgentsPage() {
   await requireAdmin();
 
-  const [rows, officeList, activeCounts] = await Promise.all([
+  const [rows, officeList, activeCounts, acceptedCounts, closedCounts, respRows] = await Promise.all([
     db
       .select({ agent: agents, officeName: offices.name, officeCity: offices.city })
       .from(agents)
       .leftJoin(offices, eq(agents.officeId, offices.id))
       .orderBy(asc(agents.lastName), asc(agents.firstName)),
     db.select().from(offices).where(eq(offices.isActive, true)).orderBy(asc(offices.name)),
+    // Currently-open (accepted, not yet closed/lost) leads per agent.
     db
       .select({ agentId: leadOffers.agentId, n: sql<number>`count(*)::int` })
+      .from(leadOffers)
+      .innerJoin(leads, eq(leadOffers.leadId, leads.id))
+      .where(and(eq(leadOffers.status, 'accepted'), sql`${leads.status} not in ('closed','lost')`))
+      .groupBy(leadOffers.agentId),
+    // Every accepted offer per agent (denominator for conversion).
+    db
+      .select({ agentId: leadOffers.agentId, n: sql<number>`count(*)::int` })
+      .from(leadOffers)
+      .where(eq(leadOffers.status, 'accepted'))
+      .groupBy(leadOffers.agentId),
+    // Accepted offers whose lead reached "closed" (numerator for conversion).
+    db
+      .select({ agentId: leadOffers.agentId, n: sql<number>`count(*)::int` })
+      .from(leadOffers)
+      .innerJoin(leads, eq(leadOffers.leadId, leads.id))
+      .where(and(eq(leadOffers.status, 'accepted'), eq(leads.status, 'closed')))
+      .groupBy(leadOffers.agentId),
+    // Average accept latency (minutes) per agent.
+    db
+      .select({
+        agentId: leadOffers.agentId,
+        mins: sql<number | null>`avg(extract(epoch from (${leadOffers.acceptedAt} - ${leadOffers.offerSentAt}))/60)`,
+      })
       .from(leadOffers)
       .where(eq(leadOffers.status, 'accepted'))
       .groupBy(leadOffers.agentId),
   ]);
 
   const activeById = new Map(activeCounts.map((r) => [r.agentId, Number(r.n)]));
+  const acceptedById = new Map(acceptedCounts.map((r) => [r.agentId, Number(r.n)]));
+  const closedById = new Map(closedCounts.map((r) => [r.agentId, Number(r.n)]));
+  const respById = new Map(respRows.map((r) => [r.agentId, r.mins != null ? Number(r.mins) : null]));
+
+  function conversionPct(agentId: number): string {
+    const acc = acceptedById.get(agentId) ?? 0;
+    if (acc === 0) return '—';
+    return `${Math.round(((closedById.get(agentId) ?? 0) / acc) * 100)}%`;
+  }
+  function avgResponse(agentId: number): string {
+    const m = respById.get(agentId);
+    if (m == null) return '—';
+    return m < 60 ? `${Math.round(m)}m` : `${Math.round(m / 60)}h`;
+  }
 
   return (
     <div className="space-y-6">
@@ -76,21 +114,28 @@ export default async function AgentsPage() {
                 <div className="mt-4 grid grid-cols-3 gap-2.5">
                   <div className="rounded-lg bg-offwhite p-3">
                     <p className="font-numeric text-2xl font-bold leading-none text-charcoal">
-                      {Math.round(agent.score)}
-                    </p>
-                    <p className="mt-1 text-[11px] text-mute-light">Score</p>
-                  </div>
-                  <div className="rounded-lg bg-offwhite p-3">
-                    <p className="font-numeric text-2xl font-bold leading-none text-charcoal">
                       {activeById.get(agent.id) ?? 0}
                     </p>
                     <p className="mt-1 text-[11px] text-mute-light">Active leads</p>
                   </div>
                   <div className="rounded-lg bg-offwhite p-3">
-                    <p className={`text-sm font-bold leading-tight ${tier.color}`}>{tier.label}</p>
-                    <p className="mt-1 text-[11px] text-mute-light">Tier</p>
+                    <p className="font-numeric text-2xl font-bold leading-none text-success">
+                      {conversionPct(agent.id)}
+                    </p>
+                    <p className="mt-1 text-[11px] text-mute-light">Conversion</p>
+                  </div>
+                  <div className="rounded-lg bg-offwhite p-3">
+                    <p className="font-numeric text-2xl font-bold leading-none text-charcoal">
+                      {avgResponse(agent.id)}
+                    </p>
+                    <p className="mt-1 text-[11px] text-mute-light">Avg response</p>
                   </div>
                 </div>
+
+                <p className="mt-3 text-xs text-mute-light">
+                  Score <span className="font-bold text-charcoal">{Math.round(agent.score)}</span> ·{' '}
+                  <span className={`font-bold ${tier.color}`}>{tier.label}</span>
+                </p>
 
                 <div className="mt-4 flex gap-2.5">
                   <form action={toggleAgentActive} className="flex-1">
