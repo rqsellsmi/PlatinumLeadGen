@@ -7,10 +7,10 @@ import {
   locationMatchCities,
   type HomeRecentSale,
 } from '@/lib/queries';
-import { Card, CardHeader, CardBody, Button, Input } from '@/components/ui';
+import { Card, CardHeader, CardBody } from '@/components/ui';
 import { requireAdmin } from '@/components/admin/requireAdmin';
 import { formatCurrency, formatMonthYear } from '@/lib/utils';
-import { updateClosingPhoto } from './actions';
+import RecentSalePhoto from './RecentSalePhoto';
 
 export const dynamic = 'force-dynamic';
 
@@ -59,12 +59,10 @@ export default async function RecentSalesAdminPage() {
           </CardHeader>
           <CardBody className="space-y-3">
             {sales.map((s) => (
-              <form
+              <div
                 key={s.id}
-                action={updateClosingPhoto}
-                className="flex flex-wrap items-end gap-3 border-b border-line-hair pb-3 last:border-0"
+                className="flex flex-wrap items-center gap-3 border-b border-line-hair pb-3 last:border-0"
               >
-                <input type="hidden" name="closingId" value={s.id} />
                 <div className="min-w-0 flex-1 basis-64">
                   <p className="truncate font-bold text-charcoal">
                     {s.address}
@@ -78,19 +76,8 @@ export default async function RecentSalesAdminPage() {
                     {s.daysOnMarket != null ? ` · ${s.daysOnMarket} DOM` : ''}
                   </p>
                 </div>
-                <div className="flex-1 basis-72">
-                  <Input
-                    name="photoUrl"
-                    type="url"
-                    defaultValue={s.photoUrl ?? ''}
-                    placeholder="https://…/photo.jpg"
-                    aria-label={`Photo URL for ${s.address}`}
-                  />
-                </div>
-                <Button type="submit" size="sm" variant="secondary">
-                  Save
-                </Button>
-              </form>
+                <RecentSalePhoto closingId={s.id} initialUrl={s.photoUrl} address={s.address} />
+              </div>
             ))}
           </CardBody>
         </Card>

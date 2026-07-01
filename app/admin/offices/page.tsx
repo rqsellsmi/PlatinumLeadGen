@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { offices, type Office } from '@/drizzle/schema';
 import { Card, CardHeader, CardBody, Button, Input, Label } from '@/components/ui';
 import { requireAdmin } from '@/components/admin/requireAdmin';
+import ResetOnSubmitForm from '@/components/admin/ResetOnSubmitForm';
 import { createOffice, updateOffice, deleteOffice } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -34,7 +35,7 @@ export default async function OfficesPage() {
           <h2 className="font-bold text-charcoal">Add office</h2>
         </CardHeader>
         <CardBody>
-          <form action={createOffice} className="grid grid-cols-1 gap-4 md:grid-cols-4">
+          <ResetOnSubmitForm action={createOffice} className="grid grid-cols-1 gap-4 md:grid-cols-4">
             {FIELDS.map((f) => (
               <div key={f.name}>
                 <Label htmlFor={`new-${f.name}`}>{f.label}</Label>
@@ -50,7 +51,7 @@ export default async function OfficesPage() {
             <div className="md:col-span-4">
               <Button type="submit">Add office</Button>
             </div>
-          </form>
+          </ResetOnSubmitForm>
         </CardBody>
       </Card>
 
