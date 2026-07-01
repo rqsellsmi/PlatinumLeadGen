@@ -257,6 +257,13 @@ export default function HeroValuation({
       sessionStorage.setItem('lead_email', email);
       sessionStorage.setItem('lead_phone', phone);
       sessionStorage.setItem('lead_name', fullName);
+      sessionStorage.setItem('lead_address', place.propertyAddress);
+      if (valuation) {
+        if (valuation.estimatedValue != null)
+          sessionStorage.setItem('lead_est_value', String(valuation.estimatedValue));
+        sessionStorage.setItem('lead_range_low', String(valuation.priceRangeLow));
+        sessionStorage.setItem('lead_range_high', String(valuation.priceRangeHigh));
+      }
       sessionStorage.setItem(LEAD_SUBMITTED_FLAG, '1');
       const cityParam = locationSlug ? `&city=${encodeURIComponent(locationSlug)}` : '';
       window.location.href = `/thank-you?type=valuation${cityParam}&variant=${pageVariant}`;
