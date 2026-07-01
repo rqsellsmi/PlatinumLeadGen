@@ -5,7 +5,7 @@ import { formatCurrency } from '@/lib/utils';
 import SiteHeader from '@/components/SiteHeader';
 import SiteFooter from '@/components/SiteFooter';
 
-export const revalidate = 86400;
+export const dynamic = 'force-dynamic';
 
 const SITE_URL = process.env.SITE_URL ?? 'https://remax-platinumonline.com';
 

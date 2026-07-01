@@ -53,6 +53,18 @@ export default async function AdminDebugPage() {
     TABLES.map(async ({ label, table }) => ({ t: label, n: await count(table) })),
   );
 
+  let locRows: { slug: string; name: string; isActive: boolean }[] = [];
+  let locError = '';
+  try {
+    locRows = await db
+      .select({ slug: locations.slug, name: locations.name, isActive: locations.isActive })
+      .from(locations)
+      .limit(50);
+  } catch (e) {
+    locError = e instanceof Error ? e.message : 'unknown';
+  }
+  const activeCount = locRows.filter((l) => l.isActive).length;
+
   return (
     <div className="space-y-6">
       <div>
@@ -110,6 +122,31 @@ export default async function AdminDebugPage() {
             ))}
           </tbody>
         </table>
+      </div>
+
+      <div className="rounded-card border border-line bg-white p-5">
+        <p className="mb-3 font-bold text-charcoal">
+          Locations — {activeCount} of {locRows.length} active
+          <span className="ml-2 font-normal text-mute-light">
+            (only active cities appear on public pages)
+          </span>
+        </p>
+        {locError ? (
+          <p className="font-mono text-sm text-platinum-red">error: {locError}</p>
+        ) : (
+          <ul className="space-y-1 text-sm">
+            {locRows.map((l) => (
+              <li key={l.slug} className="flex items-center gap-3 font-mono">
+                <span className={l.isActive ? 'text-success' : 'text-platinum-red'}>
+                  {l.isActive ? 'active' : 'INACTIVE'}
+                </span>
+                <span className="text-charcoal">{l.slug}</span>
+                <span className="text-mute-light">{l.name}</span>
+              </li>
+            ))}
+            {locRows.length === 0 ? <li className="text-mute">No locations.</li> : null}
+          </ul>
+        )}
       </div>
     </div>
   );

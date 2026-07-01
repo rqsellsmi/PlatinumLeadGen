@@ -16,7 +16,9 @@ import HomeRecentSales from '@/components/home/HomeRecentSales';
 import ExploreMarket from '@/components/home/ExploreMarket';
 import GuideDownloadBlock from '@/components/home/GuideDownloadBlock';
 
-export const revalidate = 86400;
+// Render at request time so the page always reflects the live database (the
+// admin pages are already dynamic). ISR can be re-enabled after launch.
+export const dynamic = 'force-dynamic';
 
 const SITE_URL = process.env.SITE_URL ?? 'https://remax-platinumonline.com';
 

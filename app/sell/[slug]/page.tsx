@@ -25,7 +25,8 @@ import TrackingScripts from '@/components/city/TrackingScripts';
 import StickyCtaBar from '@/components/cro/StickyCtaBar';
 import ExitIntentOverlay from '@/components/cro/ExitIntentOverlay';
 
-export const revalidate = 3600;
+// Render at request time so new/edited cities appear immediately.
+export const dynamic = 'force-dynamic';
 
 const SITE_URL = process.env.SITE_URL ?? 'https://remax-platinumonline.com';
 
