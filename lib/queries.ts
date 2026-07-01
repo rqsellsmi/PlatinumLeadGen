@@ -144,12 +144,13 @@ export interface HomepageAggregateStats {
   closedVolume: number | null;
   localAgents: number | null;
   avgRating: number | null;
+  reviewCount: number | null;
 }
 
-/** Aggregate, business-wide numbers for the homepage metrics bar. Computed. */
+/** Aggregate, business-wide numbers for the homepage. All computed from data. */
 export async function getHomepageAggregateStats(): Promise<HomepageAggregateStats> {
   try {
-    const [metricsRow, closingsRow, agentsRow, ratingRow] = await Promise.all([
+    const [metricsRow, closingsRow, agentsRow, reviewRow] = await Promise.all([
       db.select().from(homePageMetrics).limit(1),
       db
         .select({
@@ -159,7 +160,10 @@ export async function getHomepageAggregateStats(): Promise<HomepageAggregateStat
         .from(closings),
       db.select({ n: sql<number>`count(*)::int` }).from(agents),
       db
-        .select({ avg: sql<string | null>`avg(${locations.googleReviewRating})` })
+        .select({
+          avg: sql<string | null>`avg(${locations.googleReviewRating})`,
+          reviews: sql<string | null>`sum(${locations.googleReviewCount})`,
+        })
         .from(locations)
         .where(sql`${locations.googleReviewRating} is not null`),
     ]);
@@ -167,11 +171,12 @@ export async function getHomepageAggregateStats(): Promise<HomepageAggregateStat
     const closingsCount = Number(closingsRow[0]?.cnt ?? 0);
     const homesSold = metricsRow[0]?.totalHomesSold ?? (closingsCount > 0 ? closingsCount : null);
     const localAgents = Number(agentsRow[0]?.n ?? 0);
-    const avgRating = ratingRow[0]?.avg != null ? Number(ratingRow[0].avg) : null;
-    return { homesSold, closedVolume, localAgents, avgRating };
+    const avgRating = reviewRow[0]?.avg != null ? Number(reviewRow[0].avg) : null;
+    const reviewCount = reviewRow[0]?.reviews != null ? Number(reviewRow[0].reviews) : null;
+    return { homesSold, closedVolume, localAgents, avgRating, reviewCount };
   } catch (err) {
     console.warn('[queries] getHomepageAggregateStats failed:', err);
-    return { homesSold: null, closedVolume: null, localAgents: null, avgRating: null };
+    return { homesSold: null, closedVolume: null, localAgents: null, avgRating: null, reviewCount: null };
   }
 }
 

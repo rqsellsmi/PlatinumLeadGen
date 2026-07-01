@@ -7,10 +7,10 @@ import {
   getGuidesForPage,
   getFeaturedTestimonials,
 } from '@/lib/queries';
+import { formatNumber } from '@/lib/utils';
 import SiteHeader from '@/components/SiteHeader';
 import SiteFooter from '@/components/SiteFooter';
-import HeroAddressForm from '@/components/city/HeroAddressForm';
-import ValuationForm from '@/components/city/ValuationForm';
+import HomeValuation from '@/components/home/HomeValuation';
 import HomeMetricsBar from '@/components/home/HomeMetricsBar';
 import HomeRecentSales from '@/components/home/HomeRecentSales';
 import ExploreMarket from '@/components/home/ExploreMarket';
@@ -61,19 +61,24 @@ export default async function HomePage() {
                 Your home is here. So are we.
               </h1>
               <p className="mt-6 max-w-xl text-lg leading-relaxed text-white/90 sm:text-xl">
-                RE/MAX Platinum has helped over 1,100 families sell across South East Michigan. Find
-                out what your home is worth today — free, and with no obligation.
+                {stats.homesSold
+                  ? `RE/MAX Platinum has helped ${formatNumber(stats.homesSold)} families sell across South East Michigan. `
+                  : 'RE/MAX Platinum helps families across South East Michigan sell for more. '}
+                Find out what your home is worth today — free, and with no obligation.
               </p>
               <div className="mt-8">
-                <HeroAddressForm buttonLabel="What's My Home Worth? →" />
+                <HomeValuation buttonLabel="What's My Home Worth? →" />
               </div>
               <div className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-3 text-sm font-semibold text-white">
-                <span className="flex items-center gap-1.5">
-                  <span className="text-platinum-red" aria-hidden>
-                    ★
+                {stats.avgRating != null ? (
+                  <span className="flex items-center gap-1.5">
+                    <span className="text-platinum-red" aria-hidden>
+                      ★
+                    </span>
+                    {stats.avgRating.toFixed(1)}
+                    {stats.reviewCount ? ` · ${formatNumber(stats.reviewCount)}+ reviews` : ''}
                   </span>
-                  4.9 · 300+ reviews
-                </span>
+                ) : null}
                 <span className="text-white/90">Free · No obligation · Instant estimate</span>
               </div>
             </div>
@@ -82,9 +87,6 @@ export default async function HomePage() {
 
         {/* Aggregate community metrics */}
         <HomeMetricsBar stats={stats} />
-
-        {/* Valuation form — general (routes by property proximity, no city required) */}
-        <ValuationForm locationSlug="" cityName="Michigan" pageVariant="seo" />
 
         {/* Recent sales across all communities */}
         <HomeRecentSales sales={recentSales} />

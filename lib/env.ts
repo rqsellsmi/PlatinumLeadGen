@@ -6,14 +6,28 @@
 
 import { DATABASE_URL_CANDIDATES, resolveDatabaseUrl } from './dbUrl';
 
-/** Each entry is satisfied if ANY of its names is set (supports legacy aliases). */
-const REQUIRED_GROUPS: { label: string; anyOf: string[] }[] = [
+type Group = { label: string; anyOf: string[] };
+
+/**
+ * CRITICAL vars — the app cannot render without these, so a miss throws.
+ * Kept intentionally small (DB + admin auth) so a missing *feature* key never
+ * takes down the whole site/admin.
+ */
+const CRITICAL_GROUPS: Group[] = [
   // Accept any Vercel/Neon integration variable name for the connection string.
   { label: 'DATABASE_URL', anyOf: DATABASE_URL_CANDIDATES },
   { label: 'NEXTAUTH_SECRET', anyOf: ['NEXTAUTH_SECRET'] },
   { label: 'NEXTAUTH_URL', anyOf: ['NEXTAUTH_URL'] },
   { label: 'ADMIN_USERNAME', anyOf: ['ADMIN_USERNAME'] },
   { label: 'ADMIN_PASSWORD_HASH', anyOf: ['ADMIN_PASSWORD_HASH'] },
+];
+
+/**
+ * RECOMMENDED vars — features degrade if missing (email, valuation, maps,
+ * cron/revalidate auth), but the app still boots. We warn once rather than
+ * crash, so a partially-configured preview/staging deploy stays usable.
+ */
+const RECOMMENDED_GROUPS: Group[] = [
   { label: 'MS_GRAPH_CLIENT_ID', anyOf: ['MS_GRAPH_CLIENT_ID', 'MICROSOFT_CLIENT_ID'] },
   { label: 'MS_GRAPH_CLIENT_SECRET', anyOf: ['MS_GRAPH_CLIENT_SECRET', 'MICROSOFT_CLIENT_SECRET'] },
   { label: 'MS_GRAPH_TENANT_ID', anyOf: ['MS_GRAPH_TENANT_ID', 'MICROSOFT_TENANT_ID'] },
@@ -26,6 +40,12 @@ const REQUIRED_GROUPS: { label: string; anyOf: string[] }[] = [
   { label: 'REVALIDATE_SECRET', anyOf: ['REVALIDATE_SECRET'] },
 ];
 
+function missingOf(groups: Group[]): string[] {
+  return groups
+    .filter((g) => !g.anyOf.some((k) => process.env[k] !== undefined && process.env[k] !== ''))
+    .map((g) => g.label);
+}
+
 let validated = false;
 
 export function validateEnv(): void {
@@ -34,15 +54,20 @@ export function validateEnv(): void {
   if (process.env.NEXT_PHASE === 'phase-production-build') return;
   if (process.env.SKIP_ENV_VALIDATION === '1') return;
 
-  const missing = REQUIRED_GROUPS.filter(
-    (g) => !g.anyOf.some((k) => process.env[k] !== undefined && process.env[k] !== ''),
-  ).map((g) => g.label);
-
-  if (missing.length > 0) {
+  const missingCritical = missingOf(CRITICAL_GROUPS);
+  if (missingCritical.length > 0) {
     throw new Error(
       `Missing required environment variables:\n` +
-        missing.map((m) => `  - ${m}`).join('\n') +
-        `\n\nCopy .env.example to .env and fill in every value. See SETUP.md.`,
+        missingCritical.map((m) => `  - ${m}`).join('\n') +
+        `\n\nThese are required for the app to run (database + admin auth). See SETUP.md.`,
+    );
+  }
+
+  const missingRecommended = missingOf(RECOMMENDED_GROUPS);
+  if (missingRecommended.length > 0) {
+    console.warn(
+      `[env] Missing recommended environment variables (related features are disabled):\n` +
+        missingRecommended.map((m) => `  - ${m}`).join('\n'),
     );
   }
   validated = true;
