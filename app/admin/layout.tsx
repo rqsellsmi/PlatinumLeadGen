@@ -24,6 +24,7 @@ const NAV = [
   { href: '/admin/email-log', label: 'Email Log' },
   { href: '/admin/api-keys', label: 'API Keys' },
   { href: '/admin/settings', label: 'Settings' },
+  { href: '/admin/debug', label: 'Debug' },
 ];
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
