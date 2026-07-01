@@ -10,6 +10,8 @@ import Image from 'next/image';
 import { formatCurrency, formatNumber } from '@/lib/utils';
 import SiteHeader from '@/components/SiteHeader';
 import SiteFooter from '@/components/SiteFooter';
+import HeroAddressForm from '@/components/city/HeroAddressForm';
+import ValuationForm from '@/components/city/ValuationForm';
 
 export const revalidate = 86400;
 
@@ -45,7 +47,7 @@ export default async function HomePage() {
       <SiteHeader />
       <main>
         {/* Hero */}
-        <section className="relative isolate flex min-h-[520px] items-center px-5 py-20 sm:px-8 lg:px-12">
+        <section className="relative isolate flex min-h-[560px] items-center px-5 py-20 sm:px-8 lg:px-12">
           <Image
             src="/assets/hero-home.jpg"
             alt="Michigan homes"
@@ -59,28 +61,32 @@ export default async function HomePage() {
             className="absolute inset-0 -z-10 bg-gradient-to-r from-[rgba(20,20,24,0.78)] via-[rgba(20,20,24,0.55)] to-[rgba(20,20,24,0.3)]"
           />
           <div className="mx-auto w-full max-w-6xl">
-            <div className="max-w-2xl">
-              <p className="mb-5 text-[13px] font-bold uppercase tracking-[0.14em] text-white/90">
-                Southeast Michigan · Free Home Valuation
-              </p>
-              <h1 className="text-4xl font-black leading-[1.03] tracking-tight text-white sm:text-6xl">
-                Sell Your Michigan Home Faster — and for More
+            <div className="max-w-[680px]">
+              <h1 className="text-5xl font-black leading-[1.0] tracking-tight text-white sm:text-7xl">
+                Your home is here. So are we.
               </h1>
-              <p className="mt-5 max-w-xl text-lg text-white/90 sm:text-xl">
-                RE/MAX Platinum pairs instant home valuations with local experts who know your
-                neighborhood. Find out what your home is worth today.
+              <p className="mt-6 max-w-xl text-lg leading-relaxed text-white/90 sm:text-xl">
+                RE/MAX Platinum has helped over 1,100 families sell across South East Michigan. Find
+                out what your home is worth today — free, and with no obligation.
               </p>
               <div className="mt-8">
-                <Link
-                  href="/sell"
-                  className="inline-flex items-center justify-center rounded-pill bg-platinum-red px-8 py-3.5 text-base font-bold text-white transition-colors hover:bg-platinum-redHover"
-                >
-                  Get My Free Home Value →
-                </Link>
+                <HeroAddressForm buttonLabel="What's My Home Worth? →" />
+              </div>
+              <div className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-3 text-sm font-semibold text-white">
+                <span className="flex items-center gap-1.5">
+                  <span className="text-platinum-red" aria-hidden>
+                    ★
+                  </span>
+                  4.9 · 300+ reviews
+                </span>
+                <span className="text-white/90">Free · No obligation · Instant estimate</span>
               </div>
             </div>
           </div>
         </section>
+
+        {/* Valuation form — general (routes by property proximity, no city required) */}
+        <ValuationForm locationSlug="" cityName="Michigan" pageVariant="seo" />
 
         {/* Overall stats */}
         {metrics ? (

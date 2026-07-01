@@ -9,7 +9,13 @@ import { PREFILL_ADDRESS_KEY, scrollToValuation } from '@/lib/clientAnalytics';
  * below (via the `prefill-address` event the form already listens for) and
  * smooth-scrolls to it, so there is exactly one lead-capture path on the page.
  */
-export default function HeroAddressForm() {
+export default function HeroAddressForm({
+  buttonLabel = 'Get My Value →',
+  placeholder = 'Enter your home address',
+}: {
+  buttonLabel?: string;
+  placeholder?: string;
+}) {
   const [address, setAddress] = React.useState('');
 
   function handSubmit(e: React.FormEvent) {
@@ -48,7 +54,7 @@ export default function HeroAddressForm() {
         <input
           value={address}
           onChange={(e) => setAddress(e.target.value)}
-          placeholder="Enter your home address"
+          placeholder={placeholder}
           aria-label="Your home address"
           className="w-full border-none bg-transparent py-4 text-base text-ink outline-none placeholder:text-mute-lighter"
         />
@@ -57,7 +63,7 @@ export default function HeroAddressForm() {
         type="submit"
         className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-platinum-red px-6 py-4 text-base font-bold text-white transition-colors hover:bg-platinum-redHover"
       >
-        Get My Value →
+        {buttonLabel}
       </button>
     </form>
   );
