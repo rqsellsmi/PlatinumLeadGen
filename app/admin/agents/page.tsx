@@ -1,20 +1,13 @@
-import Link from 'next/link';
 import { asc, eq, sql, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { agents, offices, leadOffers, leads } from '@/drizzle/schema';
-import { Card, CardHeader, CardBody, Button, Input, Label, Select, Badge } from '@/components/ui';
+import { Card, CardHeader, CardBody, Button, Input, Label, Select } from '@/components/ui';
 import { requireAdmin } from '@/components/admin/requireAdmin';
 import ResetOnSubmitForm from '@/components/admin/ResetOnSubmitForm';
-import { scoreTier } from '@/lib/scoreTiers';
-import { createAgent, toggleAgentActive } from './actions';
+import AgentDirectory, { type AgentRow } from '@/components/admin/AgentDirectory';
+import { createAgent } from './actions';
 
 export const dynamic = 'force-dynamic';
-
-function initials(first: string | null, last: string | null): string {
-  return `${first?.[0] ?? ''}${last?.[0] ?? ''}`.toUpperCase() || '?';
-}
-
-const AVATAR_BG = ['bg-platinum-blue', 'bg-platinum-red', 'bg-charcoal', 'bg-brandpurple', 'bg-success'];
 
 export default async function AgentsPage() {
   await requireAdmin();
@@ -62,16 +55,24 @@ export default async function AgentsPage() {
   const closedById = new Map(closedCounts.map((r) => [r.agentId, Number(r.n)]));
   const respById = new Map(respRows.map((r) => [r.agentId, r.mins != null ? Number(r.mins) : null]));
 
-  function conversionPct(agentId: number): string {
-    const acc = acceptedById.get(agentId) ?? 0;
-    if (acc === 0) return '—';
-    return `${Math.round(((closedById.get(agentId) ?? 0) / acc) * 100)}%`;
-  }
-  function avgResponse(agentId: number): string {
-    const m = respById.get(agentId);
-    if (m == null) return '—';
-    return m < 60 ? `${Math.round(m)}m` : `${Math.round(m / 60)}h`;
-  }
+  // Build serializable rows (with precomputed metrics) for the client directory.
+  const agentRows: AgentRow[] = rows.map(({ agent, officeName, officeCity }) => {
+    const accepted = acceptedById.get(agent.id) ?? 0;
+    return {
+      id: agent.id,
+      firstName: agent.firstName,
+      lastName: agent.lastName,
+      email: agent.email,
+      officeName: officeName ?? null,
+      officeCity: officeCity ?? null,
+      isActive: agent.isActive,
+      score: agent.score,
+      activeLeads: activeById.get(agent.id) ?? 0,
+      conversionPct:
+        accepted === 0 ? null : Math.round(((closedById.get(agent.id) ?? 0) / accepted) * 100),
+      avgResponseMins: respById.get(agent.id) ?? null,
+    };
+  });
 
   return (
     <div className="space-y-6">
@@ -80,82 +81,12 @@ export default async function AgentsPage() {
         <p className="text-sm text-mute">{rows.length} agents.</p>
       </div>
 
-      {rows.length === 0 ? (
+      {agentRows.length === 0 ? (
         <div className="rounded-card border border-line bg-white px-5 py-12 text-center text-sm text-mute">
           No agents yet.
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
-          {rows.map(({ agent, officeName, officeCity }, i) => {
-            const tier = scoreTier(agent.score);
-            return (
-              <div key={agent.id} className="rounded-card border border-line bg-white p-5">
-                <div className="flex items-center gap-3.5">
-                  <span
-                    className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white ${AVATAR_BG[i % AVATAR_BG.length]}`}
-                  >
-                    {initials(agent.firstName, agent.lastName)}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <Link
-                      href={`/admin/agents/${agent.id}`}
-                      className="block truncate font-bold text-charcoal hover:text-platinum-red"
-                    >
-                      {agent.firstName} {agent.lastName}
-                    </Link>
-                    <p className="truncate text-[13px] text-mute-light">
-                      {[officeName, officeCity].filter(Boolean).join(' · ') || agent.email}
-                    </p>
-                  </div>
-                  <Badge tone={agent.isActive ? 'success' : 'neutral'}>
-                    {agent.isActive ? 'Active' : 'Inactive'}
-                  </Badge>
-                </div>
-
-                <div className="mt-4 grid grid-cols-3 gap-2.5">
-                  <div className="rounded-lg bg-offwhite p-3">
-                    <p className="font-numeric text-2xl font-bold leading-none text-charcoal">
-                      {activeById.get(agent.id) ?? 0}
-                    </p>
-                    <p className="mt-1 text-[11px] text-mute-light">Active leads</p>
-                  </div>
-                  <div className="rounded-lg bg-offwhite p-3">
-                    <p className="font-numeric text-2xl font-bold leading-none text-success">
-                      {conversionPct(agent.id)}
-                    </p>
-                    <p className="mt-1 text-[11px] text-mute-light">Conversion</p>
-                  </div>
-                  <div className="rounded-lg bg-offwhite p-3">
-                    <p className="font-numeric text-2xl font-bold leading-none text-charcoal">
-                      {avgResponse(agent.id)}
-                    </p>
-                    <p className="mt-1 text-[11px] text-mute-light">Avg response</p>
-                  </div>
-                </div>
-
-                <p className="mt-3 text-xs text-mute-light">
-                  Score <span className="font-bold text-charcoal">{Math.round(agent.score)}</span> ·{' '}
-                  <span className={`font-bold ${tier.color}`}>{tier.label}</span>
-                </p>
-
-                <div className="mt-4 flex gap-2.5">
-                  <form action={toggleAgentActive} className="flex-1">
-                    <input type="hidden" name="agentId" value={agent.id} />
-                    <input type="hidden" name="isActive" value={String(agent.isActive)} />
-                    <Button type="submit" size="sm" variant="outline" className="w-full">
-                      {agent.isActive ? 'Deactivate' : 'Activate'}
-                    </Button>
-                  </form>
-                  <Link href={`/admin/agents/${agent.id}`} className="flex-1">
-                    <Button type="button" variant="secondary" size="sm" className="w-full">
-                      View profile
-                    </Button>
-                  </Link>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <AgentDirectory agents={agentRows} />
       )}
 
       <Card>
