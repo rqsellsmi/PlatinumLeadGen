@@ -43,13 +43,14 @@ export async function POST(req: NextRequest) {
         .where(eq(agents.magicLinkToken, body.token))
         .limit(1);
       const agent = rows[0];
-      if (
-        agent &&
-        agent.isActive &&
-        !isTokenExpired(agent.magicLinkExpiresAt)
-      ) {
+      if (agent && agent.isActive && !isTokenExpired(agent.magicLinkExpiresAt)) {
         await setAgentSessionCookie(agent.id);
         return NextResponse.json({ success: true });
+      }
+      // A valid token for a deactivated agent — say so instead of "expired"
+      // (common while the roster is seeded inactive).
+      if (agent && !agent.isActive) {
+        return NextResponse.json({ error: 'inactive' }, { status: 403 });
       }
       return NextResponse.json({ error: 'invalid_token' }, { status: 401 });
     }
