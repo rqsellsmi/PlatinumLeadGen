@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { and, desc, eq } from 'drizzle-orm';
@@ -6,6 +7,7 @@ import { leads, leadOffers, statusUpdates } from '@/drizzle/schema';
 import { getCurrentAgent } from '@/lib/agentSession';
 import { Badge, statusTone } from '@/components/ui';
 import { formatCurrency } from '@/lib/utils';
+import LocalTime from '@/components/LocalTime';
 import { StatusUpdateForm } from '@/components/agent/StatusUpdateForm';
 
 export const dynamic = 'force-dynamic';
@@ -104,7 +106,7 @@ export default async function AgentLeadDetailPage({
               <Field label="Source" value={lead.source} />
               <Field
                 label="Accepted"
-                value={offer.acceptedAt ? new Date(offer.acceptedAt).toLocaleString('en-US') : null}
+                value={offer.acceptedAt ? <LocalTime value={offer.acceptedAt} /> : null}
               />
             </dl>
           </div>
@@ -129,7 +131,7 @@ export default async function AgentLeadDetailPage({
                         <div className="flex items-center gap-2">
                           <Badge tone={statusTone(u.newStatus)}>{u.newStatus}</Badge>
                           <span className="text-xs text-mute-lighter">
-                            {u.createdAt ? new Date(u.createdAt).toLocaleString('en-US') : ''}
+                            <LocalTime value={u.createdAt} fallback="" />
                           </span>
                         </div>
                         {u.note ? <p className="mt-1.5 text-sm text-charcoal">{u.note}</p> : null}
@@ -162,7 +164,7 @@ function Field({
   href,
 }: {
   label: string;
-  value: string | null | undefined;
+  value: ReactNode;
   href?: string;
 }) {
   return (

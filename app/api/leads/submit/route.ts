@@ -4,7 +4,7 @@
  * confirmation email. (Section 4.7 + v1.6 §C/§D)
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { and, eq, desc, sql } from 'drizzle-orm';
+import { and, eq, desc, sql, isNull, ne } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { leads, locations, leadOffers, agents } from '@/drizzle/schema';
 import { leadSubmitSchema } from '@/lib/validation';
@@ -57,6 +57,30 @@ async function notifyAssignedAgentOfResubmit(lead: Lead, email: string | null, p
   }
 }
 
+/**
+ * Soft-delete the throwaway partial lead created THIS session (via
+ * /api/leads/partial) when the submit turns out to be a duplicate of a lead
+ * captured in another session. Without this the partial lingers in the console
+ * as an "Unnamed lead" at the same address (v1.6 §D).
+ */
+async function discardSessionPartial(sessionId: string, keepLeadId: number) {
+  try {
+    await db
+      .update(leads)
+      .set({ isDeleted: true, updatedAt: new Date() })
+      .where(
+        and(
+          eq(leads.sessionId, sessionId),
+          eq(leads.isDeleted, false),
+          isNull(leads.email), // only the unnamed partial — never a real lead
+          ne(leads.id, keepLeadId),
+        ),
+      );
+  } catch (err) {
+    console.error('[api/leads/submit] discardSessionPartial failed:', err);
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     if (!(await checkPreset(clientIp(req.headers), 'lead_submit'))) {
@@ -79,6 +103,7 @@ export async function POST(req: NextRequest) {
     if (contactMatch) {
       await logLeadEvent(contactMatch.id, 'duplicate_submission', `Resubmitted via ${pageVariant} page`);
       await notifyAssignedAgentOfResubmit(contactMatch, email, phone);
+      await discardSessionPartial(input.sessionId, contactMatch.id);
       if (input.valuationToken) await linkValuationToLead(input.valuationToken, contactMatch.id);
       // From Google's perspective the user converted — client still fires the
       // conversion (§D.2). No new lead, no new offer.
@@ -160,6 +185,7 @@ export async function POST(req: NextRequest) {
           // Address belongs to an existing contacted lead → duplicate.
           await logLeadEvent(addrMatch.id, 'duplicate_submission', `Address resubmitted via ${pageVariant} page`);
           await notifyAssignedAgentOfResubmit(addrMatch, email, phone);
+          await discardSessionPartial(input.sessionId, addrMatch.id);
           if (input.valuationToken) await linkValuationToLead(input.valuationToken, addrMatch.id);
           return NextResponse.json({ success: true, leadId: addrMatch.id, isDuplicate: true });
         }

@@ -1,5 +1,6 @@
-import Image from 'next/image';
 import HeroValuation from '@/components/HeroValuation';
+import HeroBackdrop from '@/components/HeroBackdrop';
+import { HERO_IMAGES } from '@/lib/heroImages';
 
 interface HeroSectionProps {
   headline: string;
@@ -35,14 +36,7 @@ export default function HeroSection({
 }: HeroSectionProps) {
   return (
     <section className="relative isolate flex min-h-[560px] items-center px-5 py-16 sm:px-8 lg:min-h-[calc(86vh)] lg:px-12">
-      <Image
-        src="/assets/hero-home.jpg"
-        alt={`Homes for sale in ${cityName}`}
-        fill
-        priority
-        sizes="100vw"
-        className="-z-10 object-cover"
-      />
+      <HeroBackdrop images={HERO_IMAGES} alt={`Homes for sale in ${cityName}`} />
       <div
         aria-hidden
         className="absolute inset-0 -z-10 bg-gradient-to-r from-[rgba(20,20,24,0.78)] via-[rgba(20,20,24,0.55)] to-[rgba(20,20,24,0.25)]"

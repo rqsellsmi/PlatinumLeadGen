@@ -1,19 +1,23 @@
 import { Card, CardHeader, CardBody, Badge } from '@/components/ui';
 import { requireAdmin } from '@/components/admin/requireAdmin';
+import LocalTime from '@/components/LocalTime';
 import { formatCurrency } from '@/lib/utils';
 import {
   monthUsageStats,
   dailyUsage,
   recentCalls,
+  usageProvider,
   FREE_TIER_LIMIT,
 } from '@/lib/apiUsage';
 
 export const dynamic = 'force-dynamic';
 
-/** /admin/api-usage — RentCast usage monitoring (v1.6 §H). */
+/** /admin/api-usage — valuation-provider usage monitoring (v1.6 §H). Reports on
+ * whichever provider VALUATION_PROVIDER currently selects (RentCast or ATTOM). */
 export default async function ApiUsagePage() {
   await requireAdmin();
 
+  const provider = usageProvider();
   const [stats, daily, recent] = await Promise.all([
     monthUsageStats(),
     dailyUsage(30),
@@ -27,8 +31,12 @@ export default async function ApiUsagePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-charcoal">RentCast API Usage</h1>
-        <p className="text-sm text-mute">Valuation calls this calendar month and recent activity.</p>
+        <h1 className="text-2xl font-bold text-charcoal">{provider.label} API Usage</h1>
+        <p className="text-sm text-mute">
+          Valuation calls this calendar month and recent activity ·{' '}
+          <span className="font-semibold text-charcoal">{provider.label}</span> is the active
+          provider.
+        </p>
       </div>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -41,22 +49,24 @@ export default async function ApiUsagePage() {
         />
       </div>
 
-      <Card>
-        <CardHeader>
-          <h2 className="font-bold text-charcoal">Free tier usage</h2>
-        </CardHeader>
-        <CardBody>
-          <div className="mb-1 flex justify-between text-sm">
-            <span className="text-mute">
-              {stats.total}/{FREE_TIER_LIMIT} calls used this month
-            </span>
-            <span className="font-semibold text-charcoal">{usedPct}%</span>
-          </div>
-          <div className="h-3 rounded-pill bg-line">
-            <div className={`h-3 rounded-pill ${barColor}`} style={{ width: `${usedPct}%` }} />
-          </div>
-        </CardBody>
-      </Card>
+      {provider.hasFreeTier ? (
+        <Card>
+          <CardHeader>
+            <h2 className="font-bold text-charcoal">Free tier usage</h2>
+          </CardHeader>
+          <CardBody>
+            <div className="mb-1 flex justify-between text-sm">
+              <span className="text-mute">
+                {stats.total}/{FREE_TIER_LIMIT} calls used this month
+              </span>
+              <span className="font-semibold text-charcoal">{usedPct}%</span>
+            </div>
+            <div className="h-3 rounded-pill bg-line">
+              <div className={`h-3 rounded-pill ${barColor}`} style={{ width: `${usedPct}%` }} />
+            </div>
+          </CardBody>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader>
@@ -109,7 +119,7 @@ export default async function ApiUsagePage() {
                 {recent.map((c) => (
                   <tr key={c.id}>
                     <td className="px-3 py-2 text-mute">
-                      {c.createdAt ? new Date(c.createdAt).toLocaleString('en-US') : '—'}
+                      <LocalTime value={c.createdAt} />
                     </td>
                     <td className="px-3 py-2 text-charcoal">{c.propertyAddress ?? '—'}</td>
                     <td className="px-3 py-2 text-right font-numeric">

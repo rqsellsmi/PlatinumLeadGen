@@ -6,6 +6,7 @@ import { agents, offices, agentScoreLog } from '@/drizzle/schema';
 import { Card, CardHeader, CardBody, Button, Input, Label, Select, Textarea, Badge } from '@/components/ui';
 import { requireAdmin } from '@/components/admin/requireAdmin';
 import ResetOnSubmitForm from '@/components/admin/ResetOnSubmitForm';
+import LocalTime from '@/components/LocalTime';
 import { updateAgent, setAgentPassword, adjustScore, deactivateAgent } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -178,7 +179,7 @@ export default async function AgentDetailPage({ params }: { params: { id: string
               {scoreLog.map((row) => (
                 <tr key={row.id} className="border-b border-line-hair last:border-0 hover:bg-offwhite">
                   <td className="px-5 py-3 text-mute-light">
-                    {row.createdAt ? new Date(row.createdAt).toLocaleString('en-US') : '—'}
+                    {row.createdAt ? <LocalTime value={row.createdAt} /> : '—'}
                   </td>
                   <td className="px-5 py-3 text-charcoal">{row.reason}</td>
                   <td

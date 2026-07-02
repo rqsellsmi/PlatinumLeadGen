@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { createPortal } from 'react-dom';
 import Script from 'next/script';
 import { Button, Input, Label, Select } from '@/components/ui';
 import { formatCurrency } from '@/lib/utils';
@@ -80,6 +81,20 @@ export default function HeroValuation({
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [mapsReady, setMapsReady] = React.useState(false);
+  const [mounted, setMounted] = React.useState(false);
+
+  // Portal target only exists in the browser.
+  React.useEffect(() => setMounted(true), []);
+
+  // Lock body scroll while the modal is open so the page behind doesn't move.
+  React.useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
 
   const heroInputRef = React.useRef<HTMLInputElement>(null);
   const modalInputRef = React.useRef<HTMLInputElement>(null);
@@ -319,9 +334,11 @@ export default function HeroValuation({
         </button>
       </form>
 
-      {/* Modal */}
-      {open ? (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+      {/* Modal — portaled to <body> so it escapes the hero's `isolate`
+          stacking context and covers the sticky header + floating CTA bar. */}
+      {open && mounted
+        ? createPortal(
+        <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto p-4">
           <div className="absolute inset-0 animate-fadeIn bg-[rgba(20,20,24,0.55)]" onClick={() => setOpen(false)} aria-hidden />
           <div
             role="dialog"
@@ -459,8 +476,10 @@ export default function HeroValuation({
               </form>
             )}
           </div>
-        </div>
-      ) : null}
+        </div>,
+            document.body,
+          )
+        : null}
     </>
   );
 }

@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import Image from 'next/image';
 import {
   getHomepageAggregateStats,
   getFeaturedRecentSales,
@@ -8,8 +7,10 @@ import {
   getFeaturedTestimonials,
 } from '@/lib/queries';
 import { formatNumber } from '@/lib/utils';
+import { HERO_IMAGES } from '@/lib/heroImages';
 import SiteHeader from '@/components/SiteHeader';
 import SiteFooter from '@/components/SiteFooter';
+import HeroBackdrop from '@/components/HeroBackdrop';
 import HeroValuation from '@/components/HeroValuation';
 import HomeMetricsBar from '@/components/home/HomeMetricsBar';
 import HomeRecentSales from '@/components/home/HomeRecentSales';
@@ -46,14 +47,7 @@ export default async function HomePage() {
       <main>
         {/* Hero */}
         <section className="relative isolate flex min-h-[560px] items-center px-5 py-20 sm:px-8 lg:px-12">
-          <Image
-            src="/assets/hero-home.jpg"
-            alt="Michigan homes"
-            fill
-            priority
-            sizes="100vw"
-            className="-z-10 object-cover"
-          />
+          <HeroBackdrop images={HERO_IMAGES} alt="Michigan homes" />
           <div
             aria-hidden
             className="absolute inset-0 -z-10 bg-gradient-to-r from-[rgba(20,20,24,0.78)] via-[rgba(20,20,24,0.55)] to-[rgba(20,20,24,0.3)]"
