@@ -22,6 +22,43 @@ import type {
 import type { HomeRecentSale } from './queries';
 
 const ATTOM_BASE = 'https://api.gateway.attomdata.com/propertyapi/v1.0.0';
+// Sales Comparables is a separate ATTOM product served under property/v2.0.0.
+const ATTOM_COMPS_BASE = 'https://api.gateway.attomdata.com/property/v2.0.0';
+
+/** Raw GET for diagnostics — returns status + a truncated response body. */
+async function rawGet(url: string): Promise<{ url: string; status: number | null; body: string }> {
+  try {
+    const res = await fetch(url, {
+      headers: { apikey: apiKey(), Accept: 'application/json' },
+      cache: 'no-store',
+    });
+    const body = await res.text().catch(() => '');
+    return { url, status: res.status, body: body.slice(0, 3000) };
+  } catch (e) {
+    return { url, status: null, body: e instanceof Error ? e.message : 'error' };
+  }
+}
+
+/** Build the sales-trend request URL for a geoid (single source of truth). */
+function salesTrendUrl(geoid: string): string {
+  const url = new URL(`${ATTOM_BASE}/salestrend/snapshot`);
+  url.searchParams.set('geoid', geoid);
+  url.searchParams.set('interval', 'yearly');
+  const endYear = new Date().getFullYear();
+  url.searchParams.set('startyear', String(endYear - 4));
+  url.searchParams.set('endyear', String(endYear));
+  return url.toString();
+}
+
+/** Build the sales-comparables request URL for an ATTOM property id. */
+function salesCompsUrl(attomId: string, limit: number): string {
+  const url = new URL(`${ATTOM_COMPS_BASE}/salescomparables/propid/${encodeURIComponent(attomId)}`);
+  url.searchParams.set('searchType', 'Radius');
+  url.searchParams.set('minComps', '1');
+  url.searchParams.set('maxComps', String(limit));
+  url.searchParams.set('miles', '5');
+  return url.toString();
+}
 
 function apiKey(): string {
   const k = process.env.ATTOM_API_KEY;
@@ -209,14 +246,7 @@ export async function getAttomValuation(address: string): Promise<ValuationResul
 export async function getAttomAreaTrends(geoIdV4: string): Promise<MarketTrends | null> {
   if (!geoIdV4) return null;
   try {
-    const url = new URL(`${ATTOM_BASE}/salestrend/snapshot`);
-    // ATTOM's v1 sales-trend takes `geoid` (type-prefixed code like ZI48116).
-    url.searchParams.set('geoid', geoIdV4);
-    url.searchParams.set('interval', 'yearly');
-    const endYear = new Date().getFullYear();
-    url.searchParams.set('startyear', String(endYear - 4));
-    url.searchParams.set('endyear', String(endYear));
-    const res = await fetch(url.toString(), {
+    const res = await fetch(salesTrendUrl(geoIdV4), {
       headers: { apikey: apiKey(), Accept: 'application/json' },
       cache: 'no-store',
     });
@@ -277,6 +307,8 @@ export async function probeAttom(address: string): Promise<{
   normalized: ValuationResult | null;
   trends: MarketTrends | null;
   compsCount: number;
+  trendDebug: { url: string; status: number | null; body: string } | null;
+  compsDebug: { url: string; status: number | null; body: string } | null;
 }> {
   const base = {
     status: null as number | null,
@@ -289,6 +321,8 @@ export async function probeAttom(address: string): Promise<{
     normalized: null as ValuationResult | null,
     trends: null as MarketTrends | null,
     compsCount: 0,
+    trendDebug: null as { url: string; status: number | null; body: string } | null,
+    compsDebug: null as { url: string; status: number | null; body: string } | null,
   };
   try {
     const { address1, address2 } = splitAddress(address);
@@ -316,9 +350,11 @@ export async function probeAttom(address: string): Promise<{
     base.normalized = await getAttomValuation(address).catch(() => null);
     if (base.normalized?.areaGeoId) {
       base.trends = await getAttomAreaTrends(base.normalized.areaGeoId).catch(() => null);
+      base.trendDebug = await rawGet(salesTrendUrl(base.normalized.areaGeoId));
     }
     if (base.normalized?.attomId) {
       base.compsCount = (await getAttomComps(base.normalized.attomId, 6).catch(() => [])).length;
+      base.compsDebug = await rawGet(salesCompsUrl(base.normalized.attomId, 6));
     }
     return base;
   } catch (err) {
@@ -339,58 +375,42 @@ export async function probeAttom(address: string): Promise<{
 export async function getAttomComps(attomId: string, limit = 6): Promise<HomeRecentSale[]> {
   if (!attomId) return [];
   try {
-    const url = new URL(`${ATTOM_BASE}/salescomparables/propid/${encodeURIComponent(attomId)}`);
-    url.searchParams.set('maxComps', String(limit));
-    const res = await fetch(url.toString(), {
+    const res = await fetch(salesCompsUrl(attomId, limit), {
       headers: { apikey: apiKey(), Accept: 'application/json' },
       cache: 'no-store',
     });
     if (!res.ok) return [];
-    const data = (await res.json()) as {
-      RESPONSE_GROUP?: {
-        RESPONSE?: {
-          RESPONSE_DATA?: {
-            PROPERTY_INFORMATION_RESPONSE_ext?: {
-              SUBJECT_PROPERTY_ext?: unknown;
-              COMPARABLE_PROPERTY_ext?: unknown[];
-            };
-          };
-        };
-      };
-      // Some plans return a flatter shape:
-      comparables?: Array<Record<string, unknown>>;
-      property?: AttomProperty[];
-    };
+    const data = (await res.json()) as Record<string, unknown>;
 
-    // Prefer the flat shape when present.
-    const flat = Array.isArray(data.comparables)
-      ? data.comparables
+    // ATTOM salescomparables nests comps under RESPONSE_GROUP → … →
+    // COMPARABLE_PROPERTY_ext; some plans return a flatter `property` list.
+    const nested = (((data.RESPONSE_GROUP as Record<string, unknown> | undefined)?.RESPONSE as
+      | Record<string, unknown>
+      | undefined)?.RESPONSE_DATA as Record<string, unknown> | undefined)
+      ?.PROPERTY_INFORMATION_RESPONSE_ext as Record<string, unknown> | undefined;
+    const nestedComps = nested?.COMPARABLE_PROPERTY_ext;
+    const items: Array<Record<string, unknown>> = Array.isArray(nestedComps)
+      ? (nestedComps as Array<Record<string, unknown>>)
       : Array.isArray(data.property)
-        ? data.property
+        ? (data.property as Array<Record<string, unknown>>)
         : [];
 
     const out: HomeRecentSale[] = [];
-    flat.slice(0, limit).forEach((c, i) => {
-      const rec = c as {
-        address?: { line1?: unknown; oneLine?: unknown };
-        sale?: { amount?: { saleamt?: unknown }; saleTransDate?: unknown };
-        location?: { latitude?: unknown };
-        saleamt?: unknown;
-        saleAmount?: unknown;
-        salePrice?: unknown;
-        address1?: unknown;
-      };
+    items.slice(0, limit).forEach((rec, i) => {
+      // Try both the AVM-style property shape and the comparables ext shape.
+      const sale = rec.sale as { amount?: { saleamt?: unknown }; saleTransDate?: unknown } | undefined;
+      const addressObj = rec.address as { line1?: unknown; oneLine?: unknown } | undefined;
       const price =
-        num(rec.sale?.amount?.saleamt) ??
-        num(rec.saleamt) ??
-        num(rec.saleAmount) ??
-        num(rec.salePrice);
+        num(sale?.amount?.saleamt) ??
+        num(rec['@_SalesPriceAmount']) ??
+        num(rec.LAST_SALE_PRICE_ext) ??
+        num(rec.saleamt);
       const addr =
-        (typeof rec.address?.oneLine === 'string' && rec.address.oneLine) ||
-        (typeof rec.address?.line1 === 'string' && rec.address.line1) ||
-        (typeof rec.address1 === 'string' && rec.address1) ||
+        (typeof addressObj?.oneLine === 'string' && addressObj.oneLine) ||
+        (typeof addressObj?.line1 === 'string' && addressObj.line1) ||
+        (typeof rec['@_StreetAddress'] === 'string' && (rec['@_StreetAddress'] as string)) ||
         'Comparable sale';
-      const rawDate = rec.sale?.saleTransDate;
+      const rawDate = (sale?.saleTransDate ?? rec['@_SalesContractDate']) as string | undefined;
       const close = typeof rawDate === 'string' && rawDate ? new Date(rawDate.slice(0, 10)) : null;
       if (price == null) return;
       out.push({

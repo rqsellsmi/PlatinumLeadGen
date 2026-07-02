@@ -250,6 +250,32 @@ export default async function AdminDebugPage({
                 )}
               </pre>
             </details>
+            {attomProbe.trendDebug ? (
+              <details>
+                <summary className="cursor-pointer text-mute">
+                  sales-trend raw response (status {String(attomProbe.trendDebug.status)})
+                </summary>
+                <p className="mt-1 break-all font-mono text-[11px] text-mute-light">
+                  {attomProbe.trendDebug.url}
+                </p>
+                <pre className="mt-1 max-h-80 overflow-auto rounded-lg bg-offwhite p-3 text-xs">
+                  {attomProbe.trendDebug.body || '(empty)'}
+                </pre>
+              </details>
+            ) : null}
+            {attomProbe.compsDebug ? (
+              <details>
+                <summary className="cursor-pointer text-mute">
+                  sales-comparables raw response (status {String(attomProbe.compsDebug.status)})
+                </summary>
+                <p className="mt-1 break-all font-mono text-[11px] text-mute-light">
+                  {attomProbe.compsDebug.url}
+                </p>
+                <pre className="mt-1 max-h-80 overflow-auto rounded-lg bg-offwhite p-3 text-xs">
+                  {attomProbe.compsDebug.body || '(empty)'}
+                </pre>
+              </details>
+            ) : null}
           </div>
         ) : null}
       </div>
