@@ -54,14 +54,19 @@ export default async function ThankYouPage({
   if (comps.length === 0) comps = await getFeaturedRecentSales(6);
 
   // ATTOM enrichments — only for a revealed (converted) ATTOM valuation, so
-  // billable calls are bounded to real leads. Both degrade to nothing on error.
-  if (report?.provider === 'attom') {
+  // billable calls are bounded to real leads. Gated behind env flags because
+  // Sales Trend / Sales Comparables are separate ATTOM products; enable them
+  // (ATTOM_ENABLE_TRENDS=1 / ATTOM_ENABLE_COMPS=1) once your plan includes them
+  // so we don't make failing calls in the meantime. Both degrade to nothing.
+  const trendsEnabled = process.env.ATTOM_ENABLE_TRENDS === '1';
+  const compsEnabled = process.env.ATTOM_ENABLE_COMPS === '1';
+  if (report?.provider === 'attom' && (trendsEnabled || compsEnabled)) {
     const { getAttomAreaTrends, getAttomComps } = await import('@/lib/attom');
-    if (report.areaGeoId) {
+    if (trendsEnabled && report.areaGeoId) {
       marketTrends = await getAttomAreaTrends(report.areaGeoId).catch(() => null);
     }
     // Fallback comps only when we have no RE/MAX Platinum closings to show.
-    if (comps.length === 0 && report.attomId) {
+    if (compsEnabled && comps.length === 0 && report.attomId) {
       const attomComps = await getAttomComps(report.attomId, 6).catch(() => []);
       if (attomComps.length) {
         comps = attomComps;
