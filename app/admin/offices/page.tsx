@@ -8,6 +8,8 @@ import { createOffice, updateOffice, deleteOffice } from './actions';
 
 export const dynamic = 'force-dynamic';
 
+// Latitude/longitude are geocoded automatically from the address on save
+// (lib/geocode.ts), so they're not manual fields.
 const FIELDS: { name: keyof Office; label: string; type?: string }[] = [
   { name: 'name', label: 'Name' },
   { name: 'address', label: 'Address' },
@@ -15,8 +17,6 @@ const FIELDS: { name: keyof Office; label: string; type?: string }[] = [
   { name: 'state', label: 'State' },
   { name: 'zip', label: 'Zip' },
   { name: 'phone', label: 'Phone' },
-  { name: 'latitude', label: 'Latitude', type: 'number' },
-  { name: 'longitude', label: 'Longitude', type: 'number' },
 ];
 
 export default async function OfficesPage() {

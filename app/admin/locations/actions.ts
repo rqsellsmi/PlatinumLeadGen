@@ -7,23 +7,17 @@ import { locations } from '@/drizzle/schema';
 import { slugifyCity } from '@/lib/utils';
 import { requireAdmin } from '@/components/admin/requireAdmin';
 
-function num(v: FormDataEntryValue | null): number | null {
-  if (v == null || v === '') return null;
-  const n = Number(v);
-  return Number.isNaN(n) ? null : n;
-}
-
 export async function createLocation(formData: FormData) {
   await requireAdmin();
   const name = String(formData.get('name') ?? '').trim();
   if (!name) throw new Error('Name is required');
   const state = String(formData.get('state') ?? '').trim() || 'MI';
+  // No lat/lng collected: location coordinates aren't used anywhere (routing
+  // uses agent + office coordinates).
   await db.insert(locations).values({
     name,
     slug: slugifyCity(name),
     state,
-    latitude: num(formData.get('lat')),
-    longitude: num(formData.get('lng')),
   });
   revalidatePath('/admin/locations');
 }

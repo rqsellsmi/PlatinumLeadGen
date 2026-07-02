@@ -36,7 +36,7 @@ export default async function LocationsPage() {
           <h2 className="font-bold text-charcoal">Add location</h2>
         </CardHeader>
         <CardBody>
-          <ResetOnSubmitForm action={createLocation} className="grid grid-cols-1 gap-4 md:grid-cols-4">
+          <ResetOnSubmitForm action={createLocation} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <Label htmlFor="name">City name</Label>
               <Input id="name" name="name" required />
@@ -45,15 +45,7 @@ export default async function LocationsPage() {
               <Label htmlFor="state">State</Label>
               <Input id="state" name="state" defaultValue="MI" />
             </div>
-            <div>
-              <Label htmlFor="lat">Latitude</Label>
-              <Input id="lat" name="lat" type="number" step="any" />
-            </div>
-            <div>
-              <Label htmlFor="lng">Longitude</Label>
-              <Input id="lng" name="lng" type="number" step="any" />
-            </div>
-            <div className="md:col-span-4">
+            <div className="sm:col-span-2">
               <Button type="submit">Add location</Button>
               <p className="mt-1 text-xs text-mute-light">Slug is generated automatically from the name.</p>
             </div>

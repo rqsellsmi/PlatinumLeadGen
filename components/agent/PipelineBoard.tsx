@@ -53,7 +53,7 @@ export default function PipelineBoard({ initial }: { initial: AgentLeadRow[] }) 
         {saving ? <span className="text-xs font-semibold text-mute-light">Saving…</span> : null}
       </div>
 
-      <div className="flex gap-4 overflow-x-auto pb-2">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {COLUMNS.map((col) => {
           const colCards = cards.filter((c) => c.status === col.key);
           return (
@@ -70,7 +70,7 @@ export default function PipelineBoard({ initial }: { initial: AgentLeadRow[] }) 
                 setOverCol(null);
               }}
               className={cn(
-                'w-72 shrink-0 rounded-card p-1 transition-colors',
+                'min-w-0 rounded-card p-1 transition-colors',
                 overCol === col.key ? 'bg-offwhite' : 'bg-transparent',
               )}
             >
