@@ -36,6 +36,8 @@ export interface RevealedValuation {
   confidenceScore: number | null;
   basics: PropertyBasics | null;
   saleHistory: SaleHistoryEntry[];
+  attomId: string | null;
+  areaGeoId: string | null;
 }
 
 function basicsFromRow(row: Valuation): PropertyBasics | null {
@@ -96,6 +98,8 @@ export async function storeValuation(
       lotSizeSqft: b?.lotSizeSqft ?? null,
       propertyType: b?.propertyType ?? null,
       saleHistory: result.saleHistory.length ? JSON.stringify(result.saleHistory) : null,
+      attomId: result.attomId,
+      areaGeoId: result.areaGeoId,
       latitude: result.latitude,
       longitude: result.longitude,
     });
@@ -161,6 +165,8 @@ export async function getRevealedValuation(token: string): Promise<RevealedValua
       confidenceScore: row.confidenceScore,
       basics: basicsFromRow(row),
       saleHistory: parseSaleHistory(row.saleHistory),
+      attomId: row.attomId,
+      areaGeoId: row.areaGeoId,
     };
   } catch (err) {
     console.error('[valuationStore] getRevealedValuation failed:', err);

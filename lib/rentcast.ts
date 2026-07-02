@@ -38,6 +38,8 @@ export async function getRentcastValuation(address: string): Promise<ValuationRe
     confidenceScore: null,
     basics: null,
     saleHistory: [],
+    attomId: null,
+    areaGeoId: null,
     provider: 'rentcast',
   };
 

@@ -29,6 +29,17 @@ export interface SaleHistoryEntry {
   price: number | null;
 }
 
+/** Area-level market trends (ATTOM sales-trend). Report "Local market" section. */
+export interface MarketTrends {
+  medianSalePrice: number | null;
+  /** % change vs. the prior comparable period. */
+  yoyChangePct: number | null;
+  /** Number of sales in the latest period. */
+  homeSales: number | null;
+  /** Human label for the latest period, e.g. "2025". */
+  periodLabel: string | null;
+}
+
 export interface ValuationResult {
   estimatedValue: number | null;
   /** The provider's actual (tight) value range — revealed post-contact. */
@@ -42,6 +53,10 @@ export interface ValuationResult {
   basics: PropertyBasics | null;
   /** Prior sales; empty for RentCast. */
   saleHistory: SaleHistoryEntry[];
+  /** ATTOM property id — used post-conversion to pull sales comparables. */
+  attomId: string | null;
+  /** ATTOM ZIP-level geo id — used post-conversion to pull area sales trends. */
+  areaGeoId: string | null;
   provider: ValuationProvider;
 }
 

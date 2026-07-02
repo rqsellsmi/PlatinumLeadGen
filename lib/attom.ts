@@ -13,7 +13,13 @@
  * defensively and missing data degrades to null rather than throwing.
  */
 
-import type { PropertyBasics, SaleHistoryEntry, ValuationResult } from './valuation';
+import type {
+  MarketTrends,
+  PropertyBasics,
+  SaleHistoryEntry,
+  ValuationResult,
+} from './valuation';
+import type { HomeRecentSale } from './queries';
 
 const ATTOM_BASE = 'https://api.gateway.attomdata.com/propertyapi/v1.0.0';
 
@@ -45,6 +51,8 @@ function splitAddress(address: string): { address1: string; address2: string } {
 }
 
 interface AttomProperty {
+  identifier?: { attomId?: unknown; Id?: unknown; id?: unknown };
+  area?: { geoIdV4?: unknown; geoid?: unknown };
   location?: { latitude?: unknown; longitude?: unknown };
   summary?: { yearbuilt?: unknown; proptype?: unknown; propclass?: unknown; propsubtype?: unknown };
   building?: {
@@ -77,6 +85,33 @@ function parseBasics(p: AttomProperty): PropertyBasics {
   return { beds, baths, sqft, yearBuilt: num(p.summary?.yearbuilt), lotSizeSqft, propertyType };
 }
 
+function parseAttomId(p: AttomProperty): string | null {
+  const raw = p.identifier?.attomId ?? p.identifier?.Id ?? p.identifier?.id;
+  return raw == null ? null : String(raw);
+}
+
+/**
+ * Pull the ZIP-level geo id ATTOM's sales-trend endpoint needs. ATTOM returns
+ * `area.geoIdV4` either as a delimited string of type-prefixed codes (e.g.
+ * "ZI06037,CO...") or an object keyed by type. Prefer a ZIP ("ZI") code.
+ */
+function parseAreaGeoId(p: AttomProperty): string | null {
+  const g = p.area?.geoIdV4 ?? p.area?.geoid;
+  if (g == null) return null;
+  if (typeof g === 'object') {
+    const obj = g as Record<string, unknown>;
+    const zip = obj.ZI ?? obj.zip ?? obj.Z1;
+    const first = zip ?? Object.values(obj)[0];
+    return first == null ? null : String(first);
+  }
+  const codes = String(g)
+    .split(',')
+    .map((c) => c.trim())
+    .filter(Boolean);
+  if (!codes.length) return null;
+  return codes.find((c) => c.toUpperCase().startsWith('ZI')) ?? codes[0];
+}
+
 function parseSaleHistory(p: AttomProperty): SaleHistoryEntry[] {
   const price = num(p.sale?.amount?.saleamt);
   const rawDate = p.sale?.saleTransDate ?? p.sale?.salesearchdate;
@@ -104,6 +139,8 @@ export async function getAttomValuation(address: string): Promise<ValuationResul
     confidenceScore: null,
     basics: null,
     saleHistory: [],
+    attomId: null,
+    areaGeoId: null,
     provider: 'attom',
   };
 
@@ -138,6 +175,149 @@ export async function getAttomValuation(address: string): Promise<ValuationResul
     confidenceScore: num(avm?.scr),
     basics: parseBasics(p),
     saleHistory: parseSaleHistory(p),
+    attomId: parseAttomId(p),
+    areaGeoId: parseAreaGeoId(p),
     provider: 'attom',
   };
+}
+
+/**
+ * Area sales trends from ATTOM's sales-trend endpoint (report "Local market"
+ * section). Needs a ZIP-level geo id (captured on the AVM call). Returns null
+ * on any failure so the section simply hides.
+ *
+ * NOTE: ATTOM's trend endpoint path/params vary by plan/version — verify these
+ * against your account when you validate ATTOM on a preview deploy.
+ */
+export async function getAttomAreaTrends(geoIdV4: string): Promise<MarketTrends | null> {
+  if (!geoIdV4) return null;
+  try {
+    const url = new URL(`${ATTOM_BASE}/transaction/salestrend`);
+    url.searchParams.set('geoIdV4', geoIdV4);
+    url.searchParams.set('interval', 'yearly');
+    const res = await fetch(url.toString(), {
+      headers: { apikey: apiKey(), Accept: 'application/json' },
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      salestrend?: Array<{
+        daterange?: { start?: unknown; end?: unknown };
+        yearlyintervalname?: unknown;
+        SalesTrend?: { avgsaleprice?: unknown; medsaleprice?: unknown; homesalecount?: unknown };
+        avgsaleprice?: unknown;
+        medsaleprice?: unknown;
+        homesalecount?: unknown;
+      }>;
+    };
+    const trend = data.salestrend;
+    if (!Array.isArray(trend) || trend.length === 0) return null;
+    // Newest period is typically last; guard either way by sorting on label.
+    const rows = trend.map((t) => ({
+      label:
+        (typeof t.yearlyintervalname === 'string' && t.yearlyintervalname) ||
+        (typeof t.daterange?.end === 'string' ? t.daterange.end.slice(0, 4) : null),
+      median: num(t.SalesTrend?.medsaleprice) ?? num(t.medsaleprice),
+      count: num(t.SalesTrend?.homesalecount) ?? num(t.homesalecount),
+    }));
+    const latest = rows[rows.length - 1];
+    const prior = rows.length > 1 ? rows[rows.length - 2] : null;
+    const yoy =
+      latest.median != null && prior?.median != null && prior.median > 0
+        ? Math.round(((latest.median - prior.median) / prior.median) * 1000) / 10
+        : null;
+    if (latest.median == null && latest.count == null) return null;
+    return {
+      medianSalePrice: latest.median,
+      yoyChangePct: yoy,
+      homeSales: latest.count,
+      periodLabel: latest.label,
+    };
+  } catch (err) {
+    console.error('[attom] getAttomAreaTrends failed:', err);
+    return null;
+  }
+}
+
+/**
+ * Sales comparables for a subject property (by ATTOM id). Used only as a
+ * fallback when there are no RE/MAX Platinum closings for the area. Mapped into
+ * the HomeRecentSale shape so the existing comps grid renders them. Returns []
+ * on any failure.
+ *
+ * NOTE: ATTOM's salescomparables path/version varies by plan — verify on your
+ * account. Comps have no photo, so photoUrl is null.
+ */
+export async function getAttomComps(attomId: string, limit = 6): Promise<HomeRecentSale[]> {
+  if (!attomId) return [];
+  try {
+    const url = new URL(`${ATTOM_BASE}/salescomparables/propid/${encodeURIComponent(attomId)}`);
+    url.searchParams.set('maxComps', String(limit));
+    const res = await fetch(url.toString(), {
+      headers: { apikey: apiKey(), Accept: 'application/json' },
+      cache: 'no-store',
+    });
+    if (!res.ok) return [];
+    const data = (await res.json()) as {
+      RESPONSE_GROUP?: {
+        RESPONSE?: {
+          RESPONSE_DATA?: {
+            PROPERTY_INFORMATION_RESPONSE_ext?: {
+              SUBJECT_PROPERTY_ext?: unknown;
+              COMPARABLE_PROPERTY_ext?: unknown[];
+            };
+          };
+        };
+      };
+      // Some plans return a flatter shape:
+      comparables?: Array<Record<string, unknown>>;
+      property?: AttomProperty[];
+    };
+
+    // Prefer the flat shape when present.
+    const flat = Array.isArray(data.comparables)
+      ? data.comparables
+      : Array.isArray(data.property)
+        ? data.property
+        : [];
+
+    const out: HomeRecentSale[] = [];
+    flat.slice(0, limit).forEach((c, i) => {
+      const rec = c as {
+        address?: { line1?: unknown; oneLine?: unknown };
+        sale?: { amount?: { saleamt?: unknown }; saleTransDate?: unknown };
+        location?: { latitude?: unknown };
+        saleamt?: unknown;
+        saleAmount?: unknown;
+        salePrice?: unknown;
+        address1?: unknown;
+      };
+      const price =
+        num(rec.sale?.amount?.saleamt) ??
+        num(rec.saleamt) ??
+        num(rec.saleAmount) ??
+        num(rec.salePrice);
+      const addr =
+        (typeof rec.address?.oneLine === 'string' && rec.address.oneLine) ||
+        (typeof rec.address?.line1 === 'string' && rec.address.line1) ||
+        (typeof rec.address1 === 'string' && rec.address1) ||
+        'Comparable sale';
+      const rawDate = rec.sale?.saleTransDate;
+      const close = typeof rawDate === 'string' && rawDate ? new Date(rawDate.slice(0, 10)) : null;
+      if (price == null) return;
+      out.push({
+        id: -1 - i, // negative synthetic ids — never collide with DB rows
+        address: addr,
+        soldPrice: price,
+        daysOnMarket: null,
+        closeDate: close && !Number.isNaN(close.getTime()) ? close : null,
+        photoUrl: null,
+        cityName: null,
+      });
+    });
+    return out;
+  } catch (err) {
+    console.error('[attom] getAttomComps failed:', err);
+    return [];
+  }
 }

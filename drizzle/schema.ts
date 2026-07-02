@@ -573,6 +573,8 @@ export const valuations = pgTable(
     lotSizeSqft: integer('lot_size_sqft'),
     propertyType: varchar('property_type', { length: 80 }),
     saleHistory: text('sale_history'), // JSON array of { date, price }
+    attomId: varchar('attom_id', { length: 40 }), // ATTOM property id (comps)
+    areaGeoId: varchar('area_geo_id', { length: 40 }), // ATTOM ZIP geo id (trends)
     latitude: real('latitude'),
     longitude: real('longitude'),
     leadId: integer('lead_id').references(() => leads.id), // set on conversion; reveal gate

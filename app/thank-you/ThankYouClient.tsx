@@ -7,6 +7,7 @@ import { dataLayerPush } from '@/lib/clientAnalytics';
 import { formatCurrency, formatMonthYear } from '@/lib/utils';
 import type { HomeRecentSale } from '@/lib/queries';
 import type { RevealedValuation } from '@/lib/valuationStore';
+import type { MarketTrends } from '@/lib/valuation';
 import type { MarketStat } from '@/drizzle/schema';
 import AppointmentForm from './AppointmentForm';
 
@@ -37,11 +38,15 @@ function withinOfferWindow(): boolean {
 export default function ThankYouClient({
   report,
   comps,
+  compsSource = 'platinum',
+  marketTrends = null,
   snapshot,
   cityName,
 }: {
   report: RevealedValuation | null;
   comps: HomeRecentSale[];
+  compsSource?: 'platinum' | 'area';
+  marketTrends?: MarketTrends | null;
   snapshot: MarketStat | null;
   cityName: string;
 }) {
@@ -220,9 +225,13 @@ export default function ThankYouClient({
           {/* Comps */}
           {topComps.length > 0 ? (
             <div className="mt-5 rounded-card border border-line bg-white p-5">
-              <p className="font-bold text-charcoal">How we calculated this</p>
+              <p className="font-bold text-charcoal">
+                {compsSource === 'area' ? 'Comparable nearby sales' : 'How we calculated this'}
+              </p>
               <p className="text-sm text-mute-light">
-                Built from recent {cityName || 'local'} sales by RE/MAX Platinum.
+                {compsSource === 'area'
+                  ? `Recent comparable sales near ${cityName || 'your home'}.`
+                  : `Built from recent ${cityName || 'local'} sales by RE/MAX Platinum.`}
               </p>
               <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
                 {topComps.map((c) => (
@@ -265,6 +274,30 @@ export default function ThankYouClient({
                 ) : null}
                 {snapshot.homesSold != null ? (
                   <Stat label="Homes sold (12 mo)" value={String(snapshot.homesSold)} />
+                ) : null}
+              </dl>
+            </div>
+          ) : null}
+
+          {/* Local market trends (ATTOM area sales-trend) */}
+          {marketTrends &&
+          (marketTrends.medianSalePrice != null || marketTrends.homeSales != null) ? (
+            <div className="mt-5 rounded-card border border-line bg-white p-5">
+              <p className="font-bold text-charcoal">
+                Local market trends{marketTrends.periodLabel ? ` · ${marketTrends.periodLabel}` : ''}
+              </p>
+              <dl className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-3">
+                {marketTrends.medianSalePrice != null ? (
+                  <Stat label="Median sale price" value={formatCurrency(marketTrends.medianSalePrice)} />
+                ) : null}
+                {marketTrends.yoyChangePct != null ? (
+                  <Stat
+                    label="Year over year"
+                    value={`${marketTrends.yoyChangePct > 0 ? '+' : ''}${marketTrends.yoyChangePct}%`}
+                  />
+                ) : null}
+                {marketTrends.homeSales != null ? (
+                  <Stat label="Homes sold in area" value={marketTrends.homeSales.toLocaleString()} />
                 ) : null}
               </dl>
             </div>
