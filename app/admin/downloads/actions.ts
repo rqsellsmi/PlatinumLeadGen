@@ -10,10 +10,6 @@ function str(v: FormDataEntryValue | null): string | null {
   const s = String(v ?? '').trim();
   return s || null;
 }
-function intOrZero(v: FormDataEntryValue | null): number {
-  const n = Number(v);
-  return Number.isFinite(n) ? Math.trunc(n) : 0;
-}
 /** Split a textarea (one per line) into a JSON array string. */
 function linesToJson(v: FormDataEntryValue | null): string {
   const lines = String(v ?? '')
@@ -40,19 +36,19 @@ function revalidate() {
 function values(formData: FormData) {
   const title = String(formData.get('title') ?? '').trim();
   const fileUrl = String(formData.get('fileUrl') ?? '').trim();
-  if (!title || !fileUrl) throw new Error('Title and file URL are required');
+  if (!title || !fileUrl) throw new Error('Title and a PDF file are required');
+  // coverTitle / pagesLabel / ctaLabel / displayOrder were removed from the form
+  // to simplify it. We intentionally DON'T set them here, so an edit-save leaves
+  // any existing values untouched; unset, they fall back to sensible defaults
+  // (cover uses the title; the button uses "Email me the guide").
   return {
     title,
-    coverTitle: str(formData.get('coverTitle')),
     subtitle: str(formData.get('subtitle')),
     fileUrl,
     coverImageUrl: str(formData.get('coverImageUrl')),
-    pagesLabel: str(formData.get('pagesLabel')),
     bulletsJson: linesToJson(formData.get('bullets')),
-    ctaLabel: str(formData.get('ctaLabel')),
     placement: csvToJson(formData.get('placement')),
     isActive: formData.get('isActive') === 'on',
-    displayOrder: intOrZero(formData.get('displayOrder')),
     updatedAt: new Date(),
   };
 }

@@ -4,6 +4,7 @@ import { guides, locations, type Guide } from '@/drizzle/schema';
 import { Card, CardHeader, CardBody, Button, Input, Label, Textarea, Badge } from '@/components/ui';
 import { requireAdmin } from '@/components/admin/requireAdmin';
 import ResetOnSubmitForm from '@/components/admin/ResetOnSubmitForm';
+import GuideFileUpload from './GuideFileUpload';
 import { createGuide, updateGuide, deleteGuide } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -37,37 +38,28 @@ function placementList(json: string): string[] {
 function Fields({ g, prefix, slugHint }: { g?: Guide; prefix: string; slugHint: string }) {
   return (
     <>
-      <div className="md:col-span-2">
-        <Label htmlFor={`${prefix}-title`}>Headline</Label>
-        <Input id={`${prefix}-title`} name="title" defaultValue={g?.title ?? ''} placeholder="Sell for more, with less stress" required />
-      </div>
-      <div>
-        <Label htmlFor={`${prefix}-pagesLabel`}>Pages label</Label>
-        <Input id={`${prefix}-pagesLabel`} name="pagesLabel" defaultValue={g?.pagesLabel ?? ''} placeholder="24 pages" />
+      <div className="md:col-span-3">
+        <Label htmlFor={`${prefix}-title`}>Title</Label>
+        <Input id={`${prefix}-title`} name="title" defaultValue={g?.title ?? ''} placeholder="The Southeast Michigan Home Seller Guide" required />
       </div>
       <div className="md:col-span-3">
-        <Label htmlFor={`${prefix}-coverTitle`}>Cover title</Label>
-        <Input id={`${prefix}-coverTitle`} name="coverTitle" defaultValue={g?.coverTitle ?? ''} placeholder="The Southeast Michigan Home Seller's Guide" />
-      </div>
-      <div className="md:col-span-3">
-        <Label htmlFor={`${prefix}-subtitle`}>Subtitle</Label>
+        <Label htmlFor={`${prefix}-subtitle`}>Subtitle (optional)</Label>
         <Textarea id={`${prefix}-subtitle`} name="subtitle" rows={2} defaultValue={g?.subtitle ?? ''} />
       </div>
       <div className="md:col-span-3">
-        <Label htmlFor={`${prefix}-bullets`}>Bullets (one per line)</Label>
-        <Textarea id={`${prefix}-bullets`} name="bullets" rows={4} defaultValue={bulletsToText(g?.bulletsJson ?? null)} />
-      </div>
-      <div className="md:col-span-2">
-        <Label htmlFor={`${prefix}-fileUrl`}>PDF file URL</Label>
-        <Input id={`${prefix}-fileUrl`} name="fileUrl" type="url" defaultValue={g?.fileUrl ?? ''} placeholder="https://…/guide.pdf" required />
-      </div>
-      <div>
-        <Label htmlFor={`${prefix}-ctaLabel`}>Button label</Label>
-        <Input id={`${prefix}-ctaLabel`} name="ctaLabel" defaultValue={g?.ctaLabel ?? ''} placeholder="Email me the guide" />
+        <Label htmlFor={`${prefix}-bullets`}>Bullets — one per line (optional)</Label>
+        <Textarea id={`${prefix}-bullets`} name="bullets" rows={3} defaultValue={bulletsToText(g?.bulletsJson ?? null)} />
       </div>
       <div className="md:col-span-3">
-        <Label htmlFor={`${prefix}-coverImageUrl`}>Cover image URL (optional)</Label>
-        <Input id={`${prefix}-coverImageUrl`} name="coverImageUrl" type="url" defaultValue={g?.coverImageUrl ?? ''} />
+        <GuideFileUpload name="fileUrl" label="PDF file" kind="pdf" initialUrl={g?.fileUrl ?? null} required />
+      </div>
+      <div className="md:col-span-3">
+        <GuideFileUpload
+          name="coverImageUrl"
+          label="Cover image (optional)"
+          kind="image"
+          initialUrl={g?.coverImageUrl ?? null}
+        />
       </div>
       <div className="md:col-span-2">
         <Label htmlFor={`${prefix}-placement`}>Show on pages (comma-separated)</Label>
@@ -76,11 +68,7 @@ function Fields({ g, prefix, slugHint }: { g?: Guide; prefix: string; slugHint: 
           Use <code>home</code> for the homepage{slugHint ? `, or a city slug: ${slugHint}` : ''}.
         </p>
       </div>
-      <div>
-        <Label htmlFor={`${prefix}-displayOrder`}>Display order</Label>
-        <Input id={`${prefix}-displayOrder`} name="displayOrder" type="number" step="1" defaultValue={g?.displayOrder ?? 0} />
-      </div>
-      <div className="md:col-span-3">
+      <div className="flex items-end">
         <label className="flex items-center gap-2 text-sm text-charcoal">
           <input type="checkbox" name="isActive" defaultChecked={g ? g.isActive : true} /> Active
         </label>

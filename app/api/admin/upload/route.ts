@@ -20,8 +20,14 @@ export async function POST(request: Request): Promise<NextResponse> {
         const session = await auth();
         if (!session?.user) throw new Error('Unauthorized');
         return {
-          allowedContentTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/avif'],
-          maximumSizeInBytes: 15 * 1024 * 1024, // 15 MB
+          allowedContentTypes: [
+            'image/jpeg',
+            'image/png',
+            'image/webp',
+            'image/avif',
+            'application/pdf', // downloadable guides
+          ],
+          maximumSizeInBytes: 25 * 1024 * 1024, // 25 MB (PDFs run larger than photos)
         };
       },
       // No post-upload work needed; the URL is saved by the client via a server action.
