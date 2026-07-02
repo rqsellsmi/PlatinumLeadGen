@@ -4,7 +4,7 @@ import {
   getFeaturedRecentSales,
   getCityTiles,
   getGuidesForPage,
-  getFeaturedTestimonials,
+  getHomeTestimonials,
 } from '@/lib/queries';
 import { formatNumber } from '@/lib/utils';
 import { HERO_IMAGES } from '@/lib/heroImages';
@@ -37,7 +37,7 @@ export default async function HomePage() {
     getFeaturedRecentSales(6),
     getCityTiles(),
     getGuidesForPage('home'),
-    getFeaturedTestimonials(3),
+    getHomeTestimonials(3),
   ]);
   const guide = guides[0] ?? null;
 
@@ -104,27 +104,32 @@ export default async function HomePage() {
               <div className="mt-12 grid grid-cols-1 gap-6 md:grid-cols-3">
                 {testimonials.map((t) => (
                   <figure key={t.id} className="flex flex-col rounded-xl bg-cream p-9">
-                    <div className="mb-4 flex gap-0.5 text-platinum-red" aria-hidden>
-                      {'★★★★★'.split('').map((s, i) => (
-                        <span key={i}>{s}</span>
+                    <div className="mb-4 flex gap-0.5" aria-hidden>
+                      {[0, 1, 2, 3, 4].map((i) => (
+                        <span
+                          key={i}
+                          className={i < Math.round(t.rating) ? 'text-platinum-red' : 'text-mute-lighter'}
+                        >
+                          ★
+                        </span>
                       ))}
                     </div>
                     <blockquote className="flex-1">
-                      <p className="font-serif text-xl leading-relaxed text-charcoal">
+                      <p className="font-serif text-xl leading-relaxed text-charcoal line-clamp-6">
                         &ldquo;{t.quote}&rdquo;
                       </p>
                     </blockquote>
-                    {t.saleDetails ? (
+                    {t.subLabel && t.source === 'manual' ? (
                       <div className="mt-5">
                         <span className="inline-block rounded-pill border border-line bg-white px-3 py-1.5 text-xs font-bold text-success">
-                          {t.saleDetails}
+                          {t.subLabel}
                         </span>
                       </div>
                     ) : null}
                     <figcaption className="mt-4">
                       <p className="font-bold text-charcoal">{t.clientName}</p>
-                      {t.neighborhood ? (
-                        <p className="text-sm text-mute-light">{t.neighborhood}</p>
+                      {t.source === 'google' ? (
+                        <p className="text-sm text-mute-light">{t.subLabel ?? 'via Google'}</p>
                       ) : null}
                     </figcaption>
                   </figure>

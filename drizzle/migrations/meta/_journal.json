@@ -57,6 +57,13 @@
       "when": 1783400000000,
       "tag": "0007_valuation_attom_ids",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1783500000000,
+      "tag": "0008_google_reviews",
+      "breakpoints": true
     }
   ]
 }

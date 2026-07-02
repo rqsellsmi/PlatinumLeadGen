@@ -14,6 +14,8 @@ import {
   agents,
   closings,
   guides,
+  notificationSettings,
+  googleReviews,
   type Location,
   type MarketStat,
   type Testimonial,
@@ -324,6 +326,94 @@ export async function getGuidesForPage(pageKey: string): Promise<Guide[]> {
 }
 
 /** Featured testimonials across all locations (homepage). */
+/** Unified testimonial for the homepage (manual and/or Google, one shape). */
+export interface HomeTestimonial {
+  id: string;
+  quote: string;
+  clientName: string;
+  subLabel: string | null; // sale details/neighborhood, or "via Google · 2 months ago"
+  rating: number; // 1-5 (manual defaults to 5)
+  source: 'manual' | 'google';
+  photoUrl: string | null;
+}
+
+/** Read the testimonials source setting ('manual' | 'google' | 'both') + place id. */
+export async function getReviewSettings(): Promise<{
+  source: 'manual' | 'google' | 'both';
+  placeId: string | null;
+}> {
+  try {
+    const rows = await db
+      .select({ source: notificationSettings.testimonialSource, placeId: notificationSettings.googlePlaceId })
+      .from(notificationSettings)
+      .limit(1);
+    const source = (rows[0]?.source as 'manual' | 'google' | 'both') ?? 'manual';
+    return { source: ['manual', 'google', 'both'].includes(source) ? source : 'manual', placeId: rows[0]?.placeId ?? null };
+  } catch {
+    return { source: 'manual', placeId: null };
+  }
+}
+
+/**
+ * Homepage testimonials, honoring the admin source toggle. 'both' interleaves
+ * manual and Google reviews for variety. Google reviews are read from the cache
+ * table (populated by the admin refresh), never fetched live here.
+ */
+export async function getHomeTestimonials(limit = 3): Promise<HomeTestimonial[]> {
+  try {
+    const { source, placeId } = await getReviewSettings();
+
+    const manual: HomeTestimonial[] =
+      source === 'google'
+        ? []
+        : (await getFeaturedTestimonials(limit + 2)).map((t) => ({
+            id: `m${t.id}`,
+            quote: t.quote,
+            clientName: t.clientName,
+            subLabel: t.saleDetails ?? t.neighborhood ?? null,
+            rating: 5,
+            source: 'manual' as const,
+            photoUrl: t.photoUrl,
+          }));
+
+    let google: HomeTestimonial[] = [];
+    if ((source === 'google' || source === 'both') && placeId) {
+      const rows = await db
+        .select()
+        .from(googleReviews)
+        .where(eq(googleReviews.placeId, placeId))
+        .orderBy(desc(googleReviews.reviewTime));
+      google = rows
+        .filter((r) => (r.rating ?? 0) >= 4 && (r.text ?? '').trim().length > 0)
+        .map((r) => ({
+          id: `g${r.id}`,
+          quote: r.text ?? '',
+          clientName: r.authorName ?? 'Google reviewer',
+          subLabel: r.relativeTime ? `via Google · ${r.relativeTime}` : 'via Google',
+          rating: r.rating ?? 5,
+          source: 'google' as const,
+          photoUrl: r.profilePhotoUrl,
+        }));
+    }
+
+    let combined: HomeTestimonial[];
+    if (source === 'manual') combined = manual;
+    else if (source === 'google') combined = google;
+    else {
+      combined = [];
+      const max = Math.max(manual.length, google.length);
+      for (let i = 0; i < max; i += 1) {
+        if (manual[i]) combined.push(manual[i]);
+        if (google[i]) combined.push(google[i]);
+      }
+    }
+    return combined.slice(0, limit);
+  } catch (err) {
+    console.warn('[queries] getHomeTestimonials failed:', err);
+    return [];
+  }
+}
+
 export async function getFeaturedTestimonials(limit = 3): Promise<Testimonial[]> {
   try {
     const featured = await db

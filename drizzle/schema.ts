@@ -694,8 +694,34 @@ export const notificationSettings = pgTable('notification_settings', {
   offerWindowEndHour: integer('offer_window_end_hour').notNull().default(20),
   proximityRadiusMiles: integer('proximity_radius_miles').notNull().default(20),
   queuePointer: integer('queue_pointer').notNull().default(0), // round-robin pointer
+  // Testimonials source (Section — reviews): 'manual' | 'google' | 'both'.
+  testimonialSource: varchar('testimonial_source', { length: 10 }).notNull().default('manual'),
+  googlePlaceId: varchar('google_place_id', { length: 200 }), // for Google reviews
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
+
+// ---------------------------------------------------------------------------
+// Cached Google Places reviews. The Places API returns up to 5 reviews per
+// place; we cache them here so public pages don't hit (and pay for) the API on
+// every request. Refreshed by an admin button (and optionally a cron).
+// ---------------------------------------------------------------------------
+export const googleReviews = pgTable(
+  'google_reviews',
+  {
+    id: serial('id').primaryKey(),
+    placeId: varchar('place_id', { length: 200 }).notNull(),
+    authorName: varchar('author_name', { length: 200 }),
+    rating: integer('rating'), // 1-5
+    text: text('text'),
+    relativeTime: varchar('relative_time', { length: 100 }), // "2 months ago"
+    profilePhotoUrl: varchar('profile_photo_url', { length: 500 }),
+    reviewTime: integer('review_time'), // unix seconds — ordering/dedup
+    fetchedAt: timestamp('fetched_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    placeIdx: index('google_reviews_place_idx').on(t.placeId),
+  }),
+);
 
 // ---------------------------------------------------------------------------
 // Inferred types
@@ -729,3 +755,4 @@ export type AgentQueueRow = typeof agentQueue.$inferSelect;
 export type ApiUsageLogRow = typeof apiUsageLogs.$inferSelect;
 export type Valuation = typeof valuations.$inferSelect;
 export type NewValuation = typeof valuations.$inferInsert;
+export type GoogleReviewRow = typeof googleReviews.$inferSelect;
