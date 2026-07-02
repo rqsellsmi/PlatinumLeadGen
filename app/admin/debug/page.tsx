@@ -276,6 +276,42 @@ export default async function AdminDebugPage({
                 </pre>
               </details>
             ) : null}
+
+            {attomProbe.trendVariants.length ? (
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[0.06em] text-mute-lighter">
+                  Sales-trend variants
+                </p>
+                {attomProbe.trendVariants.map((v) => (
+                  <details key={v.label}>
+                    <summary className="cursor-pointer text-sm text-mute">
+                      {v.label} — status {String(v.status)}
+                    </summary>
+                    <pre className="mt-1 max-h-64 overflow-auto rounded-lg bg-offwhite p-3 text-xs">
+                      {v.body || '(empty)'}
+                    </pre>
+                  </details>
+                ))}
+              </div>
+            ) : null}
+
+            {attomProbe.compsVariants.length ? (
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[0.06em] text-mute-lighter">
+                  Sales-comparables path variants
+                </p>
+                {attomProbe.compsVariants.map((v) => (
+                  <details key={v.label}>
+                    <summary className="cursor-pointer text-sm text-mute">
+                      {v.label} — status {String(v.status)}
+                    </summary>
+                    <pre className="mt-1 max-h-64 overflow-auto rounded-lg bg-offwhite p-3 text-xs">
+                      {v.body || '(empty)'}
+                    </pre>
+                  </details>
+                ))}
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>

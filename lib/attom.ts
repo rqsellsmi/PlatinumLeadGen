@@ -309,6 +309,8 @@ export async function probeAttom(address: string): Promise<{
   compsCount: number;
   trendDebug: { url: string; status: number | null; body: string } | null;
   compsDebug: { url: string; status: number | null; body: string } | null;
+  trendVariants: Array<{ label: string; url: string; status: number | null; body: string }>;
+  compsVariants: Array<{ label: string; url: string; status: number | null; body: string }>;
 }> {
   const base = {
     status: null as number | null,
@@ -323,6 +325,8 @@ export async function probeAttom(address: string): Promise<{
     compsCount: 0,
     trendDebug: null as { url: string; status: number | null; body: string } | null,
     compsDebug: null as { url: string; status: number | null; body: string } | null,
+    trendVariants: [] as Array<{ label: string; url: string; status: number | null; body: string }>,
+    compsVariants: [] as Array<{ label: string; url: string; status: number | null; body: string }>,
   };
   try {
     const { address1, address2 } = splitAddress(address);
@@ -356,6 +360,41 @@ export async function probeAttom(address: string): Promise<{
       base.compsCount = (await getAttomComps(base.normalized.attomId, 6).catch(() => [])).length;
       base.compsDebug = await rawGet(salesCompsUrl(base.normalized.attomId, 6));
     }
+
+    // ---- Variant matrix: find the geoid/param/path combo ATTOM actually serves.
+    const HOST = 'https://api.gateway.attomdata.com';
+    const geoidStr =
+      typeof (p?.location as { geoid?: unknown } | undefined)?.geoid === 'string'
+        ? ((p!.location as { geoid?: string }).geoid as string)
+        : '';
+    const codes = geoidStr.split(',').map((c) => c.trim());
+    const zi = codes.find((c) => c.toUpperCase().startsWith('ZI')) ?? null;
+    const co = codes.find((c) => c.toUpperCase().startsWith('CO')) ?? null;
+    const st = (g: string, qs: string) => `${ATTOM_BASE}/salestrend/snapshot?geoid=${g}&${qs}`;
+    const trendTries: Array<[string, string | null]> = [
+      ['ZI yearly 2019-2023', zi ? st(zi, 'interval=yearly&startyear=2019&endyear=2023') : null],
+      ['ZI monthly', zi ? st(zi, 'interval=monthly') : null],
+      ['CO yearly 2019-2023', co ? st(co, 'interval=yearly&startyear=2019&endyear=2023') : null],
+      ['CO monthly', co ? st(co, 'interval=monthly') : null],
+    ];
+    for (const [label, url] of trendTries) {
+      if (url) base.trendVariants.push({ label, ...(await rawGet(url)) });
+    }
+
+    if (base.normalized?.attomId) {
+      const id = base.normalized.attomId;
+      const cq = 'searchType=Radius&minComps=1&maxComps=6&miles=5';
+      const compTries: Array<[string, string]> = [
+        ['propertyapi/v1.0.0/salescomparables/propid', `${HOST}/propertyapi/v1.0.0/salescomparables/propid/${id}?${cq}`],
+        ['property/v3/salescomparables/propid', `${HOST}/property/v3/salescomparables/propid/${id}?${cq}`],
+        ['propertyapi/v4/salescomparables/propid', `${HOST}/propertyapi/v4/salescomparables/propid/${id}?${cq}`],
+        ['property/v2.0.0/salescomparables/address', `${HOST}/property/v2.0.0/salescomparables/address/${encodeURIComponent(address)}?${cq}`],
+      ];
+      for (const [label, url] of compTries) {
+        base.compsVariants.push({ label, ...(await rawGet(url)) });
+      }
+    }
+
     return base;
   } catch (err) {
     base.error = err instanceof Error ? err.message : 'probe error';
