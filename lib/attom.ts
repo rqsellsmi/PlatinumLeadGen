@@ -114,13 +114,18 @@ function pickGeoCode(raw: unknown): string | null {
   );
 }
 
-/** ATTOM puts the geo ids in the `location` block (sometimes `area`). */
+/**
+ * ATTOM puts the geo ids in the `location` block. There are two systems:
+ * `geoid` (readable, e.g. "…, ZI48116") which the v1 sales-trend endpoint
+ * expects, and `geoIdV4` (opaque hashes) used by v4 APIs. Prefer the readable
+ * `geoid` ZIP code so salestrend/snapshot works.
+ */
 function parseAreaGeoId(p: AttomProperty): string | null {
   return (
-    pickGeoCode(p.location?.geoIdV4) ??
     pickGeoCode(p.location?.geoid) ??
-    pickGeoCode(p.area?.geoIdV4) ??
-    pickGeoCode(p.area?.geoid)
+    pickGeoCode(p.area?.geoid) ??
+    pickGeoCode(p.location?.geoIdV4) ??
+    pickGeoCode(p.area?.geoIdV4)
   );
 }
 
@@ -208,6 +213,9 @@ export async function getAttomAreaTrends(geoIdV4: string): Promise<MarketTrends 
     // ATTOM's v1 sales-trend takes `geoid` (type-prefixed code like ZI48116).
     url.searchParams.set('geoid', geoIdV4);
     url.searchParams.set('interval', 'yearly');
+    const endYear = new Date().getFullYear();
+    url.searchParams.set('startyear', String(endYear - 4));
+    url.searchParams.set('endyear', String(endYear));
     const res = await fetch(url.toString(), {
       headers: { apikey: apiKey(), Accept: 'application/json' },
       cache: 'no-store',
