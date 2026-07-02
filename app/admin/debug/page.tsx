@@ -234,10 +234,17 @@ export default async function AdminDebugPage({
               </p>
             </div>
             <details>
-              <summary className="cursor-pointer text-mute">identifier / area / avm (raw JSON)</summary>
+              <summary className="cursor-pointer text-mute">
+                identifier / area / location / avm (raw JSON)
+              </summary>
               <pre className="mt-2 max-h-80 overflow-auto rounded-lg bg-offwhite p-3 text-xs">
                 {JSON.stringify(
-                  { identifier: attomProbe.identifier, area: attomProbe.area, avm: attomProbe.avm },
+                  {
+                    identifier: attomProbe.identifier,
+                    area: attomProbe.area,
+                    location: attomProbe.location,
+                    avm: attomProbe.avm,
+                  },
                   null,
                   2,
                 )}

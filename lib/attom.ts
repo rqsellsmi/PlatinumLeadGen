@@ -53,7 +53,7 @@ function splitAddress(address: string): { address1: string; address2: string } {
 interface AttomProperty {
   identifier?: { attomId?: unknown; Id?: unknown; id?: unknown };
   area?: { geoIdV4?: unknown; geoid?: unknown };
-  location?: { latitude?: unknown; longitude?: unknown };
+  location?: { latitude?: unknown; longitude?: unknown; geoIdV4?: unknown; geoid?: unknown };
   summary?: { yearbuilt?: unknown; proptype?: unknown; propclass?: unknown; propsubtype?: unknown };
   building?: {
     rooms?: { beds?: unknown; bathstotal?: unknown; bathsfull?: unknown };
@@ -91,25 +91,37 @@ function parseAttomId(p: AttomProperty): string | null {
 }
 
 /**
- * Pull the ZIP-level geo id ATTOM's sales-trend endpoint needs. ATTOM returns
- * `area.geoIdV4` either as a delimited string of type-prefixed codes (e.g.
- * "ZI06037,CO...") or an object keyed by type. Prefer a ZIP ("ZI") code.
+ * Pick a geo code from an ATTOM geoIdV4/geoid value. It can be a delimited
+ * string of type-prefixed codes (e.g. "CO26093, ZI48116, PL...") or an object
+ * keyed by type. Prefer ZIP ("ZI"), then county ("CO") for a broader area.
  */
-function parseAreaGeoId(p: AttomProperty): string | null {
-  const g = p.area?.geoIdV4 ?? p.area?.geoid;
-  if (g == null) return null;
-  if (typeof g === 'object') {
-    const obj = g as Record<string, unknown>;
-    const zip = obj.ZI ?? obj.zip ?? obj.Z1;
-    const first = zip ?? Object.values(obj)[0];
-    return first == null ? null : String(first);
+function pickGeoCode(raw: unknown): string | null {
+  if (raw == null) return null;
+  if (typeof raw === 'object') {
+    const obj = raw as Record<string, unknown>;
+    const chosen = obj.ZI ?? obj.zip ?? obj.CO ?? obj.county ?? Object.values(obj)[0];
+    return chosen == null ? null : String(chosen);
   }
-  const codes = String(g)
+  const codes = String(raw)
     .split(',')
     .map((c) => c.trim())
     .filter(Boolean);
   if (!codes.length) return null;
-  return codes.find((c) => c.toUpperCase().startsWith('ZI')) ?? codes[0];
+  return (
+    codes.find((c) => c.toUpperCase().startsWith('ZI')) ??
+    codes.find((c) => c.toUpperCase().startsWith('CO')) ??
+    codes[0]
+  );
+}
+
+/** ATTOM puts the geo ids in the `location` block (sometimes `area`). */
+function parseAreaGeoId(p: AttomProperty): string | null {
+  return (
+    pickGeoCode(p.location?.geoIdV4) ??
+    pickGeoCode(p.location?.geoid) ??
+    pickGeoCode(p.area?.geoIdV4) ??
+    pickGeoCode(p.area?.geoid)
+  );
 }
 
 function parseSaleHistory(p: AttomProperty): SaleHistoryEntry[] {
@@ -192,8 +204,9 @@ export async function getAttomValuation(address: string): Promise<ValuationResul
 export async function getAttomAreaTrends(geoIdV4: string): Promise<MarketTrends | null> {
   if (!geoIdV4) return null;
   try {
-    const url = new URL(`${ATTOM_BASE}/transaction/salestrend`);
-    url.searchParams.set('geoIdV4', geoIdV4);
+    const url = new URL(`${ATTOM_BASE}/salestrend/snapshot`);
+    // ATTOM's v1 sales-trend takes `geoid` (type-prefixed code like ZI48116).
+    url.searchParams.set('geoid', geoIdV4);
     url.searchParams.set('interval', 'yearly');
     const res = await fetch(url.toString(), {
       headers: { apikey: apiKey(), Accept: 'application/json' },
@@ -251,6 +264,7 @@ export async function probeAttom(address: string): Promise<{
   rawKeys: string[];
   identifier: unknown;
   area: unknown;
+  location: unknown;
   avm: unknown;
   normalized: ValuationResult | null;
   trends: MarketTrends | null;
@@ -262,6 +276,7 @@ export async function probeAttom(address: string): Promise<{
     rawKeys: [] as string[],
     identifier: null as unknown,
     area: null as unknown,
+    location: null as unknown,
     avm: null as unknown,
     normalized: null as ValuationResult | null,
     trends: null as MarketTrends | null,
@@ -287,6 +302,7 @@ export async function probeAttom(address: string): Promise<{
       base.rawKeys = Object.keys(p);
       base.identifier = p.identifier ?? null;
       base.area = p.area ?? null;
+      base.location = p.location ?? null;
       base.avm = p.avm ?? null;
     }
     base.normalized = await getAttomValuation(address).catch(() => null);
