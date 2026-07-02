@@ -55,7 +55,7 @@ export default async function AgentDetailPage({ params }: { params: { id: string
             <h2 className="font-bold text-charcoal">Edit details</h2>
           </CardHeader>
           <CardBody>
-            <form action={updateAgent} className="grid grid-cols-2 gap-4">
+            <form action={updateAgent} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <input type="hidden" name="agentId" value={agent.id} />
               <div>
                 <Label htmlFor="firstName">First name</Label>
