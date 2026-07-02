@@ -38,6 +38,10 @@ const RECOMMENDED_GROUPS: Group[] = [
   // needed when that flag is set; RentCast covers the default case.
   { label: 'ATTOM_API_KEY', anyOf: ['ATTOM_API_KEY'] },
   { label: 'NEXT_PUBLIC_GOOGLE_MAPS_API_KEY', anyOf: ['NEXT_PUBLIC_GOOGLE_MAPS_API_KEY'] },
+  // Twilio SMS alerts to agents — optional; email still works without it.
+  { label: 'TWILIO_ACCOUNT_SID', anyOf: ['TWILIO_ACCOUNT_SID'] },
+  { label: 'TWILIO_AUTH_TOKEN', anyOf: ['TWILIO_AUTH_TOKEN'] },
+  { label: 'TWILIO_FROM_NUMBER', anyOf: ['TWILIO_FROM_NUMBER', 'TWILIO_MESSAGING_SERVICE_SID'] },
   { label: 'SITE_URL', anyOf: ['SITE_URL'] },
   { label: 'CRON_SECRET', anyOf: ['CRON_SECRET'] },
   { label: 'REVALIDATE_SECRET', anyOf: ['REVALIDATE_SECRET'] },

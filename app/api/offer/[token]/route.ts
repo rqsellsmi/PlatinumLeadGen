@@ -23,7 +23,10 @@ function siteUrl(): string {
   return process.env.SITE_URL ?? 'https://remax-platinumonline.com';
 }
 
-function htmlPage(title: string, message: string, status: number): NextResponse {
+function htmlPage(title: string, message: string, status: number, ctaHref?: string): NextResponse {
+  const cta = ctaHref
+    ? `<p style="margin-top:24px;"><a href="${ctaHref}" style="display:inline-block;background:#1E3A5F;color:#fff;text-decoration:none;padding:12px 22px;border-radius:999px;font-weight:bold;">Go to the agent portal</a></p>`
+    : '';
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -34,6 +37,7 @@ function htmlPage(title: string, message: string, status: number): NextResponse 
     <div style="padding:32px 28px;">
       <h1 style="margin:0 0 12px;font-size:22px;color:#1E3A5F;">${title}</h1>
       <p style="font-size:16px;line-height:1.5;">${message}</p>
+      ${cta}
     </div>
   </div>
 </body></html>`;
@@ -55,9 +59,11 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
 
     if (!offer || (offer.tokenExpiresAt && offer.tokenExpiresAt.getTime() < now.getTime())) {
       return htmlPage(
-        'Link expired',
-        'This lead offer link is invalid or has expired. Please contact your broker if you have questions.',
+        'This link is no longer active',
+        'This offer link is invalid, expired, or was superseded by a newer assignment. ' +
+          'Sign in to the agent portal to see the leads currently assigned to you.',
         400,
+        `${siteUrl()}/agent/login`,
       );
     }
 
@@ -109,6 +115,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
           'Already responded',
           'This lead offer has already been responded to. If you accepted it, open the agent portal to manage it.',
           200,
+          `${siteUrl()}/agent/login`,
         );
       }
 

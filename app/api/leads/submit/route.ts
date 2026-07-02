@@ -81,6 +81,30 @@ async function discardSessionPartial(sessionId: string, keepLeadId: number) {
   }
 }
 
+/**
+ * Soft-delete any leftover UNNAMED partials at the same address once a real
+ * lead exists for it (keepLeadId). Collapses repeated abandoned valuations at
+ * one address that never got contact info.
+ */
+async function discardAddressPartials(normalizedAddress: string | null, keepLeadId: number) {
+  if (!normalizedAddress) return;
+  try {
+    await db
+      .update(leads)
+      .set({ isDeleted: true, updatedAt: new Date() })
+      .where(
+        and(
+          eq(leads.normalizedAddress, normalizedAddress),
+          eq(leads.isDeleted, false),
+          isNull(leads.email),
+          ne(leads.id, keepLeadId),
+        ),
+      );
+  } catch (err) {
+    console.error('[api/leads/submit] discardAddressPartials failed:', err);
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     if (!(await checkPreset(clientIp(req.headers), 'lead_submit'))) {
@@ -104,6 +128,7 @@ export async function POST(req: NextRequest) {
       await logLeadEvent(contactMatch.id, 'duplicate_submission', `Resubmitted via ${pageVariant} page`);
       await notifyAssignedAgentOfResubmit(contactMatch, email, phone);
       await discardSessionPartial(input.sessionId, contactMatch.id);
+      await discardAddressPartials(normalizedAddressKey(input.propertyAddress), contactMatch.id);
       if (input.valuationToken) await linkValuationToLead(input.valuationToken, contactMatch.id);
       // From Google's perspective the user converted — client still fires the
       // conversion (§D.2). No new lead, no new offer.
@@ -186,6 +211,7 @@ export async function POST(req: NextRequest) {
           await logLeadEvent(addrMatch.id, 'duplicate_submission', `Address resubmitted via ${pageVariant} page`);
           await notifyAssignedAgentOfResubmit(addrMatch, email, phone);
           await discardSessionPartial(input.sessionId, addrMatch.id);
+          await discardAddressPartials(normalizedAddressKey(input.propertyAddress), addrMatch.id);
           if (input.valuationToken) await linkValuationToLead(input.valuationToken, addrMatch.id);
           return NextResponse.json({ success: true, leadId: addrMatch.id, isDuplicate: true });
         }
@@ -209,6 +235,9 @@ export async function POST(req: NextRequest) {
     // Link the stored valuation to this lead — this is the reveal gate for the
     // detailed report page.
     if (input.valuationToken) await linkValuationToLead(input.valuationToken, leadId);
+
+    // Clean up any other unnamed partials at this address (repeat/abandoned entries).
+    await discardAddressPartials(fields.normalizedAddress, leadId);
 
     // Increment social proof count for this location (never decremented).
     if (locationId != null) {

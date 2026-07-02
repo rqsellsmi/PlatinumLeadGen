@@ -338,10 +338,6 @@ export default function ThankYouClient({
         </ol>
       </div>
 
-      <div className="mt-12">
-        <AppointmentForm initialName={name} initialPhone={phone} initialEmail={email} leadId={leadId} />
-      </div>
-
       <div className="mt-10">
         <Card>
           <CardBody className="flex flex-col items-center gap-3 text-center sm:flex-row sm:justify-between sm:text-left">
@@ -354,6 +350,10 @@ export default function ThankYouClient({
             </Button>
           </CardBody>
         </Card>
+      </div>
+
+      <div className="mt-12">
+        <AppointmentForm initialName={name} initialPhone={phone} initialEmail={email} leadId={leadId} />
       </div>
     </>
   );

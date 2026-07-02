@@ -240,6 +240,70 @@ export async function getAttomAreaTrends(geoIdV4: string): Promise<MarketTrends 
 }
 
 /**
+ * Admin diagnostic — hit the live ATTOM AVM endpoint for an address and report
+ * exactly what came back (raw keys, identifier, area, avm) plus what our
+ * normalized result + trends/comps resolve to. Lets us see why an enrichment
+ * isn't populating (e.g. the AVM response has no `area.geoIdV4`).
+ */
+export async function probeAttom(address: string): Promise<{
+  status: number | null;
+  error: string | null;
+  rawKeys: string[];
+  identifier: unknown;
+  area: unknown;
+  avm: unknown;
+  normalized: ValuationResult | null;
+  trends: MarketTrends | null;
+  compsCount: number;
+}> {
+  const base = {
+    status: null as number | null,
+    error: null as string | null,
+    rawKeys: [] as string[],
+    identifier: null as unknown,
+    area: null as unknown,
+    avm: null as unknown,
+    normalized: null as ValuationResult | null,
+    trends: null as MarketTrends | null,
+    compsCount: 0,
+  };
+  try {
+    const { address1, address2 } = splitAddress(address);
+    const url = new URL(`${ATTOM_BASE}/attomavm/detail`);
+    url.searchParams.set('address1', address1);
+    if (address2) url.searchParams.set('address2', address2);
+    const res = await fetch(url.toString(), {
+      headers: { apikey: apiKey(), Accept: 'application/json' },
+      cache: 'no-store',
+    });
+    base.status = res.status;
+    if (!res.ok) {
+      base.error = `HTTP ${res.status}`;
+      return base;
+    }
+    const data = (await res.json()) as { property?: AttomProperty[] };
+    const p = data.property?.[0];
+    if (p) {
+      base.rawKeys = Object.keys(p);
+      base.identifier = p.identifier ?? null;
+      base.area = p.area ?? null;
+      base.avm = p.avm ?? null;
+    }
+    base.normalized = await getAttomValuation(address).catch(() => null);
+    if (base.normalized?.areaGeoId) {
+      base.trends = await getAttomAreaTrends(base.normalized.areaGeoId).catch(() => null);
+    }
+    if (base.normalized?.attomId) {
+      base.compsCount = (await getAttomComps(base.normalized.attomId, 6).catch(() => [])).length;
+    }
+    return base;
+  } catch (err) {
+    base.error = err instanceof Error ? err.message : 'probe error';
+    return base;
+  }
+}
+
+/**
  * Sales comparables for a subject property (by ATTOM id). Used only as a
  * fallback when there are no RE/MAX Platinum closings for the area. Mapped into
  * the HomeRecentSale shape so the existing comps grid renders them. Returns []
