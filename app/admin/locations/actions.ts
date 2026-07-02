@@ -7,23 +7,17 @@ import { locations } from '@/drizzle/schema';
 import { slugifyCity } from '@/lib/utils';
 import { requireAdmin } from '@/components/admin/requireAdmin';
 
-function num(v: FormDataEntryValue | null): number | null {
-  if (v == null || v === '') return null;
-  const n = Number(v);
-  return Number.isNaN(n) ? null : n;
-}
-
 export async function createLocation(formData: FormData) {
   await requireAdmin();
   const name = String(formData.get('name') ?? '').trim();
   if (!name) throw new Error('Name is required');
   const state = String(formData.get('state') ?? '').trim() || 'MI';
+  // No lat/lng collected: location coordinates aren't used anywhere (routing
+  // uses agent + office coordinates).
   await db.insert(locations).values({
     name,
     slug: slugifyCity(name),
     state,
-    latitude: num(formData.get('lat')),
-    longitude: num(formData.get('lng')),
   });
   revalidatePath('/admin/locations');
 }
@@ -38,6 +32,20 @@ export async function updateLocationDistrict(formData: FormData) {
     .set({ schoolDistrict: raw || null, updatedAt: new Date() })
     .where(eq(locations.id, id));
   revalidatePath('/admin/locations');
+}
+
+export async function updateLocationMatchCities(formData: FormData) {
+  await requireAdmin();
+  const id = Number(formData.get('locationId'));
+  if (!id) throw new Error('Invalid location');
+  const raw = String(formData.get('matchCities') ?? '').trim();
+  await db
+    .update(locations)
+    .set({ matchCities: raw || null, updatedAt: new Date() })
+    .where(eq(locations.id, id));
+  revalidatePath('/admin/locations');
+  revalidatePath('/', 'page');
+  revalidatePath('/sell/[slug]', 'page');
 }
 
 export async function toggleLocationActive(formData: FormData) {

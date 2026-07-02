@@ -5,6 +5,8 @@ import { db } from '@/lib/db';
 import { agents, offices, agentScoreLog } from '@/drizzle/schema';
 import { Card, CardHeader, CardBody, Button, Input, Label, Select, Textarea, Badge } from '@/components/ui';
 import { requireAdmin } from '@/components/admin/requireAdmin';
+import ResetOnSubmitForm from '@/components/admin/ResetOnSubmitForm';
+import LocalTime from '@/components/LocalTime';
 import { updateAgent, setAgentPassword, adjustScore, deactivateAgent } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -53,7 +55,7 @@ export default async function AgentDetailPage({ params }: { params: { id: string
             <h2 className="font-bold text-charcoal">Edit details</h2>
           </CardHeader>
           <CardBody>
-            <form action={updateAgent} className="grid grid-cols-2 gap-4">
+            <form action={updateAgent} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <input type="hidden" name="agentId" value={agent.id} />
               <div>
                 <Label htmlFor="firstName">First name</Label>
@@ -103,14 +105,14 @@ export default async function AgentDetailPage({ params }: { params: { id: string
               <h2 className="font-bold text-charcoal">Set password</h2>
             </CardHeader>
             <CardBody>
-              <form action={setAgentPassword} className="flex items-end gap-3">
+              <ResetOnSubmitForm action={setAgentPassword} className="flex items-end gap-3">
                 <input type="hidden" name="agentId" value={agent.id} />
                 <div className="flex-1">
                   <Label htmlFor="password">New password</Label>
                   <Input id="password" name="password" type="password" minLength={8} required />
                 </div>
                 <Button type="submit">Set</Button>
-              </form>
+              </ResetOnSubmitForm>
               <p className="mt-2 text-xs text-mute-light">
                 {agent.passwordHash ? 'A password is currently set.' : 'No password set yet.'}
               </p>
@@ -122,7 +124,7 @@ export default async function AgentDetailPage({ params }: { params: { id: string
               <h2 className="font-bold text-charcoal">Manual score adjustment</h2>
             </CardHeader>
             <CardBody>
-              <form action={adjustScore} className="space-y-3">
+              <ResetOnSubmitForm action={adjustScore} className="space-y-3">
                 <input type="hidden" name="agentId" value={agent.id} />
                 <div>
                   <Label htmlFor="delta">Delta (+/-)</Label>
@@ -133,7 +135,7 @@ export default async function AgentDetailPage({ params }: { params: { id: string
                   <Textarea id="note" name="note" rows={2} required />
                 </div>
                 <Button type="submit">Apply adjustment</Button>
-              </form>
+              </ResetOnSubmitForm>
             </CardBody>
           </Card>
 
@@ -177,7 +179,7 @@ export default async function AgentDetailPage({ params }: { params: { id: string
               {scoreLog.map((row) => (
                 <tr key={row.id} className="border-b border-line-hair last:border-0 hover:bg-offwhite">
                   <td className="px-5 py-3 text-mute-light">
-                    {row.createdAt ? new Date(row.createdAt).toLocaleString('en-US') : '—'}
+                    {row.createdAt ? <LocalTime value={row.createdAt} /> : '—'}
                   </td>
                   <td className="px-5 py-3 text-charcoal">{row.reason}</td>
                   <td

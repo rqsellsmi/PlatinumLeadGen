@@ -3,7 +3,8 @@
 import { revalidatePath } from 'next/cache';
 import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { testimonials } from '@/drizzle/schema';
+import { testimonials, notificationSettings, googleReviews } from '@/drizzle/schema';
+import { fetchGooglePlaceReviews } from '@/lib/googleReviews';
 import { requireAdmin } from '@/components/admin/requireAdmin';
 
 function intOrNull(v: FormDataEntryValue | null): number | null {
@@ -64,5 +65,51 @@ export async function deleteTestimonial(formData: FormData) {
   const id = Number(formData.get('testimonialId'));
   if (!id) throw new Error('Invalid testimonial');
   await db.delete(testimonials).where(eq(testimonials.id, id));
+  revalidate();
+}
+
+/** Save the testimonial source (manual | google | both) + Google Place ID. */
+export async function saveReviewSettings(formData: FormData) {
+  await requireAdmin();
+  const raw = String(formData.get('testimonialSource') ?? 'manual');
+  const source = ['manual', 'google', 'both'].includes(raw) ? raw : 'manual';
+  const placeId = str(formData.get('googlePlaceId'));
+  const rows = await db.select({ id: notificationSettings.id }).from(notificationSettings).limit(1);
+  if (rows[0]) {
+    await db
+      .update(notificationSettings)
+      .set({ testimonialSource: source, googlePlaceId: placeId, updatedAt: new Date() })
+      .where(eq(notificationSettings.id, rows[0].id));
+  } else {
+    await db.insert(notificationSettings).values({ testimonialSource: source, googlePlaceId: placeId });
+  }
+  revalidate();
+}
+
+/** Pull the latest Google reviews for the configured Place ID into the cache. */
+export async function refreshGoogleReviews() {
+  await requireAdmin();
+  const rows = await db
+    .select({ placeId: notificationSettings.googlePlaceId })
+    .from(notificationSettings)
+    .limit(1);
+  const placeId = rows[0]?.placeId ?? null;
+  if (!placeId) throw new Error('Set a Google Place ID and save first');
+
+  const reviews = await fetchGooglePlaceReviews(placeId);
+  await db.delete(googleReviews).where(eq(googleReviews.placeId, placeId));
+  if (reviews.length) {
+    await db.insert(googleReviews).values(
+      reviews.map((r) => ({
+        placeId,
+        authorName: r.authorName,
+        rating: r.rating,
+        text: r.text,
+        relativeTime: r.relativeTime,
+        profilePhotoUrl: r.profilePhotoUrl,
+        reviewTime: r.reviewTime,
+      })),
+    );
+  }
   revalidate();
 }

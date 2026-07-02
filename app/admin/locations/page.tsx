@@ -4,7 +4,8 @@ import { db } from '@/lib/db';
 import { locations } from '@/drizzle/schema';
 import { Card, CardHeader, CardBody, Button, Input, Label, Badge } from '@/components/ui';
 import { requireAdmin } from '@/components/admin/requireAdmin';
-import { createLocation, toggleLocationActive, updateLocationDistrict } from './actions';
+import ResetOnSubmitForm from '@/components/admin/ResetOnSubmitForm';
+import { createLocation, toggleLocationActive, updateLocationMatchCities } from './actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,7 +36,7 @@ export default async function LocationsPage() {
           <h2 className="font-bold text-charcoal">Add location</h2>
         </CardHeader>
         <CardBody>
-          <form action={createLocation} className="grid grid-cols-1 gap-4 md:grid-cols-4">
+          <ResetOnSubmitForm action={createLocation} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <Label htmlFor="name">City name</Label>
               <Input id="name" name="name" required />
@@ -44,19 +45,11 @@ export default async function LocationsPage() {
               <Label htmlFor="state">State</Label>
               <Input id="state" name="state" defaultValue="MI" />
             </div>
-            <div>
-              <Label htmlFor="lat">Latitude</Label>
-              <Input id="lat" name="lat" type="number" step="any" />
-            </div>
-            <div>
-              <Label htmlFor="lng">Longitude</Label>
-              <Input id="lng" name="lng" type="number" step="any" />
-            </div>
-            <div className="md:col-span-4">
+            <div className="sm:col-span-2">
               <Button type="submit">Add location</Button>
               <p className="mt-1 text-xs text-mute-light">Slug is generated automatically from the name.</p>
             </div>
-          </form>
+          </ResetOnSubmitForm>
         </CardBody>
       </Card>
 
@@ -68,7 +61,7 @@ export default async function LocationsPage() {
                 <th className="px-5 py-3 text-left">Name</th>
                 <th className="px-5 py-3 text-left">Slug</th>
                 <th className="px-5 py-3 text-left">State</th>
-                <th className="px-5 py-3 text-left">School District</th>
+                <th className="px-5 py-3 text-left">Covered cities</th>
                 <th className="px-5 py-3 text-left">Status</th>
                 <th className="px-5 py-3 text-left">Editors</th>
                 <th className="px-5 py-3 text-right">Actions</th>
@@ -88,14 +81,14 @@ export default async function LocationsPage() {
                   <td className="px-5 py-3 text-mute-light">{loc.slug}</td>
                   <td className="px-5 py-3 text-mute">{loc.state}</td>
                   <td className="px-5 py-3">
-                    <form action={updateLocationDistrict} className="flex items-center gap-1">
+                    <form action={updateLocationMatchCities} className="flex items-center gap-1">
                       <input type="hidden" name="locationId" value={loc.id} />
                       <Input
-                        name="schoolDistrict"
-                        defaultValue={loc.schoolDistrict ?? ''}
-                        placeholder="District"
-                        className="h-8 w-40 text-xs"
-                        aria-label="School District — used to match closings to this city"
+                        name="matchCities"
+                        defaultValue={loc.matchCities ?? ''}
+                        placeholder={loc.name.split(',')[0].trim()}
+                        className="h-8 w-48 text-xs"
+                        aria-label="Mailing cities this page covers — comma-separated; matches imported closings"
                       />
                       <Button type="submit" size="sm" variant="outline">
                         Save

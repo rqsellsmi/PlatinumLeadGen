@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import LocalTime from '@/components/LocalTime';
 
 interface ScoreEvent {
   id: number;
@@ -103,7 +104,7 @@ export default function ScorePanel() {
                       {e.isNegated ? <span className="ml-2 text-xs text-mute-light">(reversed)</span> : null}
                     </p>
                     <p className="text-xs text-mute-light">
-                      {e.createdAt ? new Date(e.createdAt).toLocaleDateString('en-US') : ''}
+                      <LocalTime value={e.createdAt} dateOnly fallback="" />
                       {e.note ? ` · ${e.note}` : ''}
                     </p>
                   </div>

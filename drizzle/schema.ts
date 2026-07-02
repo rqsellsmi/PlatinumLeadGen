@@ -139,6 +139,9 @@ export const locations = pgTable(
     guideUrl: varchar('guide_url', { length: 500 }), // seller guide PDF (Section 4.3 #6)
     // District name used to match closings to this city for per-location stats (v1.6 §A.2).
     schoolDistrict: varchar('school_district', { length: 200 }),
+    // Comma-separated mailing cities this location covers (matches closings.city).
+    // Null/empty → fall back to the location's own short name.
+    matchCities: text('match_cities'),
     // Social proof + Google review display (Section 3.3 / 3.5).
     socialProofCount: integer('social_proof_count').notNull().default(0),
     googleReviewCount: integer('google_review_count'),
@@ -222,6 +225,8 @@ export const closings = pgTable(
     agentName: varchar('agent_name', { length: 200 }),
     schoolDistrict: varchar('school_district', { length: 200 }), // per-location stats matching
     percentOfListPrice: real('percent_of_list_price'), // sale/list ratio as a percentage
+    // Optional showcase photo for a sale that appears on a recent-sales tile (§import).
+    photoUrl: varchar('photo_url', { length: 500 }),
     uploadBatchId: integer('upload_batch_id')
       .notNull()
       .references(() => uploadBatches.id, { onDelete: 'cascade' }),
@@ -540,6 +545,49 @@ export const apiUsageLogs = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// Valuations — the two-tier gated report store.
+// A row is written when a visitor enters an address (pre-contact). The browser
+// only ever receives the widened ±8% teaser range + basics + `token`. The
+// precise estimate, actual provider range, confidence, and sale history stay
+// server-side. On lead submit we set `leadId`; the report page only reveals the
+// full detail once `leadId` is set — so the gate is enforced server-side and
+// can't be bypassed from the client.
+// ---------------------------------------------------------------------------
+export const valuations = pgTable(
+  'valuations',
+  {
+    id: serial('id').primaryKey(),
+    token: varchar('token', { length: 64 }).notNull(),
+    provider: varchar('provider', { length: 20 }).notNull().default('rentcast'),
+    address: varchar('address', { length: 300 }),
+    estimatedValue: integer('estimated_value'),
+    priceRangeLow: integer('price_range_low'), // actual (tight) provider range
+    priceRangeHigh: integer('price_range_high'),
+    teaserRangeLow: integer('teaser_range_low'), // widened ±8%, shown pre-contact
+    teaserRangeHigh: integer('teaser_range_high'),
+    confidenceScore: integer('confidence_score'),
+    beds: real('beds'),
+    baths: real('baths'),
+    sqft: integer('sqft'),
+    yearBuilt: integer('year_built'),
+    lotSizeSqft: integer('lot_size_sqft'),
+    propertyType: varchar('property_type', { length: 80 }),
+    saleHistory: text('sale_history'), // JSON array of { date, price }
+    attomId: varchar('attom_id', { length: 40 }), // ATTOM property id (comps)
+    areaGeoId: varchar('area_geo_id', { length: 40 }), // ATTOM ZIP geo id (trends)
+    latitude: real('latitude'),
+    longitude: real('longitude'),
+    leadId: integer('lead_id').references(() => leads.id), // set on conversion; reveal gate
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    tokenIdx: uniqueIndex('valuations_token_idx').on(t.token),
+    leadIdx: index('valuations_lead_idx').on(t.leadId),
+    createdIdx: index('valuations_created_idx').on(t.createdAt),
+  }),
+);
+
+// ---------------------------------------------------------------------------
 // Neon-backed fixed-window rate limits (Section 3.3 / 8). No Redis.
 // Composite unique on (ip, endpoint, windowStart) — the background upsert
 // increments hitCount per window. Cron purges rows older than 24h.
@@ -646,8 +694,34 @@ export const notificationSettings = pgTable('notification_settings', {
   offerWindowEndHour: integer('offer_window_end_hour').notNull().default(20),
   proximityRadiusMiles: integer('proximity_radius_miles').notNull().default(20),
   queuePointer: integer('queue_pointer').notNull().default(0), // round-robin pointer
+  // Testimonials source (Section — reviews): 'manual' | 'google' | 'both'.
+  testimonialSource: varchar('testimonial_source', { length: 10 }).notNull().default('manual'),
+  googlePlaceId: varchar('google_place_id', { length: 200 }), // for Google reviews
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
+
+// ---------------------------------------------------------------------------
+// Cached Google Places reviews. The Places API returns up to 5 reviews per
+// place; we cache them here so public pages don't hit (and pay for) the API on
+// every request. Refreshed by an admin button (and optionally a cron).
+// ---------------------------------------------------------------------------
+export const googleReviews = pgTable(
+  'google_reviews',
+  {
+    id: serial('id').primaryKey(),
+    placeId: varchar('place_id', { length: 200 }).notNull(),
+    authorName: varchar('author_name', { length: 200 }),
+    rating: integer('rating'), // 1-5
+    text: text('text'),
+    relativeTime: varchar('relative_time', { length: 100 }), // "2 months ago"
+    profilePhotoUrl: varchar('profile_photo_url', { length: 500 }),
+    reviewTime: integer('review_time'), // unix seconds — ordering/dedup
+    fetchedAt: timestamp('fetched_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    placeIdx: index('google_reviews_place_idx').on(t.placeId),
+  }),
+);
 
 // ---------------------------------------------------------------------------
 // Inferred types
@@ -679,3 +753,6 @@ export type UploadBatch = typeof uploadBatches.$inferSelect;
 export type LeadEvent = typeof leadEvents.$inferSelect;
 export type AgentQueueRow = typeof agentQueue.$inferSelect;
 export type ApiUsageLogRow = typeof apiUsageLogs.$inferSelect;
+export type Valuation = typeof valuations.$inferSelect;
+export type NewValuation = typeof valuations.$inferInsert;
+export type GoogleReviewRow = typeof googleReviews.$inferSelect;

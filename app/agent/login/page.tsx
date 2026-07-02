@@ -43,9 +43,14 @@ function LoginInner() {
           router.push('/agent/leads');
           return;
         }
-        setTokenError('This login link is invalid or expired.');
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        setTokenError(
+          data.error === 'inactive'
+            ? 'Your agent account is inactive. Ask your broker to activate it, then open the link again.'
+            : 'This login link is invalid or expired. Request a new one below.',
+        );
       } catch {
-        if (!cancelled) setTokenError('This login link is invalid or expired.');
+        if (!cancelled) setTokenError('This login link is invalid or expired. Request a new one below.');
       } finally {
         if (!cancelled) setTokenPending(false);
       }

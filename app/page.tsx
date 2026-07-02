@@ -1,20 +1,22 @@
 import type { Metadata } from 'next';
-import Image from 'next/image';
 import {
   getHomepageAggregateStats,
   getFeaturedRecentSales,
   getCityTiles,
   getGuidesForPage,
-  getFeaturedTestimonials,
+  getHomeTestimonials,
 } from '@/lib/queries';
 import { formatNumber } from '@/lib/utils';
+import { HERO_IMAGES } from '@/lib/heroImages';
 import SiteHeader from '@/components/SiteHeader';
 import SiteFooter from '@/components/SiteFooter';
+import HeroBackdrop from '@/components/HeroBackdrop';
 import HeroValuation from '@/components/HeroValuation';
 import HomeMetricsBar from '@/components/home/HomeMetricsBar';
 import HomeRecentSales from '@/components/home/HomeRecentSales';
 import ExploreMarket from '@/components/home/ExploreMarket';
 import GuideDownloadBlock from '@/components/home/GuideDownloadBlock';
+import ValueCta from '@/components/home/ValueCta';
 
 // Render at request time so the page always reflects the live database (the
 // admin pages are already dynamic). ISR can be re-enabled after launch.
@@ -35,7 +37,7 @@ export default async function HomePage() {
     getFeaturedRecentSales(6),
     getCityTiles(),
     getGuidesForPage('home'),
-    getFeaturedTestimonials(3),
+    getHomeTestimonials(3),
   ]);
   const guide = guides[0] ?? null;
 
@@ -45,14 +47,7 @@ export default async function HomePage() {
       <main>
         {/* Hero */}
         <section className="relative isolate flex min-h-[560px] items-center px-5 py-20 sm:px-8 lg:px-12">
-          <Image
-            src="/assets/hero-home.jpg"
-            alt="Michigan homes"
-            fill
-            priority
-            sizes="100vw"
-            className="-z-10 object-cover"
-          />
+          <HeroBackdrop images={HERO_IMAGES} alt="Michigan homes" />
           <div
             aria-hidden
             className="absolute inset-0 -z-10 bg-gradient-to-r from-[rgba(20,20,24,0.78)] via-[rgba(20,20,24,0.55)] to-[rgba(20,20,24,0.3)]"
@@ -109,27 +104,32 @@ export default async function HomePage() {
               <div className="mt-12 grid grid-cols-1 gap-6 md:grid-cols-3">
                 {testimonials.map((t) => (
                   <figure key={t.id} className="flex flex-col rounded-xl bg-cream p-9">
-                    <div className="mb-4 flex gap-0.5 text-platinum-red" aria-hidden>
-                      {'★★★★★'.split('').map((s, i) => (
-                        <span key={i}>{s}</span>
+                    <div className="mb-4 flex gap-0.5" aria-hidden>
+                      {[0, 1, 2, 3, 4].map((i) => (
+                        <span
+                          key={i}
+                          className={i < Math.round(t.rating) ? 'text-platinum-red' : 'text-mute-lighter'}
+                        >
+                          ★
+                        </span>
                       ))}
                     </div>
                     <blockquote className="flex-1">
-                      <p className="font-serif text-xl leading-relaxed text-charcoal">
+                      <p className="font-serif text-xl leading-relaxed text-charcoal line-clamp-6">
                         &ldquo;{t.quote}&rdquo;
                       </p>
                     </blockquote>
-                    {t.saleDetails ? (
+                    {t.subLabel && t.source === 'manual' ? (
                       <div className="mt-5">
                         <span className="inline-block rounded-pill border border-line bg-white px-3 py-1.5 text-xs font-bold text-success">
-                          {t.saleDetails}
+                          {t.subLabel}
                         </span>
                       </div>
                     ) : null}
                     <figcaption className="mt-4">
                       <p className="font-bold text-charcoal">{t.clientName}</p>
-                      {t.neighborhood ? (
-                        <p className="text-sm text-mute-light">{t.neighborhood}</p>
+                      {t.source === 'google' ? (
+                        <p className="text-sm text-mute-light">{t.subLabel ?? 'via Google'}</p>
                       ) : null}
                     </figcaption>
                   </figure>
@@ -138,6 +138,9 @@ export default async function HomePage() {
             </div>
           </section>
         ) : null}
+
+        {/* Closing CTA band */}
+        <ValueCta />
       </main>
       <SiteFooter />
     </>

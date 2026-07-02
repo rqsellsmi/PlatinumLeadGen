@@ -1,28 +1,91 @@
 import Link from 'next/link';
 import Logo from '@/components/Logo';
 
-/** Shared public site footer (Section 15). */
+// Launch communities shown in the footer. Update if the active-city set changes.
+const COMMUNITIES = [
+  { name: 'Brighton', slug: 'brighton-mi' },
+  { name: 'Ann Arbor', slug: 'ann-arbor-mi' },
+  { name: 'Fenton', slug: 'fenton-mi' },
+  { name: 'Grand Blanc', slug: 'grand-blanc-mi' },
+];
+
+/** Shared public site footer — dark, multi-column (Section 15). */
 export default function SiteFooter() {
+  const year = new Date().getFullYear();
   return (
-    <footer className="mt-20 border-t border-line bg-cream">
-      <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-4 py-10 text-sm text-mute sm:flex-row">
-        <Logo variant="blue" width={130} />
-        <nav className="flex items-center gap-6 font-semibold text-charcoal">
-          <Link href="/" className="hover:text-platinum-blue">
-            Home
-          </Link>
-          <Link href="/sell" className="hover:text-platinum-blue">
-            Michigan Cities
-          </Link>
-          <Link href="/privacy" className="hover:text-platinum-blue">
-            Privacy
-          </Link>
-          <Link href="/terms" className="hover:text-platinum-blue">
-            Terms
-          </Link>
-        </nav>
-        <div className="text-mute-light">
-          &copy; {new Date().getFullYear()} RE/MAX Platinum. All rights reserved.
+    <footer className="bg-charcoal">
+      <div className="mx-auto max-w-6xl px-4 py-14">
+        <div className="grid grid-cols-2 gap-10 md:grid-cols-4">
+          <div className="col-span-2 md:col-span-1">
+            <Logo variant="cream" width={150} />
+            <p className="mt-4 max-w-xs text-sm leading-relaxed text-mute-lighter">
+              Serving Brighton, Ann Arbor, Fenton, Grand Blanc, and surrounding areas. Each office
+              independently owned and operated.
+            </p>
+          </div>
+
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-mute-lighter">
+              Explore
+            </p>
+            <ul className="mt-3 space-y-2 text-sm">
+              <li>
+                <Link href="/" className="text-white/85 hover:text-white">
+                  Home values
+                </Link>
+              </li>
+              <li>
+                <Link href="/sell" className="text-white/85 hover:text-white">
+                  Michigan cities
+                </Link>
+              </li>
+              <li>
+                <Link href="/privacy" className="text-white/85 hover:text-white">
+                  Privacy
+                </Link>
+              </li>
+              <li>
+                <Link href="/terms" className="text-white/85 hover:text-white">
+                  Terms
+                </Link>
+              </li>
+            </ul>
+          </div>
+
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-mute-lighter">
+              Communities
+            </p>
+            <ul className="mt-3 space-y-2 text-sm">
+              {COMMUNITIES.map((c) => (
+                <li key={c.slug}>
+                  <Link href={`/sell/${c.slug}`} className="text-white/85 hover:text-white">
+                    {c.name}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-mute-lighter">
+              Contact
+            </p>
+            <address className="mt-3 not-italic text-sm leading-relaxed text-white/85">
+              123 W Grand River Ave
+              <br />
+              Brighton, MI 48116
+              <br />
+              <a href="tel:+18105550199" className="text-[#A3D4F2] hover:underline">
+                (810) 555-0199
+              </a>
+            </address>
+          </div>
+        </div>
+
+        <div className="mt-10 flex flex-wrap items-center justify-between gap-2 border-t border-white/10 pt-6 text-xs text-mute-lighter">
+          <span>&copy; {year} RE/MAX Platinum. All rights reserved. Equal Housing Opportunity.</span>
+          <span>Privacy · Terms · Accessibility</span>
         </div>
       </div>
     </footer>

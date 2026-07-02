@@ -3,10 +3,13 @@ import { db } from '@/lib/db';
 import { offices, type Office } from '@/drizzle/schema';
 import { Card, CardHeader, CardBody, Button, Input, Label } from '@/components/ui';
 import { requireAdmin } from '@/components/admin/requireAdmin';
+import ResetOnSubmitForm from '@/components/admin/ResetOnSubmitForm';
 import { createOffice, updateOffice, deleteOffice } from './actions';
 
 export const dynamic = 'force-dynamic';
 
+// Latitude/longitude are geocoded automatically from the address on save
+// (lib/geocode.ts), so they're not manual fields.
 const FIELDS: { name: keyof Office; label: string; type?: string }[] = [
   { name: 'name', label: 'Name' },
   { name: 'address', label: 'Address' },
@@ -14,8 +17,6 @@ const FIELDS: { name: keyof Office; label: string; type?: string }[] = [
   { name: 'state', label: 'State' },
   { name: 'zip', label: 'Zip' },
   { name: 'phone', label: 'Phone' },
-  { name: 'latitude', label: 'Latitude', type: 'number' },
-  { name: 'longitude', label: 'Longitude', type: 'number' },
 ];
 
 export default async function OfficesPage() {
@@ -34,7 +35,7 @@ export default async function OfficesPage() {
           <h2 className="font-bold text-charcoal">Add office</h2>
         </CardHeader>
         <CardBody>
-          <form action={createOffice} className="grid grid-cols-1 gap-4 md:grid-cols-4">
+          <ResetOnSubmitForm action={createOffice} className="grid grid-cols-1 gap-4 md:grid-cols-4">
             {FIELDS.map((f) => (
               <div key={f.name}>
                 <Label htmlFor={`new-${f.name}`}>{f.label}</Label>
@@ -50,7 +51,7 @@ export default async function OfficesPage() {
             <div className="md:col-span-4">
               <Button type="submit">Add office</Button>
             </div>
-          </form>
+          </ResetOnSubmitForm>
         </CardBody>
       </Card>
 

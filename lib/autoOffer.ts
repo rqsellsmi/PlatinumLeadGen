@@ -16,7 +16,8 @@ import { recommendAgents, type RoutingAgent } from './routing';
 import { getRoutingQueue, persistQueuePointer } from './queue';
 import { isWithinOfferWindow } from './offerWindow';
 import { sendEmail, agentLeadOfferEmail, agentAcceptanceEmail, adminAlertEmail } from './email';
-import { generateMagicLinkToken, magicLinkExpiry } from './agentPortalAuth';
+import { sendSms } from './sms';
+import { generateMagicLinkToken, magicLinkExpiry, isTokenExpired } from './agentPortalAuth';
 import { logLeadEvent } from './leadEvents';
 
 /** Format a price range for emails, e.g. "$398K–$442K". */
@@ -200,12 +201,18 @@ export async function dispatchOfferEmail(offerId: number): Promise<boolean> {
   const sentAt = now;
   const deadline = new Date(sentAt.getTime() + ACCEPTANCE_WINDOW_MS);
 
-  // Refresh agent magic link token for the portal link.
-  const token = generateMagicLinkToken();
-  await db
-    .update(agents)
-    .set({ magicLinkToken: token, magicLinkExpiresAt: magicLinkExpiry(now), updatedAt: now })
-    .where(eq(agents.id, agent.id));
+  // Reuse the agent's current magic-link token when it's still valid, so
+  // previously-emailed portal links keep working; only mint a new one when the
+  // token is missing or expired. (Previously every email clobbered the token,
+  // which silently broke every earlier link — Section 13.2.)
+  let token = agent.magicLinkToken;
+  if (!token || isTokenExpired(agent.magicLinkExpiresAt, now)) {
+    token = generateMagicLinkToken();
+    await db
+      .update(agents)
+      .set({ magicLinkToken: token, magicLinkExpiresAt: magicLinkExpiry(now), updatedAt: now })
+      .where(eq(agents.id, agent.id));
+  }
 
   const base = siteUrl();
   const email = agentLeadOfferEmail({
@@ -224,6 +231,18 @@ export async function dispatchOfferEmail(offerId: number): Promise<boolean> {
     relatedAgentId: agent.id,
   });
   await sendEmail(email);
+
+  // SMS alert (no-op unless Twilio is configured). Keep it short; the accept
+  // link lets the agent claim the lead straight from their phone.
+  try {
+    const cityBit = lead.propertyCity ? ` in ${lead.propertyCity}` : '';
+    await sendSms(
+      agent.phone,
+      `RE/MAX Platinum: new lead${cityBit}. Respond by ${formatEtDeadline(deadline)}. Accept: ${base}/api/offer/${offer.offerToken}?response=accept`,
+    );
+  } catch (err) {
+    console.error('[autoOffer] offer SMS failed:', err);
+  }
 
   await db
     .update(leadOffers)
@@ -344,6 +363,15 @@ export async function manualReassignLead(
       relatedAgentId: agent.id,
     }),
   );
+  try {
+    const cityBit = lead.propertyCity ? ` in ${lead.propertyCity}` : '';
+    await sendSms(
+      agent.phone,
+      `RE/MAX Platinum: you've been assigned a lead${cityBit}. Details in the agent portal: ${siteUrl()}/agent/leads`,
+    );
+  } catch (err) {
+    console.error('[autoOffer] assignment SMS failed:', err);
+  }
 
   return { ok: true, newOfferId, previousOfferClosed };
 }

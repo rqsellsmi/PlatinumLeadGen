@@ -5,8 +5,20 @@
 import { and, desc, eq, gte, sql } from 'drizzle-orm';
 import { db } from './db';
 import { apiUsageLogs } from '../drizzle/schema';
+import { activeProvider } from './valuation';
 
-const SERVICE = 'rentcast';
+/** The provider the dashboard reports on = whichever VALUATION_PROVIDER selects. */
+function service(): string {
+  return activeProvider();
+}
+
+/** Human label + whether it has a metered free tier (RentCast only). */
+export function usageProvider(): { key: string; label: string; hasFreeTier: boolean } {
+  const key = activeProvider();
+  return key === 'attom'
+    ? { key, label: 'ATTOM', hasFreeTier: false }
+    : { key, label: 'RentCast', hasFreeTier: true };
+}
 
 function monthStart(): Date {
   const d = new Date();
@@ -31,7 +43,7 @@ export async function monthUsageStats(): Promise<UsageStats> {
       avg: sql<number | null>`avg(${apiUsageLogs.responseTimeMs})`,
     })
     .from(apiUsageLogs)
-    .where(and(eq(apiUsageLogs.service, SERVICE), gte(apiUsageLogs.createdAt, monthStart())));
+    .where(and(eq(apiUsageLogs.service, service()), gte(apiUsageLogs.createdAt, monthStart())));
   const total = Number(rows[0]?.total ?? 0);
   const successful = Number(rows[0]?.successful ?? 0);
   return {
@@ -59,7 +71,7 @@ export async function dailyUsage(days = 30): Promise<DailyUsage[]> {
       success: sql<number>`sum(case when ${apiUsageLogs.success} then 1 else 0 end)::int`,
     })
     .from(apiUsageLogs)
-    .where(and(eq(apiUsageLogs.service, SERVICE), gte(apiUsageLogs.createdAt, since)))
+    .where(and(eq(apiUsageLogs.service, service()), gte(apiUsageLogs.createdAt, since)))
     .groupBy(sql`to_char(${apiUsageLogs.createdAt}, 'YYYY-MM-DD')`)
     .orderBy(sql`to_char(${apiUsageLogs.createdAt}, 'YYYY-MM-DD')`);
   return rows.map((r) => {
@@ -92,7 +104,7 @@ export async function recentCalls(limit = 50): Promise<RecentCall[]> {
       errorMessage: apiUsageLogs.errorMessage,
     })
     .from(apiUsageLogs)
-    .where(eq(apiUsageLogs.service, SERVICE))
+    .where(eq(apiUsageLogs.service, service()))
     .orderBy(desc(apiUsageLogs.createdAt))
     .limit(limit);
   return rows.map((r) => ({

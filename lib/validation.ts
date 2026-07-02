@@ -51,6 +51,8 @@ export const leadSubmitSchema = z.object({
   estimatedValue: z.number().int().optional().nullable(),
   priceRangeLow: z.number().int().optional().nullable(),
   priceRangeHigh: z.number().int().optional().nullable(),
+  // Opaque token linking this lead to its stored valuation (two-tier report).
+  valuationToken: z.string().max(64).optional().nullable(),
   locationSlug: z.string().max(120).optional().nullable(),
   pageVariant: z.enum(['seo', 'ads']).optional().nullable(),
   ...attributionFields,

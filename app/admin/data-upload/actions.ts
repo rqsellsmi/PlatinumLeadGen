@@ -148,8 +148,10 @@ export async function recomputeMetrics(): Promise<{ ok: boolean; message: string
   await requireAdmin();
   const r = await updateAllMetrics();
   revalidatePath('/admin/data-upload');
+  revalidatePath('/', 'page');
+  revalidatePath('/sell/[slug]', 'page');
   return {
     ok: true,
-    message: `Recomputed from ${r.totalClosings} closings. ${r.locationsUpdated} locations, ${r.recentSalesPopulated} recent sales.`,
+    message: `Recomputed from ${r.totalClosings} closings across ${r.locationsUpdated} locations.`,
   };
 }

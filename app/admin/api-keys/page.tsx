@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { apiKeys } from '@/drizzle/schema';
 import { Card, CardHeader, CardBody, Button, Input, Label, Badge } from '@/components/ui';
 import { requireAdmin } from '@/components/admin/requireAdmin';
+import LocalTime from '@/components/LocalTime';
 import { createApiKey, revokeApiKey } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -81,7 +82,7 @@ export default async function ApiKeysPage({
                     </Badge>
                   </td>
                   <td className="px-5 py-3 text-mute-light">
-                    {key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleString('en-US') : 'Never'}
+                    <LocalTime value={key.lastUsedAt} fallback="Never" />
                   </td>
                   <td className="px-5 py-3 text-right">
                     {key.isActive && (

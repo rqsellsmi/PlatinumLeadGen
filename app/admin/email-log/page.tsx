@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { emailSendLog } from '@/drizzle/schema';
 import { Card, Badge } from '@/components/ui';
 import { requireAdmin } from '@/components/admin/requireAdmin';
+import LocalTime from '@/components/LocalTime';
 
 export const dynamic = 'force-dynamic';
 
@@ -76,7 +77,7 @@ export default async function EmailLogPage({
               {rows.map((r) => (
                 <tr key={r.id} className="hover:bg-offwhite">
                   <td className="whitespace-nowrap px-4 py-2.5 text-mute-light">
-                    {new Date(r.sentAt).toLocaleString('en-US')}
+                    <LocalTime value={r.sentAt} />
                   </td>
                   <td className="px-4 py-2.5">{r.toEmail}</td>
                   <td className="px-4 py-2.5 text-mute">{r.templateName}</td>

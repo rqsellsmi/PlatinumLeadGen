@@ -1,9 +1,23 @@
-import { asc, eq } from 'drizzle-orm';
+import { asc, eq, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { locations, testimonials, type Testimonial, type Location } from '@/drizzle/schema';
+import {
+  locations,
+  testimonials,
+  notificationSettings,
+  googleReviews,
+  type Testimonial,
+  type Location,
+} from '@/drizzle/schema';
 import { Card, CardHeader, CardBody, Button, Input, Label, Textarea, Select, Badge } from '@/components/ui';
 import { requireAdmin } from '@/components/admin/requireAdmin';
-import { createTestimonial, updateTestimonial, deleteTestimonial } from './actions';
+import ResetOnSubmitForm from '@/components/admin/ResetOnSubmitForm';
+import {
+  createTestimonial,
+  updateTestimonial,
+  deleteTestimonial,
+  saveReviewSettings,
+  refreshGoogleReviews,
+} from './actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -77,14 +91,22 @@ function Fields({
 export default async function TestimonialsAdminPage() {
   await requireAdmin();
 
-  const [list, locationList] = await Promise.all([
+  const [list, locationList, settingsRows, googleCountRows] = await Promise.all([
     db
       .select({ t: testimonials, cityName: locations.name })
       .from(testimonials)
       .leftJoin(locations, eq(testimonials.locationId, locations.id))
       .orderBy(asc(locations.name), asc(testimonials.displayOrder), asc(testimonials.id)),
     db.select().from(locations).orderBy(asc(locations.name)),
+    db
+      .select({ source: notificationSettings.testimonialSource, placeId: notificationSettings.googlePlaceId })
+      .from(notificationSettings)
+      .limit(1),
+    db.select({ n: sql<number>`count(*)::int` }).from(googleReviews),
   ]);
+  const reviewSource = settingsRows[0]?.source ?? 'manual';
+  const placeId = settingsRows[0]?.placeId ?? '';
+  const googleCount = Number(googleCountRows[0]?.n ?? 0);
 
   return (
     <div className="space-y-6">
@@ -96,17 +118,62 @@ export default async function TestimonialsAdminPage() {
         </p>
       </div>
 
+      {/* Homepage review source */}
+      <Card>
+        <CardHeader>
+          <h2 className="font-bold text-charcoal">Homepage review source</h2>
+        </CardHeader>
+        <CardBody className="space-y-4">
+          <form action={saveReviewSettings} className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div>
+              <Label htmlFor="testimonialSource">Show on homepage</Label>
+              <Select id="testimonialSource" name="testimonialSource" defaultValue={reviewSource}>
+                <option value="manual">Manual only</option>
+                <option value="google">Google only</option>
+                <option value="both">Both (mixed)</option>
+              </Select>
+            </div>
+            <div className="md:col-span-2">
+              <Label htmlFor="googlePlaceId">Google Place ID</Label>
+              <Input
+                id="googlePlaceId"
+                name="googlePlaceId"
+                defaultValue={placeId}
+                placeholder="ChIJ… (from Google Maps / Place ID Finder)"
+              />
+            </div>
+            <div className="md:col-span-3">
+              <Button type="submit">Save source</Button>
+            </div>
+          </form>
+          <div className="flex flex-wrap items-center gap-3 border-t border-line pt-4">
+            <form action={refreshGoogleReviews}>
+              <Button type="submit" variant="secondary" size="sm">
+                Fetch Google reviews now
+              </Button>
+            </form>
+            <p className="text-sm text-mute-light">
+              {googleCount > 0
+                ? `${googleCount} Google review${googleCount === 1 ? '' : 's'} cached.`
+                : 'No Google reviews cached yet.'}{' '}
+              Google returns up to 5 reviews per place. Requires GOOGLE_MAPS_API_KEY with the Places
+              API enabled.
+            </p>
+          </div>
+        </CardBody>
+      </Card>
+
       <Card>
         <CardHeader>
           <h2 className="font-bold text-charcoal">Add testimonial</h2>
         </CardHeader>
         <CardBody>
-          <form action={createTestimonial} className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <ResetOnSubmitForm action={createTestimonial} className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <Fields prefix="new" locationList={locationList} />
             <div className="md:col-span-3">
               <Button type="submit">Add testimonial</Button>
             </div>
-          </form>
+          </ResetOnSubmitForm>
         </CardBody>
       </Card>
 

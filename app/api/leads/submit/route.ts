@@ -4,12 +4,13 @@
  * confirmation email. (Section 4.7 + v1.6 §C/§D)
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { and, eq, desc, sql } from 'drizzle-orm';
+import { and, eq, desc, sql, isNull, ne } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { leads, locations, leadOffers, agents } from '@/drizzle/schema';
 import { leadSubmitSchema } from '@/lib/validation';
 import { autoOfferLead } from '@/lib/autoOffer';
-import { getValuation } from '@/lib/rentcast';
+import { getValuation } from '@/lib/valuation';
+import { getValuationByToken, linkValuationToLead } from '@/lib/valuationStore';
 import { sendEmail, homeownerConfirmationEmail, leadResubmittedEmail } from '@/lib/email';
 import { checkPreset, clientIp } from '@/lib/rateLimit';
 import { attributionColumns } from '@/lib/attributionServer';
@@ -56,6 +57,54 @@ async function notifyAssignedAgentOfResubmit(lead: Lead, email: string | null, p
   }
 }
 
+/**
+ * Soft-delete the throwaway partial lead created THIS session (via
+ * /api/leads/partial) when the submit turns out to be a duplicate of a lead
+ * captured in another session. Without this the partial lingers in the console
+ * as an "Unnamed lead" at the same address (v1.6 §D).
+ */
+async function discardSessionPartial(sessionId: string, keepLeadId: number) {
+  try {
+    await db
+      .update(leads)
+      .set({ isDeleted: true, updatedAt: new Date() })
+      .where(
+        and(
+          eq(leads.sessionId, sessionId),
+          eq(leads.isDeleted, false),
+          isNull(leads.email), // only the unnamed partial — never a real lead
+          ne(leads.id, keepLeadId),
+        ),
+      );
+  } catch (err) {
+    console.error('[api/leads/submit] discardSessionPartial failed:', err);
+  }
+}
+
+/**
+ * Soft-delete any leftover UNNAMED partials at the same address once a real
+ * lead exists for it (keepLeadId). Collapses repeated abandoned valuations at
+ * one address that never got contact info.
+ */
+async function discardAddressPartials(normalizedAddress: string | null, keepLeadId: number) {
+  if (!normalizedAddress) return;
+  try {
+    await db
+      .update(leads)
+      .set({ isDeleted: true, updatedAt: new Date() })
+      .where(
+        and(
+          eq(leads.normalizedAddress, normalizedAddress),
+          eq(leads.isDeleted, false),
+          isNull(leads.email),
+          ne(leads.id, keepLeadId),
+        ),
+      );
+  } catch (err) {
+    console.error('[api/leads/submit] discardAddressPartials failed:', err);
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     if (!(await checkPreset(clientIp(req.headers), 'lead_submit'))) {
@@ -78,17 +127,32 @@ export async function POST(req: NextRequest) {
     if (contactMatch) {
       await logLeadEvent(contactMatch.id, 'duplicate_submission', `Resubmitted via ${pageVariant} page`);
       await notifyAssignedAgentOfResubmit(contactMatch, email, phone);
+      await discardSessionPartial(input.sessionId, contactMatch.id);
+      await discardAddressPartials(normalizedAddressKey(input.propertyAddress), contactMatch.id);
+      if (input.valuationToken) await linkValuationToLead(input.valuationToken, contactMatch.id);
       // From Google's perspective the user converted — client still fires the
       // conversion (§D.2). No new lead, no new offer.
       return NextResponse.json({ success: true, leadId: contactMatch.id, isDuplicate: true });
     }
 
-    // Valuation fill-in if coordinates missing.
+    // Valuation fill-in. Prefer the server-stored valuation (linked by token)
+    // as the authoritative source — the browser only ever saw the teaser range,
+    // never these precise numbers.
     let propertyLat = input.propertyLat ?? null;
     let propertyLng = input.propertyLng ?? null;
     let estimatedValue = input.estimatedValue ?? null;
     let priceRangeLow = input.priceRangeLow ?? null;
     let priceRangeHigh = input.priceRangeHigh ?? null;
+    if (input.valuationToken) {
+      const stored = await getValuationByToken(input.valuationToken);
+      if (stored) {
+        if (estimatedValue == null) estimatedValue = stored.estimatedValue;
+        if (priceRangeLow == null) priceRangeLow = stored.priceRangeLow;
+        if (priceRangeHigh == null) priceRangeHigh = stored.priceRangeHigh;
+        if (propertyLat == null) propertyLat = stored.latitude;
+        if (propertyLng == null) propertyLng = stored.longitude;
+      }
+    }
     if ((propertyLat == null || propertyLng == null) && input.propertyAddress) {
       try {
         const v = await getValuation(input.propertyAddress);
@@ -146,6 +210,9 @@ export async function POST(req: NextRequest) {
           // Address belongs to an existing contacted lead → duplicate.
           await logLeadEvent(addrMatch.id, 'duplicate_submission', `Address resubmitted via ${pageVariant} page`);
           await notifyAssignedAgentOfResubmit(addrMatch, email, phone);
+          await discardSessionPartial(input.sessionId, addrMatch.id);
+          await discardAddressPartials(normalizedAddressKey(input.propertyAddress), addrMatch.id);
+          if (input.valuationToken) await linkValuationToLead(input.valuationToken, addrMatch.id);
           return NextResponse.json({ success: true, leadId: addrMatch.id, isDuplicate: true });
         }
       }
@@ -164,6 +231,13 @@ export async function POST(req: NextRequest) {
     }
 
     await logLeadEvent(leadId, 'valuation_submitted', input.propertyAddress ?? null);
+
+    // Link the stored valuation to this lead — this is the reveal gate for the
+    // detailed report page.
+    if (input.valuationToken) await linkValuationToLead(input.valuationToken, leadId);
+
+    // Clean up any other unnamed partials at this address (repeat/abandoned entries).
+    await discardAddressPartials(fields.normalizedAddress, leadId);
 
     // Increment social proof count for this location (never decremented).
     if (locationId != null) {

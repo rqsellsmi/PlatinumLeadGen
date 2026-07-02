@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { leads } from '@/drizzle/schema';
 import { Card, CardBody, Button, Input, Select, Label, Badge, statusTone } from '@/components/ui';
 import { requireAdmin } from '@/components/admin/requireAdmin';
+import LocalTime from '@/components/LocalTime';
 import { formatPriceRange, relativeTime } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
@@ -200,7 +201,7 @@ export default async function LeadsPage({
                     <Badge tone={statusTone(lead.status)}>{lead.status}</Badge>
                   </td>
                   <td className="px-5 py-3.5 text-mute-light">
-                    {lead.createdAt ? new Date(lead.createdAt).toLocaleDateString('en-US') : '—'}
+                    {lead.createdAt ? <LocalTime value={lead.createdAt} dateOnly /> : '—'}
                   </td>
                 </tr>
               ))}

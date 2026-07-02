@@ -1,85 +1,87 @@
 /**
- * Metrics recompute from closings (v1.6 §A.4).
+ * Metrics recompute from closings.
  *
  * Called after every successful CSV import and every batch delete, and manually
  * from /admin/data-upload. Recomputes:
- *   - homepage metrics (home_page_metrics, single row)
- *   - per-location market stats (market_stats) matched by school district
- *   - auto-populated recent sales (diff-based; never touches manual rows/photos)
+ *   - homepage metrics (home_page_metrics, single row) — totals are all-time,
+ *     across every imported transaction (both sides); averages use a rolling
+ *     trailing-12-month window (all-time fallback if that window is empty).
+ *   - per-location market stats (market_stats) matched by mailing city
+ *     (locations.match_cities → closings.city), same rolling window.
  *
- * Averages use the 2025 window [2025-01-01, 2026-01-01); if that window is empty
- * for the relevant set, fall back to all-time. Totals use all rows.
+ * Recent-sales tiles are NOT materialized here anymore — the public pages read
+ * them straight from closings (list-side, RS/CO, newest first).
  */
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { db } from './db';
-import {
-  closings,
-  locations,
-  marketStats,
-  homePageMetrics,
-  recentSales,
-  type Closing,
-} from '../drizzle/schema';
+import { closings, locations, marketStats, homePageMetrics, type Closing } from '../drizzle/schema';
 
-const WINDOW_START = new Date('2025-01-01T00:00:00Z');
-const WINDOW_END = new Date('2026-01-01T00:00:00Z');
+const WINDOW_DAYS = 365;
 
 function round(n: number): number {
   return Math.round(n);
 }
 
-/** % of rows sold above list (listPrice present and > 0). 0 when none valid. */
+function shortCity(name: string): string {
+  return name.split(',')[0].trim().toLowerCase();
+}
+
+/** The mailing cities a location covers (falls back to its own short name). */
+function matchSet(loc: { name: string; matchCities: string | null }): Set<string> {
+  const list = (loc.matchCities ?? '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  if (list.length === 0) list.push(shortCity(loc.name));
+  return new Set(list);
+}
+
 function calcPctAboveList(rows: Closing[]): number {
   const valid = rows.filter((r) => r.listPrice != null && r.listPrice > 0);
   if (valid.length === 0) return 0;
   const above = valid.filter((r) => r.salePrice > (r.listPrice as number)).length;
   return round((above / valid.length) * 100);
 }
-
 function calcAvgSalePrice(rows: Closing[]): number {
   if (rows.length === 0) return 0;
-  const sum = rows.reduce((acc, r) => acc + r.salePrice, 0);
-  return round(sum / rows.length);
+  return round(rows.reduce((a, r) => a + r.salePrice, 0) / rows.length);
 }
-
 function calcAvgDaysToSell(rows: Closing[]): number {
   const valid = rows.filter((r) => r.daysOnMarket != null && r.daysOnMarket > 0);
   if (valid.length === 0) return 0;
-  const sum = valid.reduce((acc, r) => acc + (r.daysOnMarket as number), 0);
-  return round(sum / valid.length);
+  return round(valid.reduce((a, r) => a + (r.daysOnMarket as number), 0) / valid.length);
 }
-
 function calcAvgPercentOfList(rows: Closing[]): number {
   const valid = rows.filter((r) => r.percentOfListPrice != null && r.percentOfListPrice > 0);
   if (valid.length === 0) return 0;
-  const sum = valid.reduce((acc, r) => acc + (r.percentOfListPrice as number), 0);
-  return round(sum / valid.length);
+  return round(valid.reduce((a, r) => a + (r.percentOfListPrice as number), 0) / valid.length);
 }
 
-/** Window rows if non-empty, else all rows (all-time fallback). */
+/** Rolling trailing-12-month rows if non-empty, else all rows (fallback). */
 function windowOrAll(all: Closing[]): Closing[] {
-  const win = all.filter((r) => r.closeDate >= WINDOW_START && r.closeDate < WINDOW_END);
+  const start = new Date(Date.now() - WINDOW_DAYS * 86_400_000);
+  const win = all.filter((r) => r.closeDate >= start);
   return win.length > 0 ? win : all;
 }
 
 export interface UpdateMetricsResult {
   totalClosings: number;
   locationsUpdated: number;
-  recentSalesPopulated: number;
 }
 
 export async function updateAllMetrics(): Promise<UpdateMetricsResult> {
   const all = await db.select().from(closings);
 
   // -------- Homepage metrics (single row) --------
+  // Totals: all-time, every transaction. Averages: rolling 12 months.
   const homeSource = windowOrAll(all);
   const homeValues = {
     totalHomesSold: all.length,
-    pctAboveListPrice: calcPctAboveList(all),
     homesSold: homeSource.length,
     avgSalePrice: calcAvgSalePrice(homeSource),
     avgDaysToSell: calcAvgDaysToSell(homeSource),
     avgPercentOfList: calcAvgPercentOfList(homeSource),
+    pctAboveListPrice: calcPctAboveList(homeSource),
     updatedAt: new Date(),
   };
   const existingHome = await db.select({ id: homePageMetrics.id }).from(homePageMetrics).limit(1);
@@ -89,30 +91,22 @@ export async function updateAllMetrics(): Promise<UpdateMetricsResult> {
     await db.insert(homePageMetrics).values(homeValues);
   }
 
-  // -------- Per-location market stats (by school district) --------
-  const locs = await db
-    .select()
-    .from(locations)
-    .where(eq(locations.isActive, true));
+  // -------- Per-location market stats (matched by mailing city) --------
+  const locs = await db.select().from(locations).where(eq(locations.isActive, true));
 
   let locationsUpdated = 0;
-  let recentSalesPopulated = 0;
-
   for (const loc of locs) {
-    if (!loc.schoolDistrict) continue;
-    const district = loc.schoolDistrict.trim().toLowerCase();
-    const districtAll = all.filter(
-      (c) => (c.schoolDistrict ?? '').trim().toLowerCase() === district,
-    );
-    if (districtAll.length === 0) continue; // do not zero out existing stats
+    const cities = matchSet(loc);
+    const matched = all.filter((c) => cities.has((c.city ?? '').trim().toLowerCase()));
+    if (matched.length === 0) continue; // don't zero out existing stats
 
-    const source = windowOrAll(districtAll);
+    const source = windowOrAll(matched);
     const statsValues = {
       avgSalePrice: calcAvgSalePrice(source),
       daysToSell: calcAvgDaysToSell(source),
       homesSold: source.length,
       percentOfListPrice: calcAvgPercentOfList(source),
-      percentAboveList: calcPctAboveList(districtAll),
+      percentAboveList: calcPctAboveList(source),
       updatedAt: new Date(),
     };
     const existingStat = await db
@@ -126,70 +120,13 @@ export async function updateAllMetrics(): Promise<UpdateMetricsResult> {
       await db.insert(marketStats).values({ locationId: loc.id, ...statsValues });
     }
     locationsUpdated += 1;
-
-    // -------- Auto-populate recent sales (diff-based) --------
-    const top3 = districtAll
-      .filter((c) => c.agentRole === 'listing')
-      .sort((a, b) => b.closeDate.getTime() - a.closeDate.getTime())
-      .slice(0, 3);
-    const top3Ids = new Set(top3.map((c) => c.id));
-
-    const existingAuto = await db
-      .select()
-      .from(recentSales)
-      .where(and(eq(recentSales.locationId, loc.id), eq(recentSales.isAutoPopulated, true)));
-    const existingByClosing = new Map(
-      existingAuto.filter((r) => r.closingId != null).map((r) => [r.closingId as number, r]),
-    );
-
-    // Delete auto rows no longer in the top 3 (never touch manual rows).
-    for (const row of existingAuto) {
-      if (row.closingId == null || !top3Ids.has(row.closingId)) {
-        await db.delete(recentSales).where(eq(recentSales.id, row.id));
-      }
-    }
-
-    // Insert / update the current top 3.
-    for (let i = 0; i < top3.length; i++) {
-      const c = top3[i];
-      const existing = existingByClosing.get(c.id);
-      if (existing) {
-        await db
-          .update(recentSales)
-          .set({
-            address: c.address,
-            soldPrice: c.salePrice,
-            daysOnMarket: c.daysOnMarket,
-            closeDate: c.closeDate,
-            displayOrder: i,
-            // Never touch photoUrl on auto-populated rows.
-          })
-          .where(eq(recentSales.id, existing.id));
-      } else {
-        await db.insert(recentSales).values({
-          locationId: loc.id,
-          address: c.address,
-          soldPrice: c.salePrice,
-          daysOnMarket: c.daysOnMarket,
-          closeDate: c.closeDate,
-          photoUrl: null,
-          displayOrder: i,
-          isAutoPopulated: true,
-          closingId: c.id,
-        });
-      }
-      recentSalesPopulated += 1;
-    }
   }
 
-  return { totalClosings: all.length, locationsUpdated, recentSalesPopulated };
+  return { totalClosings: all.length, locationsUpdated };
 }
 
-/** Reset all metrics to empty (used by "Clear All Closings"). */
+/** Reset homepage metrics to empty (used by "Clear All Closings"). */
 export async function resetAllMetrics(): Promise<void> {
-  // Remove auto-populated recent sales (manual rows preserved).
-  await db.delete(recentSales).where(eq(recentSales.isAutoPopulated, true));
-  const now = new Date();
   const existingHome = await db.select({ id: homePageMetrics.id }).from(homePageMetrics).limit(1);
   const empty = {
     totalHomesSold: 0,
@@ -198,7 +135,7 @@ export async function resetAllMetrics(): Promise<void> {
     avgSalePrice: 0,
     avgDaysToSell: 0,
     avgPercentOfList: 0,
-    updatedAt: now,
+    updatedAt: new Date(),
   };
   if (existingHome[0]) {
     await db.update(homePageMetrics).set(empty).where(eq(homePageMetrics.id, existingHome[0].id));
@@ -220,5 +157,4 @@ export function closeDateRange(rows: { closeDate: Date }[]): {
   return { earliest, latest };
 }
 
-// Re-export low-level calcs for potential reuse/testing.
 export { calcPctAboveList, calcAvgSalePrice, calcAvgDaysToSell, calcAvgPercentOfList };

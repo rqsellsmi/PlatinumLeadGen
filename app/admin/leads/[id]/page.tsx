@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { asc, desc, eq } from 'drizzle-orm';
@@ -7,6 +8,7 @@ import { Card, CardHeader, CardBody, Button, Select, Label, Badge, statusTone } 
 import { formatCurrency } from '@/lib/utils';
 import { requireAdmin } from '@/components/admin/requireAdmin';
 import OfferHistory, { type OfferHistoryItem, type AgentOption } from '@/components/admin/OfferHistory';
+import LocalTime from '@/components/LocalTime';
 import { updateLeadStatus, softDeleteLead, reassignLeadAction } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -136,10 +138,7 @@ export default async function LeadDetailPage({ params }: { params: { id: string 
                     : null
                 }
               />
-              <Field
-                label="Created"
-                value={lead.createdAt ? new Date(lead.createdAt).toLocaleString('en-US') : null}
-              />
+              <Field label="Created" value={<LocalTime value={lead.createdAt} />} />
             </dl>
           </CardBody>
         </Card>
@@ -212,14 +211,8 @@ export default async function LeadDetailPage({ params }: { params: { id: string 
               <Field label="gclid" value={lead.gclid} />
               <Field label="Referrer" value={lead.referrer} />
               <Field label="Landing page" value={lead.landingPageUrl} />
-              <Field
-                label="First seen"
-                value={lead.firstSeenAt ? new Date(lead.firstSeenAt).toLocaleString('en-US') : null}
-              />
-              <Field
-                label="Last seen"
-                value={lead.lastSeenAt ? new Date(lead.lastSeenAt).toLocaleString('en-US') : null}
-              />
+              <Field label="First seen" value={<LocalTime value={lead.firstSeenAt} />} />
+              <Field label="Last seen" value={<LocalTime value={lead.lastSeenAt} />} />
             </dl>
           ) : (
             <p className="text-sm text-mute">No attribution captured for this lead.</p>
@@ -243,7 +236,7 @@ export default async function LeadDetailPage({ params }: { params: { id: string 
                     <p className="font-semibold text-charcoal">{formatEventType(e.eventType)}</p>
                     {e.note ? <p className="text-mute">{e.note}</p> : null}
                     <p className="text-xs text-mute-light">
-                      {e.createdAt ? new Date(e.createdAt).toLocaleString('en-US') : ''}
+                      <LocalTime value={e.createdAt} fallback="" />
                     </p>
                   </div>
                 </li>
@@ -260,11 +253,11 @@ function formatEventType(t: string): string {
   return t.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function Field({ label, value }: { label: string; value: string | null | undefined }) {
+function Field({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div>
       <dt className="text-xs uppercase tracking-wide text-mute-light">{label}</dt>
-      <dd className="text-charcoal">{value || '—'}</dd>
+      <dd className="text-charcoal">{value == null || value === '' ? '—' : value}</dd>
     </div>
   );
 }

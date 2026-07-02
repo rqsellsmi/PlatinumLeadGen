@@ -4,20 +4,90 @@ import Link from 'next/link';
 import SiteHeader from '@/components/SiteHeader';
 import SiteFooter from '@/components/SiteFooter';
 import ThankYouClient from './ThankYouClient';
+import {
+  getLocationBySlug,
+  getMarketStats,
+  getCityRecentSales,
+  getFeaturedRecentSales,
+  locationMatchCities,
+  type HomeRecentSale,
+} from '@/lib/queries';
+import { getRevealedValuation, type RevealedValuation } from '@/lib/valuationStore';
+import type { MarketTrends } from '@/lib/valuation';
+import type { MarketStat } from '@/drizzle/schema';
+
+export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: 'Thank You | RE/MAX Platinum',
-  description: 'Thanks for your request. A RE/MAX Platinum agent will be in touch shortly.',
+  title: 'Your Home Valuation Report | RE/MAX Platinum',
+  description: 'Your personalized home valuation report from RE/MAX Platinum.',
   robots: { index: false, follow: false },
 };
 
-export default function ThankYouPage() {
+export default async function ThankYouPage({
+  searchParams,
+}: {
+  searchParams: { city?: string; v?: string };
+}) {
+  const citySlug = (searchParams.city ?? '').trim();
+  const token = (searchParams.v ?? '').trim();
+
+  let cityName = '';
+  let snapshot: MarketStat | null = null;
+  let comps: HomeRecentSale[] = [];
+  let compsSource: 'platinum' | 'area' = 'platinum';
+  let marketTrends: MarketTrends | null = null;
+
+  // Reveal the full valuation ONLY if the token maps to a converted lead.
+  const report: RevealedValuation | null = token ? await getRevealedValuation(token) : null;
+
+  if (citySlug) {
+    const loc = await getLocationBySlug(citySlug);
+    if (loc) {
+      cityName = loc.name.split(',')[0].trim();
+      [snapshot, comps] = await Promise.all([
+        getMarketStats(loc.id),
+        getCityRecentSales(locationMatchCities(loc), 6),
+      ]);
+    }
+  }
+  if (comps.length === 0) comps = await getFeaturedRecentSales(6);
+
+  // ATTOM enrichments — only for a revealed (converted) ATTOM valuation, so
+  // billable calls are bounded to real leads. Gated behind env flags because
+  // Sales Trend / Sales Comparables are separate ATTOM products; enable them
+  // (ATTOM_ENABLE_TRENDS=1 / ATTOM_ENABLE_COMPS=1) once your plan includes them
+  // so we don't make failing calls in the meantime. Both degrade to nothing.
+  const trendsEnabled = process.env.ATTOM_ENABLE_TRENDS === '1';
+  const compsEnabled = process.env.ATTOM_ENABLE_COMPS === '1';
+  if (report?.provider === 'attom' && (trendsEnabled || compsEnabled)) {
+    const { getAttomAreaTrends, getAttomComps } = await import('@/lib/attom');
+    if (trendsEnabled && report.areaGeoId) {
+      marketTrends = await getAttomAreaTrends(report.areaGeoId).catch(() => null);
+    }
+    // Fallback comps only when we have no RE/MAX Platinum closings to show.
+    if (compsEnabled && comps.length === 0 && report.attomId) {
+      const attomComps = await getAttomComps(report.attomId, 6).catch(() => []);
+      if (attomComps.length) {
+        comps = attomComps;
+        compsSource = 'area';
+      }
+    }
+  }
+
   return (
     <>
       <SiteHeader />
-      <main className="mx-auto max-w-2xl px-4 py-16">
+      <main className="mx-auto max-w-3xl px-4 py-12 sm:py-16">
         <Suspense fallback={null}>
-          <ThankYouClient />
+          <ThankYouClient
+            report={report}
+            comps={comps}
+            compsSource={compsSource}
+            marketTrends={marketTrends}
+            snapshot={snapshot}
+            cityName={cityName}
+          />
         </Suspense>
         <div className="mt-10 text-center">
           <Link href="/" className="text-sm font-semibold text-platinum-blue hover:underline">
