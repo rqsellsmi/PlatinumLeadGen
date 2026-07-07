@@ -104,9 +104,17 @@ export const agents = pgTable(
     email: varchar('email', { length: 200 }).notNull(),
     phone: varchar('phone', { length: 40 }),
     officeId: integer('office_id').references(() => offices.id),
-    // Own coordinates preferred; office coordinates used as fallback in routing.
+    // Proximity anchor for lead routing: 'office' (use the agent's office
+    // coordinates) or 'custom' (use the geocoded personal location below).
+    proximityAnchor: varchar('proximity_anchor', { length: 10 }).notNull().default('office'),
+    // Personal location the agent accepts leads around, entered as a city name
+    // and geocoded into latitude/longitude on save (used when anchor='custom').
+    locationCity: varchar('location_city', { length: 200 }),
     latitude: real('latitude'),
     longitude: real('longitude'),
+    // How far (miles) the agent will accept leads from their anchor. Null falls
+    // back to the brokerage default (notification_settings.proximityRadiusMiles).
+    proximityRadiusMiles: real('proximity_radius_miles'),
     score: real('score').notNull().default(50), // v1.6 §E.2/§J: new agents start at 50
     // Admin-controlled membership.
     isActive: boolean('is_active').notNull().default(true),

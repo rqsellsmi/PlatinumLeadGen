@@ -85,6 +85,13 @@
       "when": 1783800000000,
       "tag": "0011_location_office",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1783900000000,
+      "tag": "0012_agent_proximity",
+      "breakpoints": true
     }
   ]
 }

@@ -36,13 +36,20 @@ function siteUrl(): string {
   return process.env.SITE_URL ?? 'https://remax-platinumonline.com';
 }
 
-/** Load active agents with effective coordinates (own preferred, office fallback). */
+/**
+ * Load active+available agents with their effective proximity anchor: the
+ * agent's geocoded custom location when they chose 'custom' (and it geocoded),
+ * otherwise their office coordinates. Also carries each agent's own acceptance
+ * radius (null → global default applied in routing).
+ */
 export async function getActiveRoutingAgents(): Promise<RoutingAgent[]> {
   const rows = await db
     .select({
       id: agents.id,
+      anchor: agents.proximityAnchor,
       lat: agents.latitude,
       lng: agents.longitude,
+      radius: agents.proximityRadiusMiles,
       score: agents.score,
       officeLat: offices.latitude,
       officeLng: offices.longitude,
@@ -53,12 +60,16 @@ export async function getActiveRoutingAgents(): Promise<RoutingAgent[]> {
     // paused their own lead routing (Section 16.3).
     .where(and(eq(agents.isActive, true), eq(agents.isAvailable, true)));
 
-  return rows.map((r) => ({
-    id: r.id,
-    lat: r.lat ?? r.officeLat ?? null,
-    lng: r.lng ?? r.officeLng ?? null,
-    score: r.score ?? 0,
-  }));
+  return rows.map((r) => {
+    const useCustom = r.anchor === 'custom' && r.lat != null && r.lng != null;
+    return {
+      id: r.id,
+      lat: useCustom ? r.lat : r.officeLat ?? null,
+      lng: useCustom ? r.lng : r.officeLng ?? null,
+      score: r.score ?? 0,
+      radiusMiles: r.radius ?? null,
+    };
+  });
 }
 
 /** Read (or lazily create) the single notificationSettings row. */

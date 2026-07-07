@@ -14,7 +14,7 @@
 import { eq } from 'drizzle-orm';
 import { db } from './db';
 import { agentQueue } from '../drizzle/schema';
-import { buildRotationList, type RoutingAgent } from './routing';
+import { buildRotationList, reconcileRotation, type RoutingAgent } from './routing';
 
 export interface QueueRow {
   id: number;
@@ -48,40 +48,35 @@ async function writeQueue(rotationList: number[], id: number | null): Promise<vo
   }
 }
 
-function sameSet(a: number[], b: number[]): boolean {
-  const sa = new Set(a);
-  const sb = new Set(b);
-  if (sa.size !== sb.size) return false;
-  for (const x of sa) if (!sb.has(x)) return false;
+function sameOrder(a: number[], b: number[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
   return true;
 }
 
 /**
- * Get the routing queue, auto-rebuilding (freshly interleaved) when the
- * routable-agent set changed. `available` = active AND available agents (already
- * filtered by the caller). Pointer is always 0 — the list front is "next".
+ * Get the routing queue, RECONCILING it with the current routable set in place
+ * rather than rebuilding from scratch — so the live order and move-to-back
+ * progress survive roster/score changes (new agents weave in; removed agents
+ * and score-decrease extras drop out). `available` = active AND available agents
+ * (already filtered by the caller). Pointer is always 0 — front is "next".
  */
 export async function getRoutingQueue(
   available: RoutingAgent[],
 ): Promise<{ rotationList: number[]; pointer: number }> {
   const current = await readQueue();
-  const freshList = buildRotationList(available);
-  const availIds = available.map((a) => a.id);
 
   if (!current) {
+    const freshList = buildRotationList(available);
     await writeQueue(freshList, null);
     return { rotationList: freshList, pointer: 0 };
   }
 
-  const distinctCurrent = Array.from(new Set(current.rotationList));
-  if (!sameSet(distinctCurrent, availIds)) {
-    // Roster changed (e.g. an agent activated) — rebuild interleaved so new
-    // agents' slots weave in rather than clustering at the end.
-    await writeQueue(freshList, current.id);
-    return { rotationList: freshList, pointer: 0 };
+  const reconciled = reconcileRotation(current.rotationList, available);
+  if (!sameOrder(reconciled, current.rotationList)) {
+    await writeQueue(reconciled, current.id);
   }
-
-  return { rotationList: current.rotationList, pointer: 0 };
+  return { rotationList: reconciled, pointer: 0 };
 }
 
 /** Persist the mutated rotation list returned by recommendAgents. */

@@ -85,12 +85,41 @@ export default async function AgentDetailPage({ params }: { params: { id: string
                 </Select>
               </div>
               <div>
-                <Label htmlFor="lat">Latitude</Label>
-                <Input id="lat" name="lat" type="number" step="any" defaultValue={agent.latitude ?? ''} />
+                <Label htmlFor="proximityAnchor">Measure distance from</Label>
+                <Select
+                  id="proximityAnchor"
+                  name="proximityAnchor"
+                  defaultValue={agent.proximityAnchor}
+                >
+                  <option value="office">Office</option>
+                  <option value="custom">A city</option>
+                </Select>
               </div>
               <div>
-                <Label htmlFor="lng">Longitude</Label>
-                <Input id="lng" name="lng" type="number" step="any" defaultValue={agent.longitude ?? ''} />
+                <Label htmlFor="radiusMiles">Accept within (mi)</Label>
+                <Input
+                  id="radiusMiles"
+                  name="radiusMiles"
+                  type="number"
+                  min="1"
+                  step="1"
+                  defaultValue={agent.proximityRadiusMiles ?? ''}
+                  placeholder="Brokerage default"
+                />
+              </div>
+              <div className="col-span-2">
+                <Label htmlFor="locationCity">City (used when anchor is “A city”)</Label>
+                <Input
+                  id="locationCity"
+                  name="locationCity"
+                  defaultValue={agent.locationCity ?? ''}
+                  placeholder="e.g. Ann Arbor, MI"
+                />
+                {agent.proximityAnchor === 'custom' && agent.latitude == null ? (
+                  <p className="mt-1 text-xs text-platinum-red">
+                    City hasn&rsquo;t geocoded — routing falls back to the office anchor.
+                  </p>
+                ) : null}
               </div>
               <div className="col-span-2">
                 <Button type="submit">Save changes</Button>

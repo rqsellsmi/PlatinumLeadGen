@@ -3,6 +3,7 @@ import {
   haversine,
   slotCountForScore,
   buildRotationList,
+  reconcileRotation,
   recommendAgents,
   type RoutingAgent,
 } from '../lib/routing';
@@ -52,6 +53,41 @@ describe('buildRotationList', () => {
     const pos = list.indexOf(2);
     expect(pos).toBeGreaterThan(0);
     expect(pos).toBeLessThan(list.length - 1);
+  });
+});
+
+describe('reconcileRotation', () => {
+  const A = (id: number, score: number): RoutingAgent => ({ id, lat: 0, lng: 0, score });
+
+  it('no change returns the same order', () => {
+    const current = [1, 1, 2, 1];
+    const available = [A(1, 30), A(2, 0)]; // 3 and 1 slots
+    expect(reconcileRotation(current, available)).toEqual(current);
+  });
+
+  it('preserves the live order and weaves a new agent in (not at the end)', () => {
+    // Mid-cycle queue for agent 1 (3 slots) after some move-to-back churn.
+    const current = [1, 1, 1];
+    const available = [A(1, 30), A(2, 0)]; // agent 2 is newly activated (1 slot)
+    const next = reconcileRotation(current, available);
+    // Agent 1's three slots stay in order; agent 2 appears once, not appended last.
+    expect(next.filter((id) => id === 1)).toEqual([1, 1, 1]);
+    expect(next.filter((id) => id === 2)).toHaveLength(1);
+    expect(next[next.length - 1]).toBe(1); // woven in, not stuck at the very end
+  });
+
+  it('drops slots for an agent who is no longer available', () => {
+    const current = [1, 2, 1, 2];
+    const available = [A(1, 15)]; // agent 2 gone; agent 1 keeps 2 slots
+    expect(reconcileRotation(current, available)).toEqual([1, 1]);
+  });
+
+  it('drops extra slots when a score decreases (keeps the earliest)', () => {
+    const current = [1, 1, 1, 2];
+    const available = [A(1, 0), A(2, 0)]; // agent 1 now 1 slot
+    const next = reconcileRotation(current, available);
+    expect(next.filter((id) => id === 1)).toHaveLength(1);
+    expect(next.filter((id) => id === 2)).toHaveLength(1);
   });
 });
 
@@ -108,6 +144,28 @@ describe('recommendAgents', () => {
     });
     expect(r.agentId).toBe(1);
     expect(r.rotationList).toEqual([2, 1]); // 1 served -> moved to back
+  });
+
+  it('per-agent radius: an own radius smaller than the distance drops the proximity match', () => {
+    const r = recommendAgents({
+      agents: [{ ...far, radiusMiles: 10 }], // ~35mi away but only willing to go 10
+      propertyLat: 42.5295,
+      propertyLng: -83.7799,
+      radiusMiles: 100, // global default would have included them
+    });
+    expect(r.agentId).toBe(2); // still served via fallback
+    expect(r.usedProximity).toBe(false);
+  });
+
+  it('per-agent radius: a generous own radius keeps a farther agent in the pool', () => {
+    const r = recommendAgents({
+      agents: [{ ...far, radiusMiles: 100 }], // ~35mi away, willing to go 100
+      propertyLat: 42.5295,
+      propertyLng: -83.7799,
+      radiusMiles: 20, // global default would have excluded them
+    });
+    expect(r.agentId).toBe(2);
+    expect(r.usedProximity).toBe(true);
   });
 
   it('proximity fallback: empty pool -> serves the front slot', () => {

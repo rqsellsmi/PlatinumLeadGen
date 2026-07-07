@@ -35,11 +35,13 @@ export function slotCountForScore(score: number): number {
 
 export interface RoutingAgent {
   id: number;
-  /** Effective latitude (own preferred, office fallback) — may be null. */
+  /** Effective latitude (custom anchor or office) — may be null. */
   lat: number | null;
-  /** Effective longitude (own preferred, office fallback) — may be null. */
+  /** Effective longitude (custom anchor or office) — may be null. */
   lng: number | null;
   score: number;
+  /** Per-agent acceptance radius in miles. Undefined → use the global default. */
+  radiusMiles?: number | null;
 }
 
 /**
@@ -63,6 +65,51 @@ export function buildRotationList(agents: RoutingAgent[]): number[] {
     }
   }
   slots.sort((a, b) => a.pos - b.pos || a.id - b.id);
+  return slots.map((s) => s.id);
+}
+
+/**
+ * Reconcile an existing queue with the current routable set WITHOUT rebuilding
+ * from scratch — preserving the live order (and move-to-back progress). Existing
+ * slots keep their relative order; extras from a score decrease and slots for
+ * now-unavailable agents are dropped; new agents (or extra slots from a score
+ * increase) are woven in evenly rather than appended at the end.
+ */
+export function reconcileRotation(current: number[], available: RoutingAgent[]): number[] {
+  const desired = new Map<number, number>();
+  for (const a of available) desired.set(a.id, slotCountForScore(a.score));
+
+  // Keep existing occurrences up to the desired count, preserving order.
+  const keptCount = new Map<number, number>();
+  const kept: number[] = [];
+  for (const id of current) {
+    const want = desired.get(id) ?? 0;
+    const have = keptCount.get(id) ?? 0;
+    if (have < want) {
+      kept.push(id);
+      keptCount.set(id, have + 1);
+    }
+  }
+
+  // Additions: brand-new agents, or extra slots from a score increase. Give each
+  // agent's additions evenly-spaced positions; existing slots hold their order.
+  const slots: { id: number; pos: number; isNew: boolean }[] = kept.map((id, i) => ({
+    id,
+    pos: kept.length > 0 ? (i + 0.5) / kept.length : 0,
+    isNew: false,
+  }));
+  let anyAdd = false;
+  for (const a of available) {
+    const add = (desired.get(a.id) ?? 0) - (keptCount.get(a.id) ?? 0);
+    for (let k = 0; k < add; k++) {
+      anyAdd = true;
+      slots.push({ id: a.id, pos: (k + 0.5) / add, isNew: true });
+    }
+  }
+  if (!anyAdd) return kept;
+
+  // Stable merge by position; ties keep existing slots ahead of new ones.
+  slots.sort((x, y) => x.pos - y.pos || Number(x.isNew) - Number(y.isNew) || x.id - y.id);
   return slots.map((s) => s.id);
 }
 
@@ -134,21 +181,18 @@ export function recommendAgents(params: RecommendParams): RecommendResult {
 
   const hasLeadCoords = propertyLat != null && propertyLng != null;
 
-  // Distance map (only when lead + agent both have coordinates).
+  // Distance map + proximity pool — each agent is in the pool when the lead is
+  // within THAT agent's own radius (falling back to the global default). Empty
+  // if no lead coords.
   const distanceById = new Map<number, number>();
+  const proximityPool = new Set<number>();
   if (hasLeadCoords) {
     for (const a of eligible) {
       if (a.lat != null && a.lng != null) {
-        distanceById.set(a.id, haversine(propertyLat!, propertyLng!, a.lat, a.lng));
+        const dist = haversine(propertyLat!, propertyLng!, a.lat, a.lng);
+        distanceById.set(a.id, dist);
+        if (dist <= (a.radiusMiles ?? radiusMiles)) proximityPool.add(a.id);
       }
-    }
-  }
-
-  // Proximity pool — agents within radius. Empty if no lead coords.
-  const proximityPool = new Set<number>();
-  if (hasLeadCoords) {
-    for (const [id, dist] of distanceById) {
-      if (dist <= radiusMiles) proximityPool.add(id);
     }
   }
 
