@@ -27,6 +27,9 @@ function officeValues(formData: FormData) {
     state: str(formData.get('state')),
     zip: str(formData.get('zip')),
     phone: str(formData.get('phone')),
+    // Each office has its own Google Business Profile; reviews are fetched per
+    // office by this Place ID (Admin → Testimonials → "Fetch Google reviews now").
+    googlePlaceId: str(formData.get('googlePlaceId')),
     // Manual coordinates are an optional override; otherwise geocoded below.
     latitude: num(formData.get('latitude')),
     longitude: num(formData.get('longitude')),

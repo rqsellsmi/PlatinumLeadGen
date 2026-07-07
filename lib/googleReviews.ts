@@ -19,25 +19,41 @@ export interface GoogleReview {
   reviewTime: number | null; // unix seconds
 }
 
+export interface GooglePlaceDetails {
+  reviews: GoogleReview[];
+  /** The place's overall star rating (e.g. 4.9), or null if unavailable. */
+  rating: number | null;
+  /** Total number of ratings for the place, or null if unavailable. */
+  reviewCount: number | null;
+}
+
+const EMPTY: GooglePlaceDetails = { reviews: [], rating: null, reviewCount: null };
+
 function key(): string | null {
   return process.env.GOOGLE_MAPS_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || null;
 }
 
-/** Fetch up to 5 reviews for a Place ID. */
-export async function fetchGooglePlaceReviews(placeId: string): Promise<GoogleReview[]> {
+/**
+ * Fetch a place's overall rating/count plus up to 5 reviews for a Place ID.
+ * Returns EMPTY on any failure so a bad/expired Place ID for one office never
+ * breaks the batch refresh across the others.
+ */
+export async function fetchGooglePlaceDetails(placeId: string): Promise<GooglePlaceDetails> {
   const k = key();
-  if (!k || !placeId) return [];
+  if (!k || !placeId) return EMPTY;
   try {
     const url = new URL('https://maps.googleapis.com/maps/api/place/details/json');
     url.searchParams.set('place_id', placeId);
-    url.searchParams.set('fields', 'reviews');
+    url.searchParams.set('fields', 'reviews,rating,user_ratings_total');
     url.searchParams.set('reviews_sort', 'newest');
     url.searchParams.set('key', k);
     const res = await fetch(url.toString(), { cache: 'no-store' });
-    if (!res.ok) return [];
+    if (!res.ok) return EMPTY;
     const data = (await res.json()) as {
       status?: string;
       result?: {
+        rating?: number;
+        user_ratings_total?: number;
         reviews?: Array<{
           author_name?: string;
           rating?: number;
@@ -48,17 +64,24 @@ export async function fetchGooglePlaceReviews(placeId: string): Promise<GoogleRe
         }>;
       };
     };
-    if (data.status !== 'OK' || !Array.isArray(data.result?.reviews)) return [];
-    return data.result!.reviews!.map((r) => ({
-      authorName: r.author_name ?? null,
-      rating: typeof r.rating === 'number' ? r.rating : null,
-      text: r.text ?? null,
-      relativeTime: r.relative_time_description ?? null,
-      profilePhotoUrl: r.profile_photo_url ?? null,
-      reviewTime: typeof r.time === 'number' ? r.time : null,
-    }));
+    if (data.status !== 'OK' || !data.result) return EMPTY;
+    const reviews = Array.isArray(data.result.reviews)
+      ? data.result.reviews.map((r) => ({
+          authorName: r.author_name ?? null,
+          rating: typeof r.rating === 'number' ? r.rating : null,
+          text: r.text ?? null,
+          relativeTime: r.relative_time_description ?? null,
+          profilePhotoUrl: r.profile_photo_url ?? null,
+          reviewTime: typeof r.time === 'number' ? r.time : null,
+        }))
+      : [];
+    return {
+      reviews,
+      rating: typeof data.result.rating === 'number' ? data.result.rating : null,
+      reviewCount: typeof data.result.user_ratings_total === 'number' ? data.result.user_ratings_total : null,
+    };
   } catch (err) {
     console.error('[googleReviews] fetch failed:', err);
-    return [];
+    return EMPTY;
   }
 }

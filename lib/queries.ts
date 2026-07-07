@@ -2,7 +2,7 @@
  * Server-side data loading for public pages (Section 4.2).
  * City page data is fetched at render time. Next.js ISR caches the rendered page.
  */
-import { eq, and, or, desc, asc, sql, inArray } from 'drizzle-orm';
+import { eq, and, or, desc, asc, sql, inArray, isNotNull } from 'drizzle-orm';
 import { db } from './db';
 import {
   locations,
@@ -14,6 +14,7 @@ import {
   agents,
   closings,
   guides,
+  offices,
   notificationSettings,
   googleReviews,
   type Location,
@@ -337,20 +338,34 @@ export interface HomeTestimonial {
   photoUrl: string | null;
 }
 
-/** Read the testimonials source setting ('manual' | 'google' | 'both') + place id. */
+/** Read the homepage testimonials source setting ('manual' | 'google' | 'both'). */
 export async function getReviewSettings(): Promise<{
   source: 'manual' | 'google' | 'both';
-  placeId: string | null;
 }> {
   try {
     const rows = await db
-      .select({ source: notificationSettings.testimonialSource, placeId: notificationSettings.googlePlaceId })
+      .select({ source: notificationSettings.testimonialSource })
       .from(notificationSettings)
       .limit(1);
     const source = (rows[0]?.source as 'manual' | 'google' | 'both') ?? 'manual';
-    return { source: ['manual', 'google', 'both'].includes(source) ? source : 'manual', placeId: rows[0]?.placeId ?? null };
+    return { source: ['manual', 'google', 'both'].includes(source) ? source : 'manual' };
   } catch {
-    return { source: 'manual', placeId: null };
+    return { source: 'manual' };
+  }
+}
+
+/** Place IDs across all offices — reviews are fetched per Google Business Profile. */
+async function getOfficePlaceIds(): Promise<string[]> {
+  try {
+    const rows = await db
+      .select({ placeId: offices.googlePlaceId })
+      .from(offices)
+      .where(isNotNull(offices.googlePlaceId));
+    return Array.from(
+      new Set(rows.map((r) => r.placeId?.trim()).filter((p): p is string => !!p)),
+    );
+  } catch {
+    return [];
   }
 }
 
@@ -361,7 +376,7 @@ export async function getReviewSettings(): Promise<{
  */
 export async function getHomeTestimonials(limit = 3): Promise<HomeTestimonial[]> {
   try {
-    const { source, placeId } = await getReviewSettings();
+    const { source } = await getReviewSettings();
 
     const manual: HomeTestimonial[] =
       source === 'google'
@@ -377,11 +392,12 @@ export async function getHomeTestimonials(limit = 3): Promise<HomeTestimonial[]>
           }));
 
     let google: HomeTestimonial[] = [];
-    if ((source === 'google' || source === 'both') && placeId) {
+    const placeIds = source === 'manual' ? [] : await getOfficePlaceIds();
+    if ((source === 'google' || source === 'both') && placeIds.length) {
       const rows = await db
         .select()
         .from(googleReviews)
-        .where(eq(googleReviews.placeId, placeId))
+        .where(inArray(googleReviews.placeId, placeIds))
         .orderBy(desc(googleReviews.reviewTime));
       google = rows
         .filter((r) => (r.rating ?? 0) >= 4 && (r.text ?? '').trim().length > 0)

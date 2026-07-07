@@ -64,6 +64,13 @@
       "when": 1783500000000,
       "tag": "0008_google_reviews",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1783600000000,
+      "tag": "0009_office_google_place",
+      "breakpoints": true
     }
   ]
 }

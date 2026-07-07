@@ -77,6 +77,13 @@ export const offices = pgTable('offices', {
   phone: varchar('phone', { length: 40 }),
   latitude: real('latitude'),
   longitude: real('longitude'),
+  // Each office has its own Google Business Profile, so reviews are fetched
+  // per-office by Place ID. The rating/count/fetchedAt are cached from the last
+  // Places Details call (google_reviews holds the individual review rows).
+  googlePlaceId: varchar('google_place_id', { length: 200 }),
+  googleReviewRating: real('google_review_rating'),
+  googleReviewCount: integer('google_review_count'),
+  googleReviewsFetchedAt: timestamp('google_reviews_fetched_at'),
   isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),

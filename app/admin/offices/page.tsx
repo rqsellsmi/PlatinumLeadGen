@@ -17,7 +17,19 @@ const FIELDS: { name: keyof Office; label: string; type?: string }[] = [
   { name: 'state', label: 'State' },
   { name: 'zip', label: 'Zip' },
   { name: 'phone', label: 'Phone' },
+  // Google Business Profile Place ID for this office's reviews (fetched from
+  // Admin → Testimonials → "Fetch Google reviews now").
+  { name: 'googlePlaceId', label: 'Google Place ID' },
 ];
+
+function reviewStatus(office: Office): string {
+  if (!office.googlePlaceId) return 'No Place ID — add one to pull this office’s Google reviews.';
+  if (office.googleReviewsFetchedAt == null)
+    return 'Place ID set — not fetched yet. Use “Fetch Google reviews now” on the Testimonials page.';
+  const rating = office.googleReviewRating != null ? office.googleReviewRating.toFixed(1) : '—';
+  const count = office.googleReviewCount != null ? office.googleReviewCount : '—';
+  return `Google ${rating}★ (${count} ratings) · last fetched ${office.googleReviewsFetchedAt.toLocaleDateString()}`;
+}
 
 export default async function OfficesPage() {
   await requireAdmin();
@@ -74,6 +86,7 @@ export default async function OfficesPage() {
                     />
                   </div>
                 ))}
+                <p className="text-xs text-mute-light md:col-span-4">{reviewStatus(office)}</p>
                 <div className="flex items-end gap-2 md:col-span-4">
                   <Button type="submit">Save</Button>
                 </div>
