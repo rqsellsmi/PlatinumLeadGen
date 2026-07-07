@@ -14,7 +14,10 @@ export type LeadEventType =
   | 'offer_declined'
   | 'offer_expired'
   | 'manually_assigned'
-  | 'status_updated';
+  | 'status_updated'
+  | 'marked_lost'
+  | 'pipeline_stalled'
+  | 'reopened';
 
 export async function logLeadEvent(
   leadId: number,

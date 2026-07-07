@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SCORE_DELTAS, resolveScoreDelta, SCORE_MIN, SCORE_MAX } from '../lib/scoring';
+import { SCORE_DELTAS, resolveScoreDelta } from '../lib/scoring';
 import { scoreTier, scoreReasonLabel } from '../lib/scoreTiers';
 import {
   parseMoney,
@@ -15,31 +15,28 @@ import {
 } from '../lib/metrics';
 import type { Closing } from '../drizzle/schema';
 
-describe('scoring corrections (§E/§J)', () => {
-  it('uses the corrected fixed deltas', () => {
-    expect(SCORE_DELTAS.system_response_fast).toBe(10.0);
-    expect(SCORE_DELTAS.system_response_good).toBe(5.0);
-    expect(SCORE_DELTAS.system_response_slow).toBe(2.0);
+describe('scoring v2 deltas (spec v2 §2)', () => {
+  it('uses the v2 fixed deltas', () => {
+    expect(SCORE_DELTAS.system_response_fast).toBe(8.0);
+    expect(SCORE_DELTAS.system_response_good).toBe(4.0);
+    expect(SCORE_DELTAS.system_response_slow).toBe(1.0);
     expect(SCORE_DELTAS.system_decline).toBe(-3.0);
-    expect(SCORE_DELTAS.system_no_response).toBe(-1.5);
-    expect(SCORE_DELTAS.stale_48h).toBe(-1.0);
-    expect(SCORE_DELTAS.stale_7day).toBe(-1.0);
+    expect(SCORE_DELTAS.system_no_response).toBe(-4.0);
+    expect(SCORE_DELTAS.system_closing).toBe(25.0);
+    expect(SCORE_DELTAS.stale_48h).toBe(-2.0);
+    expect(SCORE_DELTAS.stale_7day).toBe(-2.0);
+    expect(SCORE_DELTAS.pipeline_stalled).toBe(-3.0);
   });
 
-  it('allows an explicit delta override (15–30 min tier = +7.65)', () => {
-    expect(resolveScoreDelta('system_response_fast', 7.65)).toBe(7.65);
-    expect(resolveScoreDelta('system_response_fast')).toBe(10.0);
+  it('allows an explicit delta override (15–30 min tier = +6)', () => {
+    expect(resolveScoreDelta('system_response_fast', 6)).toBe(6);
+    expect(resolveScoreDelta('system_response_fast')).toBe(8.0);
   });
 
   it('requires an explicit delta for reversals and manual adjustments', () => {
     expect(() => resolveScoreDelta('lead_deleted_reversal')).toThrow();
     expect(() => resolveScoreDelta('manual_adjustment')).toThrow();
     expect(resolveScoreDelta('lead_deleted_reversal', 1.5)).toBe(1.5);
-  });
-
-  it('exposes the [0,200] clamp bounds', () => {
-    expect(SCORE_MIN).toBe(0);
-    expect(SCORE_MAX).toBe(200);
   });
 });
 

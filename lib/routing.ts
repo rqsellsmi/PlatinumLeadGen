@@ -26,11 +26,14 @@ export function haversine(lat1: number, lon1: number, lat2: number, lon2: number
 }
 
 /**
- * Number of slots an agent occupies in the weighted rotation list.
- * Higher score => more slots => more frequent offers. Minimum 1, capped at 5.
+ * Number of slots an agent occupies in the weighted rotation list, from their
+ * rolling-90d score (spec v2 §3): diminishing returns, no upper cap.
+ *   slots = 1 + floor( sqrt( max(score, 0) / 10 ) )
+ * Each additional slot costs progressively more, so score always matters but the
+ * top of the range doesn't need arbitrary capping. Minimum 1.
  */
 export function slotCountForScore(score: number): number {
-  return Math.max(1, Math.min(5, 1 + Math.floor((score || 0) / 15)));
+  return 1 + Math.floor(Math.sqrt(Math.max(score || 0, 0) / 10));
 }
 
 export interface RoutingAgent {

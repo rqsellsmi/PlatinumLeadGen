@@ -92,6 +92,13 @@
       "when": 1783900000000,
       "tag": "0012_agent_proximity",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1784000000000,
+      "tag": "0013_scoring_v2",
+      "breakpoints": true
     }
   ]
 }

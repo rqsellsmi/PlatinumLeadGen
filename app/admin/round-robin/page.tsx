@@ -16,7 +16,9 @@ export default async function RoundRobinPage() {
   const [{ rotationList, pointer }, dist, agentRows] = await Promise.all([
     getRoutingQueue(available),
     distributionThisWeek(),
-    db.select({ id: agents.id, first: agents.firstName, last: agents.lastName, score: agents.score }).from(agents),
+    db
+      .select({ id: agents.id, first: agents.firstName, last: agents.lastName, score: agents.scoreRolling90d })
+      .from(agents),
   ]);
 
   const nameById = new Map(agentRows.map((a) => [a.id, `${a.first} ${a.last}`.trim() || `Agent #${a.id}`]));

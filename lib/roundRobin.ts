@@ -65,7 +65,8 @@ export async function getRoutingSnapshot(): Promise<RoutingSnapshot> {
         id: agents.id,
         first: agents.firstName,
         last: agents.lastName,
-        score: agents.score,
+        // Routing frequency is driven by the rolling-90d track (spec v2 §3).
+        score: agents.scoreRolling90d,
         isAvailable: agents.isAvailable,
       })
       .from(agents)

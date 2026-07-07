@@ -24,10 +24,16 @@ describe('slotCountForScore', () => {
     expect(slotCountForScore(0)).toBe(1);
     expect(slotCountForScore(-50)).toBe(1);
   });
-  it('increases with score and caps at 5', () => {
-    expect(slotCountForScore(15)).toBe(2);
-    expect(slotCountForScore(45)).toBe(4);
-    expect(slotCountForScore(1000)).toBe(5);
+  it('follows the uncapped sqrt curve (spec v2 §3)', () => {
+    expect(slotCountForScore(9)).toBe(1);
+    expect(slotCountForScore(10)).toBe(2);
+    expect(slotCountForScore(39)).toBe(2);
+    expect(slotCountForScore(40)).toBe(3);
+    expect(slotCountForScore(90)).toBe(4);
+    expect(slotCountForScore(160)).toBe(5);
+    expect(slotCountForScore(250)).toBe(6);
+    // No upper cap.
+    expect(slotCountForScore(1000)).toBe(11);
   });
 });
 
@@ -35,7 +41,7 @@ describe('buildRotationList', () => {
   it('gives each agent slotCount slots, interleaved (not clustered)', () => {
     const agents: RoutingAgent[] = [
       { id: 2, lat: 0, lng: 0, score: 0 }, // 1 slot
-      { id: 1, lat: 0, lng: 0, score: 30 }, // 3 slots
+      { id: 1, lat: 0, lng: 0, score: 40 }, // 3 slots
     ];
     // Agent 2's single slot lands in the middle, not appended at the end.
     expect(buildRotationList(agents)).toEqual([1, 1, 2, 1]);
@@ -43,7 +49,7 @@ describe('buildRotationList', () => {
 
   it('spaces a newly-activated agent through the queue, not at the end', () => {
     const agents: RoutingAgent[] = [
-      { id: 1, lat: 0, lng: 0, score: 60 }, // 5 slots (veteran)
+      { id: 1, lat: 0, lng: 0, score: 160 }, // 5 slots (veteran)
       { id: 2, lat: 0, lng: 0, score: 0 }, // 1 slot (new agent)
     ];
     const list = buildRotationList(agents);
@@ -61,14 +67,14 @@ describe('reconcileRotation', () => {
 
   it('no change returns the same order', () => {
     const current = [1, 1, 2, 1];
-    const available = [A(1, 30), A(2, 0)]; // 3 and 1 slots
+    const available = [A(1, 40), A(2, 0)]; // 3 and 1 slots
     expect(reconcileRotation(current, available)).toEqual(current);
   });
 
   it('preserves the live order and weaves a new agent in (not at the end)', () => {
     // Mid-cycle queue for agent 1 (3 slots) after some move-to-back churn.
     const current = [1, 1, 1];
-    const available = [A(1, 30), A(2, 0)]; // agent 2 is newly activated (1 slot)
+    const available = [A(1, 40), A(2, 0)]; // agent 2 is newly activated (1 slot)
     const next = reconcileRotation(current, available);
     // Agent 1's three slots stay in order; agent 2 appears once, not appended last.
     expect(next.filter((id) => id === 1)).toEqual([1, 1, 1]);

@@ -35,6 +35,7 @@ export const leadStatusEnum = pgEnum('lead_status', [
   'qualified',
   'closed',
   'lost',
+  'reopened', // spec v2 §4.4 — a Lost lead whose contact submitted again
 ]);
 
 export const offerStatusEnum = pgEnum('offer_status', [
@@ -56,8 +57,9 @@ export const scoreReasonEnum = pgEnum('score_reason', [
   'pipeline_contacted', // +2.0 reached Contacted
   'fast_contact_bonus', // +3.0 contacted within 24h of accept
   'pipeline_qualified', // +2.0 reached Qualified
-  'stale_48h', // -1.0 no first status update by 48h (v1.6 §E.5)
-  'stale_7day', // -1.0 recurring weekly stale penalty (v1.6 §E.5)
+  'stale_48h', // -2.0 no first status update by 48h (spec v2 §2)
+  'stale_7day', // -2.0 recurring weekly stale penalty (spec v2 §2)
+  'pipeline_stalled', // -3.0 Qualified lead idle 30d, recurring (spec v2 §4.3)
   'lead_deleted_reversal', // reversal of a negative event when a lead is deleted (v1.6 §K.3)
   'manual_adjustment', // variable (requires reason)
 ]);
@@ -115,7 +117,13 @@ export const agents = pgTable(
     // How far (miles) the agent will accept leads from their anchor. Null falls
     // back to the brokerage default (notification_settings.proximityRadiusMiles).
     proximityRadiusMiles: real('proximity_radius_miles'),
-    score: real('score').notNull().default(50), // v1.6 §E.2/§J: new agents start at 50
+    // Scoring v2 — four tracks written together by applyScore (spec v2 §1).
+    // `score` is kept as a mirror of scoreLifetime for backward-compat reads.
+    score: real('score').notNull().default(50),
+    scoreLifetime: real('score_lifetime').notNull().default(50), // never resets; tier label
+    scoreYtd: real('score_ytd').notNull().default(0), // resets Jan 1
+    scoreMonthly: real('score_monthly').notNull().default(0), // resets 1st of month
+    scoreRolling90d: real('score_rolling_90d').notNull().default(0), // trailing 90d; drives routing slots
     // Admin-controlled membership.
     isActive: boolean('is_active').notNull().default(true),
     // Agent self-controlled availability (Section 16). Both must be true to
@@ -394,6 +402,13 @@ export const leads = pgTable(
     lastStatusChangedAt: timestamp('last_status_changed_at'),
     staleWarningSentAt: timestamp('stale_warning_sent_at'),
     lastPenaltyAt: timestamp('last_penalty_at'),
+    // Lifecycle v2 (spec v2 §4): Contacted precondition for Lost, Lost reason,
+    // 30-day stall recurrence clock, and reopen tracking.
+    contactedAt: timestamp('contacted_at'),
+    lostReason: varchar('lost_reason', { length: 40 }),
+    lostAt: timestamp('lost_at'),
+    stallPenaltyAt: timestamp('stall_penalty_at'),
+    reopenedAt: timestamp('reopened_at'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
@@ -718,6 +733,10 @@ export const notificationSettings = pgTable('notification_settings', {
   // Testimonials source (Section — reviews): 'manual' | 'google' | 'both'.
   testimonialSource: varchar('testimonial_source', { length: 10 }).notNull().default('manual'),
   googlePlaceId: varchar('google_place_id', { length: 200 }), // for Google reviews
+  // Scoring v2 periodic-reset guards (so the maintenance cron resets each track
+  // only once per boundary). Store the period key that was last reset.
+  scoreMonthlyResetKey: varchar('score_monthly_reset_key', { length: 7 }), // 'YYYY-MM'
+  scoreYtdResetKey: varchar('score_ytd_reset_key', { length: 4 }), // 'YYYY'
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
 
