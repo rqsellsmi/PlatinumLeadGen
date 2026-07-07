@@ -19,6 +19,7 @@ import RecentSales from '@/components/city/RecentSales';
 import HowItWorks from '@/components/city/HowItWorks';
 import SellerGuideSection from '@/components/city/SellerGuideSection';
 import Testimonials from '@/components/city/Testimonials';
+import GoogleReviews from '@/components/city/GoogleReviews';
 import FaqSection from '@/components/city/FaqSection';
 import NeighborhoodLinks from '@/components/city/NeighborhoodLinks';
 import TrackingScripts from '@/components/city/TrackingScripts';
@@ -66,7 +67,17 @@ export default async function CityPage({ params }: { params: { slug: string } })
   const data = await getCityPageData(params.slug);
   if (!data) notFound();
 
-  const { location, stats, recentSales, testimonials, neighborhoodLinks, trackingScripts } = data;
+  const {
+    location,
+    stats,
+    recentSales,
+    testimonials,
+    neighborhoodLinks,
+    trackingScripts,
+    googleReviews,
+    reviewRating,
+    reviewCount,
+  } = data;
   const cityName = shortCityName(location.name);
 
   const faq = fillFaqStats(parseFaqJson(location.faqJson), stats);
@@ -98,15 +109,15 @@ export default async function CityPage({ params }: { params: { slug: string } })
           locationSlug={location.slug}
           pageVariant="seo"
           eyebrow={location.name}
-          rating={location.googleReviewRating}
-          reviewCount={location.googleReviewCount}
+          rating={reviewRating}
+          reviewCount={reviewCount}
           homesSold={location.socialProofCount ?? stats?.homesSold ?? null}
         />
         <SocialProofBar
           cityName={cityName}
           socialProofCount={location.socialProofCount ?? 0}
-          googleReviewRating={location.googleReviewRating}
-          googleReviewCount={location.googleReviewCount}
+          googleReviewRating={reviewRating}
+          googleReviewCount={reviewCount}
           topTestimonial={testimonials.find((t) => t.isActive) ?? null}
         />
         <MarketStatsBar stats={stats} cityName={cityName} homesSold={stats?.homesSold ?? 0} />
@@ -116,6 +127,12 @@ export default async function CityPage({ params }: { params: { slug: string } })
           <SellerGuideSection locationSlug={location.slug} guideUrl={location.guideUrl} />
         ) : null}
         <Testimonials testimonials={testimonials} cityName={cityName} />
+        <GoogleReviews
+          reviews={googleReviews}
+          cityName={cityName}
+          rating={reviewRating}
+          reviewCount={reviewCount}
+        />
         <FaqSection faq={faq} cityName={cityName} />
         <NeighborhoodLinks links={neighborhoodLinks} cityName={cityName} />
         <TrackingScripts scripts={trackingScripts} />

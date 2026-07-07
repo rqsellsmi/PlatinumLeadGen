@@ -48,6 +48,20 @@ export async function updateLocationMatchCities(formData: FormData) {
   revalidatePath('/sell/[slug]', 'page');
 }
 
+export async function updateLocationOffice(formData: FormData) {
+  await requireAdmin();
+  const id = Number(formData.get('locationId'));
+  if (!id) throw new Error('Invalid location');
+  const raw = Number(formData.get('officeId'));
+  const officeId = Number.isInteger(raw) && raw > 0 ? raw : null;
+  await db
+    .update(locations)
+    .set({ officeId, updatedAt: new Date() })
+    .where(eq(locations.id, id));
+  revalidatePath('/admin/locations');
+  revalidatePath('/sell/[slug]', 'page');
+}
+
 export async function toggleLocationActive(formData: FormData) {
   await requireAdmin();
   const id = Number(formData.get('locationId'));

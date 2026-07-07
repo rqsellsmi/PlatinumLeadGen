@@ -1,11 +1,16 @@
 import Link from 'next/link';
 import { asc } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { locations } from '@/drizzle/schema';
-import { Card, CardHeader, CardBody, Button, Input, Label, Badge } from '@/components/ui';
+import { locations, offices } from '@/drizzle/schema';
+import { Card, CardHeader, CardBody, Button, Input, Label, Badge, Select } from '@/components/ui';
 import { requireAdmin } from '@/components/admin/requireAdmin';
 import ResetOnSubmitForm from '@/components/admin/ResetOnSubmitForm';
-import { createLocation, toggleLocationActive, updateLocationMatchCities } from './actions';
+import {
+  createLocation,
+  toggleLocationActive,
+  updateLocationMatchCities,
+  updateLocationOffice,
+} from './actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,7 +21,10 @@ const EDITORS = [
 
 export default async function LocationsPage() {
   await requireAdmin();
-  const list = await db.select().from(locations).orderBy(asc(locations.name));
+  const [list, officeList] = await Promise.all([
+    db.select().from(locations).orderBy(asc(locations.name)),
+    db.select().from(offices).orderBy(asc(offices.name)),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -62,6 +70,7 @@ export default async function LocationsPage() {
                 <th className="px-5 py-3 text-left">Slug</th>
                 <th className="px-5 py-3 text-left">State</th>
                 <th className="px-5 py-3 text-left">Covered cities</th>
+                <th className="px-5 py-3 text-left">Reviews office</th>
                 <th className="px-5 py-3 text-left">Status</th>
                 <th className="px-5 py-3 text-left">Editors</th>
                 <th className="px-5 py-3 text-right">Actions</th>
@@ -70,7 +79,7 @@ export default async function LocationsPage() {
             <tbody>
               {list.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-5 py-12 text-center text-mute">
+                  <td colSpan={8} className="px-5 py-12 text-center text-mute">
                     No locations yet.
                   </td>
                 </tr>
@@ -90,6 +99,27 @@ export default async function LocationsPage() {
                         className="h-8 w-48 text-xs"
                         aria-label="Mailing cities this page covers — comma-separated; matches imported closings"
                       />
+                      <Button type="submit" size="sm" variant="outline">
+                        Save
+                      </Button>
+                    </form>
+                  </td>
+                  <td className="px-5 py-3">
+                    <form action={updateLocationOffice} className="flex items-center gap-1">
+                      <input type="hidden" name="locationId" value={loc.id} />
+                      <Select
+                        name="officeId"
+                        defaultValue={loc.officeId ?? ''}
+                        className="h-8 w-44 text-xs"
+                        aria-label="Office whose Google reviews power this city page"
+                      >
+                        <option value="">All offices (mix)</option>
+                        {officeList.map((o) => (
+                          <option key={o.id} value={o.id}>
+                            {o.name}
+                          </option>
+                        ))}
+                      </Select>
                       <Button type="submit" size="sm" variant="outline">
                         Save
                       </Button>

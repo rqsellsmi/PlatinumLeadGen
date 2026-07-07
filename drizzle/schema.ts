@@ -156,6 +156,9 @@ export const locations = pgTable(
     socialProofCount: integer('social_proof_count').notNull().default(0),
     googleReviewCount: integer('google_review_count'),
     googleReviewRating: real('google_review_rating'),
+    // Office whose Google Business Profile powers this city page's reviews.
+    // Null = fall back to a mix of all offices' reviews.
+    officeId: integer('office_id').references(() => offices.id),
     isActive: boolean('is_active').notNull().default(true),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
