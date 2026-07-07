@@ -7,7 +7,7 @@ import { db } from './db';
 import { leads, leadOffers, agentLeadOrder } from '../drizzle/schema';
 import { formatPriceRange, relativeTime } from './utils';
 
-export type AgentLeadStatus = 'new' | 'contacted' | 'qualified' | 'closed' | 'lost';
+export type AgentLeadStatus = 'new' | 'contacted' | 'qualified' | 'closed' | 'lost' | 'reopened';
 
 export interface AgentLeadRow {
   leadOfferId: number;

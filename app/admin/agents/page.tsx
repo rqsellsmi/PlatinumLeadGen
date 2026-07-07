@@ -66,7 +66,7 @@ export default async function AgentsPage() {
       officeName: officeName ?? null,
       officeCity: officeCity ?? null,
       isActive: agent.isActive,
-      score: agent.score,
+      score: agent.scoreLifetime, // directory shows lifetime + its tier (spec v2 §6)
       activeLeads: activeById.get(agent.id) ?? 0,
       conversionPct:
         accepted === 0 ? null : Math.round(((closedById.get(agent.id) ?? 0) / accepted) * 100),

@@ -150,7 +150,11 @@ export default async function AgentLeadDetailPage({
             <h2 className="font-bold text-charcoal">Log activity</h2>
           </div>
           <div className="px-5 py-5">
-            <StatusUpdateForm leadOfferId={offer.id} currentStatus={lead.status} />
+            <StatusUpdateForm
+              leadOfferId={offer.id}
+              currentStatus={lead.status}
+              canMarkLost={lead.contactedAt != null}
+            />
           </div>
         </div>
       </div>

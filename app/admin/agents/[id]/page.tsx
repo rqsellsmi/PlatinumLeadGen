@@ -41,8 +41,11 @@ export default async function AgentDetailPage({ params }: { params: { id: string
             {agent.firstName} {agent.lastName}
           </h1>
         </div>
-        <div className="flex items-center gap-2">
-          <Badge tone="info">Score {agent.score.toFixed(1)}</Badge>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge tone="info">Lifetime {agent.scoreLifetime.toFixed(1)}</Badge>
+          <Badge tone="neutral">Routing (90d) {agent.scoreRolling90d.toFixed(1)}</Badge>
+          <Badge tone="neutral">YTD {agent.scoreYtd.toFixed(1)}</Badge>
+          <Badge tone="neutral">Month {agent.scoreMonthly.toFixed(1)}</Badge>
           <Badge tone={agent.isActive ? 'success' : 'neutral'}>
             {agent.isActive ? 'Active' : 'Inactive'}
           </Badge>

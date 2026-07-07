@@ -106,27 +106,24 @@ RentCast AVM `GET /avm/value`. Returns estimate + range (RentCast's own range, o
 - **Offer window** 7am–8pm ET; outside the window the offer is created but `offerSentAt` stays null and the dispatch cron sends it at the next open.
 - **Acceptance** deadline = send + 3h.
 
-### 4.3 Agent score (`lib/scoring.ts`) — all clamped to [0,200]
-| Event | Delta |
-|---|---|
-| Accept < 15 min | +10 |
-| Accept 15–30 min | +7.65 |
-| Accept 30–60 min | +5 |
-| Accept ≥ 60 min (or null sent time) | +2 |
-| Decline | −3 |
-| No response (offer expired at 3h) | −1.5 |
-| No first update by 48h | −1 |
-| Recurring weekly no-update | −1 |
-| Reached Contacted | +2 (+3 if within 24h of accept) |
-| Reached Qualified | +2 |
-| Closed | +15 |
-| Admin manual adjust | variable (reason required) |
-| Lead deleted | reverses the negative entries tied to the cancelled open offers |
+### 4.3 Agent score — Scoring v2 (`lib/scoring.ts`, uncapped; see `docs/agent-rating-system.md`)
+Four tracks per agent, all written by `applyScore`: **lifetime** (never resets, tier label, private), **YTD** (Jan 1), **monthly** (1st), **rolling-90d** (trailing-90d log sum, drives routing only). No clamp.
 
-Tiers (agent portal): ≥100 Top Performer · ≥80 Strong · ≥60 Good Standing · ≥40 Average · ≥20 Needs Improvement · <20 At Risk.
+| Event | Delta | Event | Delta |
+|---|---|---|---|
+| Accept <15 min | +8 | Contacted | +2 (+3 if <24h) |
+| Accept 15–30 min | +6 | Qualified | +2 |
+| Accept 30–60 min | +4 | Closed | +25 |
+| Accept 60m–3h | +1 | Stale 48h / 7-day | −2 / −2 |
+| Decline | −3 | Stalled 30-day | −3 (recurs) |
+| No response (expired) | −4 | Marked Lost | 0 |
+
+Slots = `1 + floor(sqrt(max(rolling90d,0)/10))` (uncapped, from rolling-90d). Tiers (from lifetime): ≥100 Top Performer · ≥80 Strong · ≥60 Good Standing · ≥40 Average · ≥20 Needs Improvement · <20 At Risk. Leaderboards at `/agent/leaderboard` (monthly + YTD, top 20 + your rank).
+
+**Lifecycle (spec v2 §4):** **Lost** needs a prior Contacted + a fixed reason (no score); **stall** (`pipeline_stalled`) hits Qualified leads idle 30d, recurring, until Closed/Lost; **reopen** flips a Lost lead whose contact submits again to **Reopened**, resets clocks, routes to the same active agent else fresh. `/api/cron/score-maintenance` (daily) decays rolling-90d and resets monthly/YTD at boundaries.
 
 ### 4.4 Stale follow-up (cron `followup-check`)
-36h warning email → 48h penalty (−1) → 6-day warning → 7-day recurring penalty (−1). The 6-day warning reuses `staleWarningSentAt` with the compound "warned-before-last-penalty" filter (§K.4). Also: 48h broker escalation, weekly agent reminder, Thursday broker digest.
+36h warning email → 48h penalty (−2) → 6-day warning → 7-day recurring penalty (−2) → 30-day Qualified stall (−3, recurring). The 6-day warning reuses `staleWarningSentAt` with the compound "warned-before-last-penalty" filter (§K.4). Also: 48h broker escalation, weekly agent reminder, Thursday broker digest.
 
 ### 4.5 Market data → stats (`lib/csvClosings.ts`, `lib/metrics.ts`)
 CSV import maps ~13 header aliases, parses multi-format dates and `$`/comma money, dedups by MLS number per role, and records a batch. `updateAllMetrics` then recomputes homepage + per-location stats over the 2025 window (all-time fallback) and diff-populates the top-3 listing-side recent sales per district without overwriting photos or manual rows.

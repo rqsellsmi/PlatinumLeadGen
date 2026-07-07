@@ -30,7 +30,8 @@ export async function GET() {
     .orderBy(desc(agentScoreLog.createdAt))
     .limit(15);
 
-  const score = agent.score ?? 0;
+  // The agent's private profile shows the lifetime track (spec v2 §1/§6).
+  const score = agent.scoreLifetime ?? 0;
   const tier = scoreTier(score);
 
   return NextResponse.json({

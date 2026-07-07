@@ -33,6 +33,7 @@ export function scoreReasonLabel(reason: string): string {
     pipeline_qualified: 'Qualified lead',
     stale_48h: 'No update (48h)',
     stale_7day: 'No update (weekly)',
+    pipeline_stalled: 'Stalled 30 days',
     lead_deleted_reversal: 'Penalty reversed',
     manual_adjustment: 'Admin adjustment',
   };
