@@ -5,8 +5,9 @@
  */
 import { and, eq, gte, sql } from 'drizzle-orm';
 import { db } from './db';
-import { agents, offices, leadOffers, leads, notificationSettings } from '../drizzle/schema';
+import { agents, offices, leadOffers, leads } from '../drizzle/schema';
 import { buildRotationList, slotCountForScore } from './routing';
+import { readQueue } from './queue';
 
 export function initialsOf(name: string): string {
   return name
@@ -91,19 +92,21 @@ export async function getRoutingSnapshot(): Promise<RoutingSnapshot> {
       };
     });
 
-    // Next up: agent at the queue pointer among AVAILABLE agents.
+    // Next up: the front of the persisted queue among AVAILABLE agents (the
+    // list is self-ordering — front = next). Fall back to a freshly built
+    // rotation if the queue hasn't been persisted yet.
     const available = agentsOut
       .filter((a) => a.isAvailable)
       .map((a) => ({ id: a.id, lat: null, lng: null, score: a.score }));
-    const rotation = buildRotationList(available);
+    const availSet = new Set(available.map((a) => a.id));
     let nextAgentId: number | null = null;
-    if (rotation.length > 0) {
-      const settingsRows = await db
-        .select({ queuePointer: notificationSettings.queuePointer })
-        .from(notificationSettings)
-        .limit(1);
-      const pointer = settingsRows[0]?.queuePointer ?? 0;
-      nextAgentId = rotation[((pointer % rotation.length) + rotation.length) % rotation.length];
+    const persisted = await readQueue();
+    if (persisted && persisted.rotationList.length > 0) {
+      nextAgentId = persisted.rotationList.find((id) => availSet.has(id)) ?? null;
+    }
+    if (nextAgentId == null) {
+      const rotation = buildRotationList(available);
+      nextAgentId = rotation.length > 0 ? rotation[0] : null;
     }
 
     return { agents: agentsOut, nextAgentId, waiting: await unassignedCount() };

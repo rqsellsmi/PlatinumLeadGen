@@ -13,7 +13,7 @@ import {
   notificationSettings,
 } from '../drizzle/schema';
 import { recommendAgents, type RoutingAgent } from './routing';
-import { getRoutingQueue, persistQueuePointer } from './queue';
+import { getRoutingQueue, persistQueue } from './queue';
 import { isWithinOfferWindow } from './offerWindow';
 import { sendEmail, agentLeadOfferEmail, agentAcceptanceEmail, adminAlertEmail } from './email';
 import { sendSms } from './sms';
@@ -119,7 +119,6 @@ export async function autoOfferLead(
     propertyLat: lead.propertyLat,
     propertyLng: lead.propertyLng,
     radiusMiles: settings.proximityRadiusMiles ?? 20,
-    queuePointer: queue.pointer,
     rotationList: queue.rotationList,
     excludedAgentIds: opts.excludeAgentIds ?? [],
   });
@@ -133,12 +132,12 @@ export async function autoOfferLead(
     return { ok: false, sent: false, reason: 'no-agent' };
   }
 
-  // Persist the advanced queue pointer (Step 6) to agent_queue + keep the
-  // settings pointer in sync for the admin Overview snapshot.
-  await persistQueuePointer(result.newQueuePointer);
+  // Persist the mutated queue (served slot moved to the back; distance-skipped
+  // slots kept at the front) to agent_queue. Pointer is vestigial (front = next).
+  await persistQueue(result.rotationList);
   await db
     .update(notificationSettings)
-    .set({ queuePointer: result.newQueuePointer, updatedAt: new Date() })
+    .set({ queuePointer: 0, updatedAt: new Date() })
     .where(eq(notificationSettings.id, settings.id));
 
   const now = new Date();

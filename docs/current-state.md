@@ -97,8 +97,10 @@ RentCast AVM `GET /avm/value`. Returns estimate + range (RentCast's own range, o
 
 ### 4.2 Routing (`lib/routing.ts`, `lib/queue.ts`, `lib/autoOffer.ts`)
 - **Slot weight** = `max(1, min(5, 1 + floor(score/15)))` (1–5 slots).
-- **Rotation** = each eligible agent repeated by slot count. A persisted custom order (`agent_queue`) is honored; otherwise built from scratch.
-- **Proximity-first**: build the proximity pool (agents within radius, default 20 mi, haversine to effective coords), then walk the rotation from the pointer and stop at the first pool member; if none in range, global fallback. Pointer advances past the pick and is persisted.
+- **Rotation** = each eligible agent's slots, **interleaved** (each slot placed at fractional position `(k+0.5)/slotCount`, merged and sorted) so an agent's turns are spread through the list — a newly-activated agent weaves in rather than clustering at the end. A persisted custom order (`agent_queue`) is honored; auto-rebuilds (freshly interleaved) when the routable set changes.
+- **Move-to-back queue**: the list is self-ordering, **front = next** (`pointer` is vestigial, always persisted as 0). Serving a lead moves the **one served slot to the back**; slots skipped for distance **stay at the front** so those agents are reconsidered first next lead (a distance skip never costs an agent their turn). This intentionally means the order is not stable across leads.
+- **Proximity-first**: build the proximity pool (agents within radius, default 20 mi, haversine to effective coords), then scan the queue from the front and serve the first pool member; if none in range (or no lead coords), serve the front slot (global fallback).
+- **No capacity cap** — by owner decision, an agent keeps receiving offers regardless of active-lead count (the `MAX_LEADS` gate is intentionally never built).
 - **Offer window** 7am–8pm ET; outside the window the offer is created but `offerSentAt` stays null and the dispatch cron sends it at the next open.
 - **Acceptance** deadline = send + 3h.
 
@@ -165,7 +167,7 @@ Four Google Ads conversions fire client-side after a confirmed save (Seller Valu
 ---
 
 ## 9. Known gaps / follow-ups (deliberate)
-- **MAX_LEADS=20 routing gate** — intentionally NOT built pending an owner decision (§K.9). Add `getAgentLeadCounts()` filtering in `lib/routing.ts` if confirmed.
+- **MAX_LEADS routing gate / capacity cap** — decided against by the owner; do **not** build. Agents keep receiving offers regardless of active-lead count.
 - Excluded by owner decision: BoldTrail/CRM sync, AI chat, SMS alerts, S3 photo upload, client-side instant calculator, lead-quality score, per-agent capacity caps, "resend offer", "recommend agent" preview, nearest-locations, testimonials carousel, standalone `/faq`.
 - Legal pages carry real copy dated Feb 19, 2026 — have counsel review before launch.
 - The Drizzle snapshot chain is SQL-only; keep authoring migrations by hand (see §3) rather than `drizzle-kit generate`.

@@ -31,12 +31,27 @@ describe('slotCountForScore', () => {
 });
 
 describe('buildRotationList', () => {
-  it('repeats each agent by slot count, sorted by id', () => {
+  it('gives each agent slotCount slots, interleaved (not clustered)', () => {
     const agents: RoutingAgent[] = [
       { id: 2, lat: 0, lng: 0, score: 0 }, // 1 slot
       { id: 1, lat: 0, lng: 0, score: 30 }, // 3 slots
     ];
-    expect(buildRotationList(agents)).toEqual([1, 1, 1, 2]);
+    // Agent 2's single slot lands in the middle, not appended at the end.
+    expect(buildRotationList(agents)).toEqual([1, 1, 2, 1]);
+  });
+
+  it('spaces a newly-activated agent through the queue, not at the end', () => {
+    const agents: RoutingAgent[] = [
+      { id: 1, lat: 0, lng: 0, score: 60 }, // 5 slots (veteran)
+      { id: 2, lat: 0, lng: 0, score: 0 }, // 1 slot (new agent)
+    ];
+    const list = buildRotationList(agents);
+    expect(list.filter((id) => id === 1)).toHaveLength(5);
+    expect(list.filter((id) => id === 2)).toHaveLength(1);
+    // The new agent is woven in, not stuck at the front or the very end.
+    const pos = list.indexOf(2);
+    expect(pos).toBeGreaterThan(0);
+    expect(pos).toBeLessThan(list.length - 1);
   });
 });
 
@@ -50,7 +65,6 @@ describe('recommendAgents', () => {
       propertyLat: 42.5295,
       propertyLng: -83.7799,
       radiusMiles: 20,
-      queuePointer: 0,
     });
     expect(r.agentId).toBe(1);
     expect(r.usedProximity).toBe(true);
@@ -58,24 +72,50 @@ describe('recommendAgents', () => {
   });
 
   it('Dearborn bug: never offers to the far agent when a near one qualifies', () => {
-    // Pointer starts at the far agent's slot, but proximity-first must skip it.
+    // Queue has the far agent at the FRONT; proximity-first must skip it.
     const r = recommendAgents({
       agents: [near, far],
       propertyLat: 42.5295,
       propertyLng: -83.7799,
       radiusMiles: 20,
-      queuePointer: 1, // would land on agent 2 in a naive walk
+      rotationList: [2, 1], // far agent first
     });
     expect(r.agentId).toBe(1);
   });
 
-  it('proximity fallback: empty pool -> uses full queue', () => {
+  it('distance skip keeps the skipped agent at the front and moves the served slot to the back', () => {
+    // Far agent (2) is at the front but out of range; near agent (1) is served.
+    const r = recommendAgents({
+      agents: [near, far],
+      propertyLat: 42.5295,
+      propertyLng: -83.7799,
+      radiusMiles: 20,
+      rotationList: [2, 1],
+    });
+    expect(r.agentId).toBe(1);
+    // 2 stays at the front (reconsidered first next lead); 1's slot went to back.
+    expect(r.rotationList).toEqual([2, 1]);
+    expect(r.rotationList[0]).toBe(2);
+  });
+
+  it('served slot moves to the back on a normal (front, in-range) pick', () => {
+    const r = recommendAgents({
+      agents: [near, far],
+      propertyLat: 42.5295,
+      propertyLng: -83.7799,
+      radiusMiles: 200, // both in range
+      rotationList: [1, 2],
+    });
+    expect(r.agentId).toBe(1);
+    expect(r.rotationList).toEqual([2, 1]); // 1 served -> moved to back
+  });
+
+  it('proximity fallback: empty pool -> serves the front slot', () => {
     const r = recommendAgents({
       agents: [far],
       propertyLat: 42.5295,
       propertyLng: -83.7799,
       radiusMiles: 5, // far agent is outside -> empty proximity pool
-      queuePointer: 0,
     });
     expect(r.agentId).toBe(2);
     expect(r.usedProximity).toBe(false);
@@ -87,7 +127,6 @@ describe('recommendAgents', () => {
       propertyLat: null,
       propertyLng: null,
       radiusMiles: 20,
-      queuePointer: 0,
     });
     expect(r.agentId).not.toBeNull();
     expect(r.usedProximity).toBe(false);
@@ -99,7 +138,6 @@ describe('recommendAgents', () => {
       propertyLat: 42.5295,
       propertyLng: -83.7799,
       radiusMiles: 100, // both in pool
-      queuePointer: 0,
       excludedAgentIds: [1],
     });
     expect(r.agentId).toBe(2);
@@ -111,7 +149,6 @@ describe('recommendAgents', () => {
       propertyLat: 42.5295,
       propertyLng: -83.7799,
       radiusMiles: 20,
-      queuePointer: 0,
       excludedAgentIds: [1],
     });
     expect(r.agentId).toBeNull();

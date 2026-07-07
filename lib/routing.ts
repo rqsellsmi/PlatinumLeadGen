@@ -43,18 +43,27 @@ export interface RoutingAgent {
 }
 
 /**
- * Build the weighted round-robin rotation list: each agent id repeated
- * slotCountForScore(score) times. Sorted by id for deterministic ordering so the
- * persisted queue pointer stays meaningful across calls.
+ * Build the weighted round-robin rotation list: each agent id appears
+ * slotCountForScore(score) times, but the slots are INTERLEAVED (evenly spaced)
+ * rather than clustered per agent. Each of an agent's slots is placed at the
+ * fractional position (k + 0.5) / slotCount across [0,1); merging all agents'
+ * slots by that position spreads every agent's turns through the list.
+ *
+ * This matters when an agent is (re)activated: their slots weave in among the
+ * others instead of landing together at the end of the queue. Deterministic —
+ * ties in position break by agent id.
  */
 export function buildRotationList(agents: RoutingAgent[]): number[] {
   const sorted = [...agents].sort((a, b) => a.id - b.id);
-  const list: number[] = [];
+  const slots: { id: number; pos: number }[] = [];
   for (const agent of sorted) {
-    const slots = slotCountForScore(agent.score);
-    for (let i = 0; i < slots; i++) list.push(agent.id);
+    const count = slotCountForScore(agent.score);
+    for (let k = 0; k < count; k++) {
+      slots.push({ id: agent.id, pos: (k + 0.5) / count });
+    }
   }
-  return list;
+  slots.sort((a, b) => a.pos - b.pos || a.id - b.id);
+  return slots.map((s) => s.id);
 }
 
 export interface RecommendParams {
@@ -63,15 +72,13 @@ export interface RecommendParams {
   propertyLat: number | null;
   propertyLng: number | null;
   radiusMiles: number;
-  /** Persisted round-robin pointer (index into the rotation list). */
-  queuePointer: number;
   /** Agent ids to exclude (prior offer recipients on reassignment). */
   excludedAgentIds?: Set<number> | number[];
   /**
-   * Persisted rotation list (agent ids with slot duplicates) from agent_queue
-   * (v1.6 §G). When provided, it is used instead of rebuilding from scratch so
-   * an admin's manual drag-reorder is honored. Non-eligible ids are skipped; if
-   * nothing eligible remains, it falls back to a freshly built rotation.
+   * The current queue as an ordered list of slots (agent ids with slot
+   * duplicates), front = next. When provided it is used as-is (honoring an
+   * admin's manual reorder); non-eligible ids are dropped, and if nothing
+   * eligible remains it falls back to a freshly built rotation.
    */
   rotationList?: number[];
 }
@@ -79,8 +86,12 @@ export interface RecommendParams {
 export interface RecommendResult {
   /** The chosen agent, or null if no eligible agent exists. */
   agentId: number | null;
-  /** New queue pointer to persist (Step 6 — advanced past the selected agent). */
-  newQueuePointer: number;
+  /**
+   * The queue AFTER this selection: the served slot is moved to the back, and
+   * any slots skipped for distance stay at the front. Persist this. Empty only
+   * when no eligible agent exists.
+   */
+  rotationList: number[];
   /** Distance in miles from agent to property, when both have coordinates. */
   distanceMiles: number | null;
   /** Whether selection came from the proximity pool (false = global fallback). */
@@ -88,18 +99,37 @@ export interface RecommendResult {
 }
 
 /**
- * Select the next agent for a lead per the corrected proximity-first algorithm.
+ * Select the next agent for a lead (proximity-first) and return the mutated
+ * queue.
+ *
+ * The queue is served from the FRONT. When there's a proximity pool, out-of-range
+ * slots at the front are skipped and the first in-range slot is served; the
+ * skipped slots stay put, so those agents are reconsidered first for the next
+ * lead — a distance skip never costs an agent their turn. The one served slot is
+ * moved to the back. With no pool (no lead coords, or nobody in range), the front
+ * slot is served and moved to the back (plain round-robin).
  */
 export function recommendAgents(params: RecommendParams): RecommendResult {
-  const { agents, propertyLat, propertyLng, radiusMiles, queuePointer } = params;
+  const { agents, propertyLat, propertyLng, radiusMiles } = params;
   const excluded =
     params.excludedAgentIds instanceof Set
       ? params.excludedAgentIds
       : new Set(params.excludedAgentIds ?? []);
 
   const eligible = agents.filter((a) => !excluded.has(a.id));
-  if (eligible.length === 0) {
-    return { agentId: null, newQueuePointer: queuePointer, distanceMiles: null, usedProximity: false };
+  const eligibleIds = new Set(eligible.map((a) => a.id));
+
+  // Working rotation: a provided order (filtered to eligible) or a fresh build.
+  let rotation: number[];
+  if (params.rotationList && params.rotationList.length > 0) {
+    rotation = params.rotationList.filter((id) => eligibleIds.has(id));
+    if (rotation.length === 0) rotation = buildRotationList(eligible);
+  } else {
+    rotation = buildRotationList(eligible);
+  }
+
+  if (eligible.length === 0 || rotation.length === 0) {
+    return { agentId: null, rotationList: rotation, distanceMiles: null, usedProximity: false };
   }
 
   const hasLeadCoords = propertyLat != null && propertyLng != null;
@@ -114,7 +144,7 @@ export function recommendAgents(params: RecommendParams): RecommendResult {
     }
   }
 
-  // Step 3: proximity pool — agents within radius. Empty if no lead coords.
+  // Proximity pool — agents within radius. Empty if no lead coords.
   const proximityPool = new Set<number>();
   if (hasLeadCoords) {
     for (const [id, dist] of distanceById) {
@@ -122,42 +152,29 @@ export function recommendAgents(params: RecommendParams): RecommendResult {
     }
   }
 
-  // The rotation list spans ALL eligible agents (Step 5 fallback uses the same
-  // list). A persisted custom order is honored when provided (§G), filtered to
-  // currently-eligible agents; otherwise it's built from scratch.
-  const eligibleIds = new Set(eligible.map((a) => a.id));
-  let rotation: number[];
-  if (params.rotationList && params.rotationList.length > 0) {
-    rotation = params.rotationList.filter((id) => eligibleIds.has(id));
-    if (rotation.length === 0) rotation = buildRotationList(eligible);
-  } else {
-    rotation = buildRotationList(eligible);
-  }
-  if (rotation.length === 0) {
-    return { agentId: null, newQueuePointer: queuePointer, distanceMiles: null, usedProximity: false };
-  }
-
-  const usedProximity = proximityPool.size > 0;
-  // Step 4: stop only at proximity-pool agents. Step 5: no filter (all eligible).
-  const isEligibleAtStop = (agentId: number): boolean =>
-    usedProximity ? proximityPool.has(agentId) : true;
-
-  const start = ((queuePointer % rotation.length) + rotation.length) % rotation.length;
-  for (let offset = 0; offset < rotation.length; offset++) {
-    const idx = (start + offset) % rotation.length;
-    const candidateId = rotation[idx];
-    if (isEligibleAtStop(candidateId)) {
-      // Step 6: advance pointer past the selected slot.
-      const newQueuePointer = (idx + 1) % rotation.length;
-      return {
-        agentId: candidateId,
-        newQueuePointer,
-        distanceMiles: distanceById.get(candidateId) ?? null,
-        usedProximity,
-      };
+  // Find the slot to serve: first in-range slot when a pool exists (skipping
+  // out-of-range slots), else the front slot.
+  let servedIndex = 0;
+  let usedProximity = false;
+  if (proximityPool.size > 0) {
+    const idx = rotation.findIndex((id) => proximityPool.has(id));
+    if (idx >= 0) {
+      servedIndex = idx;
+      usedProximity = true;
     }
   }
 
-  // Should be unreachable (when !usedProximity every slot qualifies), but stay safe:
-  return { agentId: null, newQueuePointer: queuePointer, distanceMiles: null, usedProximity };
+  const agentId = rotation[servedIndex];
+
+  // Move the served slot to the back; skipped (front) slots keep their place.
+  const newRotation = rotation.slice();
+  newRotation.splice(servedIndex, 1);
+  newRotation.push(agentId);
+
+  return {
+    agentId,
+    rotationList: newRotation,
+    distanceMiles: distanceById.get(agentId) ?? null,
+    usedProximity,
+  };
 }
