@@ -22,13 +22,25 @@ const FIELDS: { name: keyof Office; label: string; type?: string }[] = [
   { name: 'googlePlaceId', label: 'Google Place ID' },
 ];
 
-function reviewStatus(office: Office): string {
-  if (!office.googlePlaceId) return 'No Place ID — add one to pull this office’s Google reviews.';
-  if (office.googleReviewsFetchedAt == null)
-    return 'Place ID set — not fetched yet. Use “Fetch Google reviews now” on the Testimonials page.';
+function reviewStatus(office: Office): { text: string; isError: boolean } {
+  if (office.googleReviewsError) {
+    return { text: `Last fetch failed — ${office.googleReviewsError}`, isError: true };
+  }
+  if (!office.googlePlaceId) {
+    return { text: 'No Place ID — add one to pull this office’s Google reviews.', isError: false };
+  }
+  if (office.googleReviewsFetchedAt == null) {
+    return {
+      text: 'Place ID set — not fetched yet. Use “Fetch Google reviews now” on the Testimonials page.',
+      isError: false,
+    };
+  }
   const rating = office.googleReviewRating != null ? office.googleReviewRating.toFixed(1) : '—';
   const count = office.googleReviewCount != null ? office.googleReviewCount : '—';
-  return `Google ${rating}★ (${count} ratings) · last fetched ${office.googleReviewsFetchedAt.toLocaleDateString()}`;
+  return {
+    text: `Google ${rating}★ (${count} ratings) · last fetched ${office.googleReviewsFetchedAt.toLocaleDateString()}`,
+    isError: false,
+  };
 }
 
 export default async function OfficesPage() {
@@ -86,7 +98,16 @@ export default async function OfficesPage() {
                     />
                   </div>
                 ))}
-                <p className="text-xs text-mute-light md:col-span-4">{reviewStatus(office)}</p>
+                {(() => {
+                  const s = reviewStatus(office);
+                  return (
+                    <p
+                      className={`text-xs md:col-span-4 ${s.isError ? 'font-semibold text-platinum-red' : 'text-mute-light'}`}
+                    >
+                      {s.text}
+                    </p>
+                  );
+                })()}
                 <div className="flex items-end gap-2 md:col-span-4">
                   <Button type="submit">Save</Button>
                 </div>

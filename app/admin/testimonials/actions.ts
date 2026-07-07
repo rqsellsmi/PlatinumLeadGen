@@ -97,7 +97,7 @@ export async function saveReviewSettings(formData: FormData) {
 export async function refreshGoogleReviews() {
   await requireAdmin();
   const officeRows = await db
-    .select({ id: offices.id, placeId: offices.googlePlaceId })
+    .select({ id: offices.id, name: offices.name, placeId: offices.googlePlaceId })
     .from(offices)
     .where(isNotNull(offices.googlePlaceId));
   const targets = officeRows.filter((o) => o.placeId && o.placeId.trim());
@@ -108,8 +108,16 @@ export async function refreshGoogleReviews() {
   const now = new Date();
   for (const office of targets) {
     const placeId = office.placeId!.trim();
-    const { reviews, rating, reviewCount } = await fetchGooglePlaceDetails(placeId);
-    // Replace this place's cached reviews with the freshly fetched set.
+    const { reviews, rating, reviewCount, error } = await fetchGooglePlaceDetails(placeId);
+
+    if (error) {
+      // Record why it failed; keep any previously cached reviews so a transient
+      // failure doesn't wipe good data. Don't touch fetchedAt/rating on failure.
+      await db.update(offices).set({ googleReviewsError: error }).where(eq(offices.id, office.id));
+      continue;
+    }
+
+    // Success: replace this place's cached reviews with the freshly fetched set.
     await db.delete(googleReviews).where(eq(googleReviews.placeId, placeId));
     if (reviews.length) {
       await db.insert(googleReviews).values(
@@ -126,7 +134,12 @@ export async function refreshGoogleReviews() {
     }
     await db
       .update(offices)
-      .set({ googleReviewRating: rating, googleReviewCount: reviewCount, googleReviewsFetchedAt: now })
+      .set({
+        googleReviewRating: rating,
+        googleReviewCount: reviewCount,
+        googleReviewsFetchedAt: now,
+        googleReviewsError: null,
+      })
       .where(eq(offices.id, office.id));
   }
   revalidate();

@@ -84,6 +84,9 @@ export const offices = pgTable('offices', {
   googleReviewRating: real('google_review_rating'),
   googleReviewCount: integer('google_review_count'),
   googleReviewsFetchedAt: timestamp('google_reviews_fetched_at'),
+  // Last fetch error for this office (null = last fetch succeeded), so the admin
+  // can see WHY a fetch returned nothing instead of failing silently.
+  googleReviewsError: varchar('google_reviews_error', { length: 500 }),
   isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
