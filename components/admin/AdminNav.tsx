@@ -38,6 +38,11 @@ const GROUPS: NavGroup[] = [
     { href: '/admin/api-usage', label: 'API Usage' },
     { href: '/admin/email-log', label: 'Email Log' },
   ] },
+  { label: 'IDX', items: [
+    { href: '/admin/idx-sync', label: 'IDX Sync' },
+    { href: '/admin/idx-listings', label: 'IDX Listings' },
+    { href: '/admin/market-reports', label: 'Market Reports' },
+  ] },
   { label: 'System', items: [
     { href: '/admin/api-keys', label: 'API Keys' },
     { href: '/admin/settings', label: 'Settings' },
