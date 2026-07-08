@@ -1,9 +1,9 @@
 # RE/MAX Platinum Lead Platform — Current State
 
-**Branch:** `leadgenv1.6`
+**Branch:** `claude/previous-session-items-q3l47m` (rebased from `leadgenv1.6`)
 **Stack:** Next.js 14 (App Router) · TypeScript · Drizzle ORM · Neon Postgres · NextAuth v5 · Microsoft Graph email · Tailwind
 **Deploy target:** Vercel (serverless) + GitHub Actions cron
-**As of:** the v1.6 addendum build (Sections A–J + K corrections)
+**As of:** the v1.6 addendum build + the reviews / routing-rework / **Scoring v2** session (migrations `0006–0014`)
 
 This document explains what the system is, what it does, and how it works, so anyone (human or AI) can orient quickly before testing or extending it.
 
@@ -60,21 +60,21 @@ Everything is one deployable. API route handlers are `runtime=nodejs, dynamic=fo
 ## 3. Data model (Postgres, `drizzle/schema.ts`)
 
 Core lead flow:
-- **leads** — one row per homeowner. Partial (address only, keyed by `sessionId`) upgrades to complete on submit. Holds contact, property, valuation estimate/range, `pageVariant` (`seo`/`ads`), `source`, full attribution (UTM/gclid/gbraid/wbraid/referrer/device/first+lastSeen), `normalizedAddress` (dedup key), soft-delete, and the stale-clock fields `staleWarningSentAt`/`lastPenaltyAt`.
+- **leads** — one row per homeowner. Partial (address only, keyed by `sessionId`) upgrades to complete on submit. Holds contact, property, valuation estimate/range, `pageVariant` (`seo`/`ads`), `source`, full attribution (UTM/gclid/gbraid/wbraid/referrer/device/first+lastSeen), `normalizedAddress` (dedup key), soft-delete, and the stale-clock fields `staleWarningSentAt`/`lastPenaltyAt`. Lifecycle v2 (spec v2 §4): `status` enum adds `reopened`; `contactedAt` (Lost precondition), `lostReason`/`lostAt`, `stallPenaltyAt` (30-day recurrence), `reopenedAt`.
 - **lead_offers** — routing output. One row per offer to an agent; token (64-hex, 7-day), `offerSentAt` (null = queued), accepted/declined/expired/responded timestamps, `firstUpdateDue` (+48h), `nextReminderDue` (+7d), `distanceMiles`. Status enum includes `closed_manual` (admin override).
 - **lead_events** — full lifecycle timeline (`address_entered`, `valuation_submitted`, `duplicate_submission`, `offer_sent/accepted/declined/expired`, `manually_assigned`, `status_updated`, `appointment_requested`).
 - **status_updates** — agent pipeline updates per offer.
 - **appointment_requests** — thank-you scheduling requests (+ attribution).
 
 Agents & routing:
-- **agents** — roster; `score` (real, default **50**, clamped [0,200]), `isActive` (admin) + `isAvailable` (agent self-toggle), magic-link token, optional password hash, coordinates.
-- **offices** — locations used as routing anchors (agent coords fall back to office coords).
-- **agent_score_log** — immutable score audit; every delta with reason enum, optional `isNegated`/`negatedReason` for deletion reversals.
-- **agent_queue** — persisted weighted rotation (`rotationList` JSON of agent ids with slot duplicates + `pointer`). Source of truth for routing order; honors admin drag-reorder; auto-rebuilds when the routable-agent set changes.
+- **agents** — roster; **four score tracks** (`scoreLifetime`/`scoreYtd`/`scoreMonthly`/`scoreRolling365`, uncapped; `score` kept as a lifetime mirror), `isActive` (admin) + `isAvailable` (agent self-toggle), magic-link token, optional password hash. Per-agent proximity: `proximityAnchor` (`office`|`custom`), `locationCity` (geocoded → `latitude`/`longitude`), `proximityRadiusMiles` (null → global default).
+- **offices** — routing anchors (agent coords fall back to office coords) **and** per-office Google Business Profile: `googlePlaceId`, cached `googleReviewRating`/`Count`/`FetchedAt`/`Error`.
+- **agent_score_log** — immutable score audit; every delta with reason enum (adds `pipeline_stalled`), optional `isNegated`/`negatedReason` for deletion reversals. Source for the rolling-365 sum.
+- **agent_queue** — persisted rotation (`rotationList` JSON, front = next; `pointer` vestigial). Slots interleaved; reconciled in place on roster/score change (never rebuilt from scratch except the admin "Rebuild" button); served slot moves to the back, distance-skipped slots hold at the front.
 - **agent_lead_order** — the agent's custom drag order of their accepted leads.
 
 Content & marketing:
-- **locations** — city pages: slug, SEO copy (`metaTitle/metaDescription/heroHeadline/heroSubheadline/faqJson/guideUrl`), `schoolDistrict` (matches closings → stats), `socialProofCount`, Google review fields.
+- **locations** — city pages: slug, SEO copy (`metaTitle/metaDescription/heroHeadline/heroSubheadline/faqJson/guideUrl`), `schoolDistrict` (matches closings → stats), `socialProofCount`, manual Google review fields, and `officeId` (FK → offices; which office's Google reviews power this city page, else pooled).
 - **market_stats** (per location) and **home_page_metrics** (single row) — recomputed from closings.
 - **recent_sales** — showcase rows; manual or `isAutoPopulated` (linked to a `closingId`).
 - **testimonials**, **neighborhood_links**, **tracking_scripts**.
@@ -84,9 +84,9 @@ Market data:
 - **upload_batches** — one row per CSV import with counts and date range.
 
 Ops/infra:
-- **api_usage_logs** (RentCast calls, enriched with success/response-time/estimate), **rate_limits** (Neon fixed-window), **ms_graph_tokens** (persisted OAuth token), **email_send_log** (every send), **api_keys** (bcrypt-hashed webhook keys), **notification_settings** (single-row config: notification email, offer-window hours, proximity radius, queue pointer).
+- **api_usage_logs** (RentCast calls, enriched with success/response-time/estimate), **rate_limits** (Neon fixed-window), **ms_graph_tokens** (persisted OAuth token), **email_send_log** (every send), **api_keys** (bcrypt-hashed webhook keys), **google_reviews** (cached Places reviews, keyed by `place_id`), **notification_settings** (single-row config: notification email, offer-window hours, proximity radius, queue pointer, testimonial source + `googlePlaceId`, and the `scoreMonthly/YtdResetKey` maintenance-cron guards).
 
-Migrations are hand-authored idempotent SQL in `drizzle/migrations/` and registered in `meta/_journal.json`; the v1.6 changes are `0003_v16_addendum.sql`.
+Migrations are hand-authored idempotent SQL in `drizzle/migrations/` and registered in `meta/_journal.json`. Current head is **`0014_rolling_365`**; the scoring/reviews/proximity work spans **0006–0014** (valuations `0006–0007`, google reviews `0008`, per-office reviews `0009–0010`, location→office `0011`, agent proximity `0012`, scoring v2 `0013`, rolling-365 rename `0014`). **Apply them in order on every DB** — several admin pages `select` the whole `agents`/`leads` row, so one skipped migration in the middle breaks those pages.
 
 ---
 
@@ -135,11 +135,11 @@ Four Google Ads conversions fire client-side after a confirmed save (Seller Valu
 
 ## 5. Surfaces
 
-**Public:** `/`, `/sell`, `/sell/[slug]` (SEO money page, ISR, JSON-LD, dynamic OG image), `/ads/[slug]` (PPC, noindex), `/thank-you`, `/privacy`, `/terms`. CRO: exit-intent overlay + sticky CTA.
+**Public:** `/`, `/sell`, `/sell/[slug]` (SEO money page, ISR, JSON-LD, dynamic OG image; now also a "Verified Google Reviews" section from the linked office), `/ads/[slug]` (PPC, noindex), `/thank-you`, `/privacy`, `/terms`. CRO: exit-intent overlay + sticky CTA.
 
-**Admin (`/admin/*`, NextAuth):** Overview · Leads (list + detail with offer history, attribution, activity timeline, reassign, soft-delete) · Leads/new · Round-Robin (interactive drag-reorder) · Agents (+ detail: password, manual score, score log) · Offices · Locations (+ SEO/Stats/Sales/Testimonials editors, school-district field) · Data Upload · Analytics (SEO-vs-ADS, CPL, UTM sources, agent response) · API Usage · Email Log · API Keys · Settings.
+**Admin (`/admin/*`, NextAuth):** Overview · Leads · Round-Robin (drag-reorder) · **Lost Reasons** (reason mix + per-agent unresponsive-rate signal) · Leads/new · Agents (directory shows lifetime + cohort tier; detail: four score tracks + tier, per-agent proximity anchor/city/radius, password, manual score, score log) · Offices (+ per-office Google Place ID & review status) · Locations (+ office link for reviews, SEO/Stats/Testimonials editors) · Data Upload · Analytics · API Usage · Email Log · API Keys · Settings.
 
-**Agent (`/agent/*`, signed session cookie):** login (password or magic link) · leads dashboard (KPIs, ScorePanel, filter tabs, drag reorder, availability toggle) · lead detail (contact, status update, history).
+**Agent (`/agent/*`, signed session cookie):** login · leads dashboard (KPIs, ScorePanel = lifetime + tier, filter tabs, drag reorder, availability toggle) · pipeline · performance · **leaderboard** (monthly + YTD, top 20 + your rank) · **settings** (proximity anchor: office or a geocoded city, + acceptance radius) · lead detail (contact, status update with Lost-reason picker, history).
 
 **External:** `POST /api/webhooks/lead` and `/api/webhooks/appointment` (bcrypt API-key auth) for third-party lead sources.
 
@@ -167,6 +167,8 @@ Four Google Ads conversions fire client-side after a confirmed save (Seller Valu
 
 ## 9. Known gaps / follow-ups (deliberate)
 - **MAX_LEADS routing gate / capacity cap** — decided against by the owner; do **not** build. Agents keep receiving offers regardless of active-lead count.
-- Excluded by owner decision: BoldTrail/CRM sync, AI chat, SMS alerts, S3 photo upload, client-side instant calculator, lead-quality score, per-agent capacity caps, "resend offer", "recommend agent" preview, nearest-locations, testimonials carousel, standalone `/faq`.
+- **Google reviews need a dedicated server key.** `GOOGLE_MAPS_API_KEY` must be an unrestricted (no HTTP-referrer) key with the **legacy Places API + Geocoding API** enabled; the public `NEXT_PUBLIC_` key is referrer-locked and Google rejects it for server-side calls (`REQUEST_DENIED`). Same key powers office/agent geocoding. Errors now surface on the office card.
+- **Still not built:** daily cron to auto-refresh Google reviews (fetch is manual via Admin → Testimonials); a tier above "Top Performer"; the operator config from the prior session (per-office Place IDs, location→office links, homepage review source, `TWILIO_*`, `BLOB_READ_WRITE_TOKEN`).
+- Excluded by owner decision: BoldTrail/CRM sync, AI chat, S3 photo upload, client-side instant calculator, per-agent capacity caps, "resend offer", "recommend agent" preview, nearest-locations, testimonials carousel, standalone `/faq`. (SMS is wired via `lib/sms.ts`, no-op until `TWILIO_*` set.)
 - Legal pages carry real copy dated Feb 19, 2026 — have counsel review before launch.
-- The Drizzle snapshot chain is SQL-only; keep authoring migrations by hand (see §3) rather than `drizzle-kit generate`.
+- The Drizzle snapshot chain is SQL-only; keep authoring migrations by hand (see §3) rather than `drizzle-kit generate`. Apply the full 0006–0014 chain **in order on every Neon branch**.
