@@ -1,0 +1,59 @@
+name: IDX Initial Sync
+
+# Manually-triggered initial backfill (IDX spec §2.8). The full pull takes
+# 20-60 min — far past Vercel's serverless timeout — so it runs here on a
+# GitHub-hosted runner. Trigger it from the Actions tab (Run workflow).
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   DATABASE_URL, REALCOMP_CLIENT_ID, REALCOMP_CLIENT_SECRET,
+#   REALCOMP_BASE_URL, REALCOMP_AUTH_URL, REALCOMP_OFFICE_KEYS
+
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: "'active' (all Active/Pending/Closed, last 12 months) or 'sold' (your offices' closed sales)"
+        required: true
+        default: 'active'
+        type: choice
+        options: [active, sold]
+      start_date:
+        description: "Sold only — window start (YYYY-MM-DD), e.g. 2024-01-01"
+        required: false
+        default: ''
+      end_date:
+        description: "Sold only — window end exclusive (YYYY-MM-DD), e.g. 2025-01-01"
+        required: false
+        default: ''
+
+jobs:
+  initial-sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run initial sync
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          REALCOMP_CLIENT_ID: ${{ secrets.REALCOMP_CLIENT_ID }}
+          REALCOMP_CLIENT_SECRET: ${{ secrets.REALCOMP_CLIENT_SECRET }}
+          REALCOMP_BASE_URL: ${{ secrets.REALCOMP_BASE_URL }}
+          REALCOMP_AUTH_URL: ${{ secrets.REALCOMP_AUTH_URL }}
+          REALCOMP_OFFICE_KEYS: ${{ secrets.REALCOMP_OFFICE_KEYS }}
+        run: |
+          ARGS="--query ${{ inputs.query }}"
+          if [ -n "${{ inputs.start_date }}" ]; then ARGS="$ARGS --start ${{ inputs.start_date }}"; fi
+          if [ -n "${{ inputs.end_date }}" ]; then ARGS="$ARGS --end ${{ inputs.end_date }}"; fi
+          echo "Running: npm run idx:sync -- $ARGS"
+          npm run idx:sync -- $ARGS

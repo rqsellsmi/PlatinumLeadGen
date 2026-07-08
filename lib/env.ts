@@ -38,6 +38,13 @@ const RECOMMENDED_GROUPS: Group[] = [
   // needed when that flag is set; RentCast covers the default case.
   { label: 'ATTOM_API_KEY', anyOf: ['ATTOM_API_KEY'] },
   { label: 'NEXT_PUBLIC_GOOGLE_MAPS_API_KEY', anyOf: ['NEXT_PUBLIC_GOOGLE_MAPS_API_KEY'] },
+  // Realcomp IDX feed — optional; IDX features (Similar Homes, Market Report,
+  // IDX-driven metrics) disable cleanly if absent. See IDX spec §1.2 / §2.4.
+  { label: 'REALCOMP_CLIENT_ID', anyOf: ['REALCOMP_CLIENT_ID'] },
+  { label: 'REALCOMP_CLIENT_SECRET', anyOf: ['REALCOMP_CLIENT_SECRET'] },
+  { label: 'REALCOMP_BASE_URL', anyOf: ['REALCOMP_BASE_URL'] },
+  { label: 'REALCOMP_AUTH_URL', anyOf: ['REALCOMP_AUTH_URL'] },
+  { label: 'REALCOMP_OFFICE_KEYS', anyOf: ['REALCOMP_OFFICE_KEYS'] },
   // Twilio SMS alerts to agents — optional; email still works without it.
   { label: 'TWILIO_ACCOUNT_SID', anyOf: ['TWILIO_ACCOUNT_SID'] },
   { label: 'TWILIO_AUTH_TOKEN', anyOf: ['TWILIO_AUTH_TOKEN'] },

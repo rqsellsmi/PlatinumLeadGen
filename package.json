@@ -16,6 +16,8 @@
     "db:setup": "drizzle-kit migrate && tsx scripts/seed.ts",
     "seed": "tsx scripts/seed.ts",
     "hash-password": "tsx scripts/hash-password.ts",
+    "idx:sync": "tsx scripts/idx-initial-sync.ts",
+    "idx:verify": "tsx scripts/idx-verify-metadata.ts",
     "test": "vitest run"
   },
   "dependencies": {

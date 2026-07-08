@@ -409,6 +409,11 @@ export const leads = pgTable(
     lostAt: timestamp('lost_at'),
     stallPenaltyAt: timestamp('stall_penalty_at'),
     reopenedAt: timestamp('reopened_at'),
+    // IDX market report (IDX spec §5.3 / §8.3): durable signed token for the
+    // homeowner's report link, plus view tracking for the admin access log.
+    reportToken: varchar('report_token', { length: 64 }),
+    reportFirstAccessedAt: timestamp('report_first_accessed_at'),
+    reportViewCount: integer('report_view_count').notNull().default(0),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
@@ -417,6 +422,7 @@ export const leads = pgTable(
     statusIdx: index('leads_status_idx').on(t.status),
     createdIdx: index('leads_created_idx').on(t.createdAt),
     emailIdx: index('leads_email_idx').on(t.email),
+    reportTokenIdx: index('leads_report_token_idx').on(t.reportToken),
     normalizedAddrIdx: index('leads_normalized_addr_idx').on(t.normalizedAddress),
   }),
 );
@@ -764,6 +770,142 @@ export const googleReviews = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// IDX / Realcomp integration (IDX spec §1–§2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Persisted Realcomp OAuth token — single row (keyed by `provider`) so every
+ * Vercel serverless invocation shares one token instead of re-authenticating.
+ * Same pattern as ms_graph_tokens (IDX spec §1.3).
+ */
+export const realcompTokens = pgTable('realcomp_tokens', {
+  id: serial('id').primaryKey(),
+  provider: varchar('provider', { length: 50 }).notNull().unique().default('realcomp'),
+  accessToken: text('access_token').notNull(),
+  expiresAt: timestamp('expires_at').notNull(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
+/**
+ * Local mirror of Realcomp listings, synced hourly (IDX spec §2.2). Powers the
+ * Similar Homes + Market Report features and (office deals) the brokerage
+ * metrics. Upsert key: listingKey. `isOfficeListing` is computed on upsert.
+ */
+export const idxListings = pgTable(
+  'idx_listings',
+  {
+    id: serial('id').primaryKey(),
+    listingKey: varchar('listing_key', { length: 100 }).notNull().unique(), // upsert key
+    // Office keys (numeric Realcomp ids) — drive isOfficeListing, not display.
+    listOfficeKey: varchar('list_office_key', { length: 100 }),
+    buyerOfficeKey: varchar('buyer_office_key', { length: 100 }),
+    coListOfficeKey: varchar('co_list_office_key', { length: 100 }),
+    coBuyerOfficeKey: varchar('co_buyer_office_key', { length: 100 }),
+    // IDX compliance display flags. false = restrict (see public query filters).
+    internetAddressDisplayYN: boolean('internet_address_display_yn'),
+    internetEntireListingDisplayYN: boolean('internet_entire_listing_display_yn'),
+    // Status / pricing.
+    mlsNumber: varchar('mls_number', { length: 50 }),
+    mlsStatus: varchar('mls_status', { length: 30 }),
+    standardStatus: varchar('standard_status', { length: 30 }).notNull(),
+    listPrice: integer('list_price'),
+    closePrice: integer('close_price'),
+    closeDate: timestamp('close_date'),
+    daysOnMarket: integer('days_on_market'),
+    cumulativeDaysOnMarket: integer('cumulative_days_on_market'),
+    originalListPrice: integer('original_list_price'),
+    propertyType: varchar('property_type', { length: 50 }),
+    propertySubType: varchar('property_sub_type', { length: 50 }),
+    // Location.
+    address: varchar('address', { length: 500 }),
+    city: varchar('city', { length: 100 }),
+    postalCity: varchar('postal_city', { length: 100 }),
+    originalCity: varchar('original_city', { length: 100 }),
+    originalPostalCity: varchar('original_postal_city', { length: 100 }),
+    countyOrParish: varchar('county_or_parish', { length: 100 }),
+    township: varchar('township', { length: 100 }), // approximated; no direct OData field
+    subdivisionName: varchar('subdivision_name', { length: 200 }),
+    mlsAreaMajor: varchar('mls_area_major', { length: 100 }),
+    stateOrProvince: varchar('state_or_province', { length: 10 }),
+    postalCode: varchar('postal_code', { length: 20 }),
+    latitude: real('latitude'),
+    longitude: real('longitude'),
+    // Property detail.
+    bedsTotal: integer('beds_total'),
+    bathsTotal: real('baths_total'), // BathroomsTotalInteger; decimal (2.5 = 2 full + 1 half)
+    livingArea: integer('living_area'),
+    yearBuilt: integer('year_built'),
+    lotSizeAcres: real('lot_size_acres'),
+    garageSpaces: integer('garage_spaces'),
+    basement: varchar('basement', { length: 100 }),
+    schoolDistrict: varchar('school_district', { length: 200 }),
+    // Waterfront.
+    waterfrontYN: boolean('waterfront_yn'),
+    waterfrontFeatures: text('waterfront_features'), // serialized comma-list from enum multi-value
+    waterBodyName: varchar('water_body_name', { length: 200 }),
+    waterFrontageFeet: real('water_frontage_feet'),
+    // Media / marketing.
+    photoUrl: varchar('photo_url', { length: 1000 }), // primary photo (lowest Order)
+    photosCount: integer('photos_count'),
+    virtualTourUrl: varchar('virtual_tour_url', { length: 1000 }), // unbranded only
+    publicRemarks: text('public_remarks'),
+    // IDX-required display credit.
+    listingOfficeName: varchar('listing_office_name', { length: 500 }),
+    listingOfficePhone: varchar('listing_office_phone', { length: 50 }),
+    originatingSystemName: varchar('originating_system_name', { length: 100 }),
+    // Sync bookkeeping.
+    modificationTimestamp: timestamp('modification_timestamp').notNull(), // incremental cursor
+    isOfficeListing: boolean('is_office_listing').notNull().default(false), // computed on upsert
+    lastSyncedAt: timestamp('last_synced_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    listingKeyIdx: uniqueIndex('idx_listings_listing_key_idx').on(t.listingKey),
+    statusIdx: index('idx_listings_status_idx').on(t.standardStatus),
+    cityIdx: index('idx_listings_city_idx').on(t.city),
+    countyIdx: index('idx_listings_county_idx').on(t.countyOrParish),
+    officeIdx: index('idx_listings_office_idx').on(t.isOfficeListing),
+    modIdx: index('idx_listings_mod_idx').on(t.modificationTimestamp),
+    priceIdx: index('idx_listings_price_idx').on(t.listPrice),
+    closeDateIdx: index('idx_listings_close_date_idx').on(t.closeDate),
+  }),
+);
+
+/**
+ * All photos for a listing (IDX spec: pull the full Media set via $expand=Media).
+ * Display gating lives in the UI: full gallery for Active listings only;
+ * Pending/Closed show the primary photo only (IDX Rules §18.10).
+ */
+export const idxListingPhotos = pgTable(
+  'idx_listing_photos',
+  {
+    id: serial('id').primaryKey(),
+    listingKey: varchar('listing_key', { length: 100 })
+      .notNull()
+      .references(() => idxListings.listingKey, { onDelete: 'cascade' }),
+    mediaUrl: varchar('media_url', { length: 1000 }).notNull(),
+    sortOrder: integer('sort_order').notNull().default(0), // Realcomp Media "Order"
+    mediaCategory: varchar('media_category', { length: 50 }),
+  },
+  (t) => ({
+    listingIdx: index('idx_listing_photos_listing_idx').on(t.listingKey),
+    orderIdx: index('idx_listing_photos_order_idx').on(t.listingKey, t.sortOrder),
+  }),
+);
+
+/** One row per sync run, with separate Query 1 / Query 2 counts (IDX spec §2.3). */
+export const idxSyncLog = pgTable('idx_sync_log', {
+  id: serial('id').primaryKey(),
+  syncStartedAt: timestamp('sync_started_at').notNull(),
+  syncCompletedAt: timestamp('sync_completed_at'),
+  query1RecordsFetched: integer('query1_records_fetched'),
+  query1RecordsUpserted: integer('query1_records_upserted'),
+  query2RecordsFetched: integer('query2_records_fetched'),
+  query2RecordsUpserted: integer('query2_records_upserted'),
+  status: varchar('status', { length: 20 }).notNull(), // running | success | failed
+  errorMessage: text('error_message'),
+});
+
+// ---------------------------------------------------------------------------
 // Inferred types
 // ---------------------------------------------------------------------------
 export type Office = typeof offices.$inferSelect;
@@ -796,3 +938,9 @@ export type ApiUsageLogRow = typeof apiUsageLogs.$inferSelect;
 export type Valuation = typeof valuations.$inferSelect;
 export type NewValuation = typeof valuations.$inferInsert;
 export type GoogleReviewRow = typeof googleReviews.$inferSelect;
+export type RealcompToken = typeof realcompTokens.$inferSelect;
+export type IdxListing = typeof idxListings.$inferSelect;
+export type NewIdxListing = typeof idxListings.$inferInsert;
+export type IdxListingPhoto = typeof idxListingPhotos.$inferSelect;
+export type NewIdxListingPhoto = typeof idxListingPhotos.$inferInsert;
+export type IdxSyncLogRow = typeof idxSyncLog.$inferSelect;

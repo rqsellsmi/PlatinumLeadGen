@@ -1,0 +1,41 @@
+name: IDX hourly sync
+
+# Hourly incremental IDX sync (IDX spec §2.6). Vercel's Hobby plan only allows
+# daily crons, so — like the every-10-min jobs in cron.yml — this pings the
+# sync endpoint on a schedule instead of using vercel.json.
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   DEPLOY_URL   e.g. https://your-project.vercel.app  (no trailing slash)
+#   CRON_SECRET  the SAME value set as CRON_SECRET in your Vercel env vars
+
+on:
+  schedule:
+    - cron: '0 * * * *' # top of every hour
+  workflow_dispatch: {} # allow manual runs for testing
+
+concurrency:
+  group: idx-sync
+  cancel-in-progress: false
+
+jobs:
+  ping-idx-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate secrets
+        env:
+          DEPLOY_URL: ${{ secrets.DEPLOY_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$DEPLOY_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "::error::DEPLOY_URL and CRON_SECRET repository secrets must be set."
+            exit 1
+          fi
+
+      - name: Run IDX sync
+        env:
+          DEPLOY_URL: ${{ secrets.DEPLOY_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -fsS --max-time 120 \
+            -H "x-cron-secret: $CRON_SECRET" \
+            "$DEPLOY_URL/api/cron/idx-sync"
