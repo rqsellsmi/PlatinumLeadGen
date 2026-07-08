@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import type { IdxCard, CityMarketStats } from '@/lib/idx';
+import { copyrightNotice } from '@/lib/idxDisclosures';
 import IdxListingGrid from './IdxListingGrid';
 import MarketReport from './MarketReport';
 
@@ -49,6 +50,11 @@ export default function FullValuationIdxSections({
         variant="sold"
       />
       <MarketReport stats={marketStats} cityName={cityName} />
+
+      {/* Realcomp copyright / MLS credit for the IDX data on this page (§18.3.4). */}
+      <p className="mt-8 border-t border-line pt-4 text-[11px] leading-relaxed text-mute-light">
+        {copyrightNotice()}
+      </p>
     </div>
   );
 }
