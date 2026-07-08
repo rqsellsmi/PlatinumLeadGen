@@ -53,3 +53,51 @@ New admin mutations used Server Actions + `requireAdmin()` (the established patt
 - Use `SKIP_ENV_VALIDATION=1` for typecheck/build/generate so env gating doesn't block tooling.
 - Add unit tests for the new *pure* logic (score deltas/tiers, CSV parsing, metric calcs) even when full E2E needs a DB you don't have — they lock in the exact numbers the spec cares about and run in a second.
 - When the deliverable is a document/audit, write it to the repo and commit it; it's versioned context the next session (or the user) can rely on.
+
+## 11. Reviews / routing-rework / Scoring-v2 session
+
+- **A `NEXT_PUBLIC_` Google key can't do server-side Places/Geocoding.** Browser
+  keys are HTTP-referrer-restricted; Google rejects them for server web-service
+  calls with `REQUEST_DENIED: API keys with referer restrictions cannot be used
+  with this API`. You need a *separate* unrestricted server key (`GOOGLE_MAPS_API_KEY`)
+  with the **legacy** Places API + Geocoding enabled (new projects only get
+  "Places API (New)"). The code already prefers `GOOGLE_MAPS_API_KEY` over the
+  public one — just set it.
+- **Never swallow third-party API errors silently.** The reviews fetch returned
+  `[]` on any non-OK response and prod redacts thrown errors, so a
+  key/permission failure was indistinguishable from "no reviews." Capturing the
+  provider's `status` + `error_message` and surfacing it in the admin turned a
+  multi-message guessing game into a one-look diagnosis. Do this for every
+  external call whose failure a human has to act on.
+- **Hand-applied migrations across multiple Neon branches are the #1 "it broke
+  after deploy" cause.** Three traps hit this session: (1) it's easy to skip a
+  middle migration (0012) while applying later ones (0013/0014); (2) any admin
+  page that `select`s a whole row (`db.select({ agent: agents })` / `select(agents)`)
+  fails if *any* schema column is missing from that DB, so a skipped migration
+  breaks whole pages, not just one field; (3) Vercel auto-creates a *per-preview*
+  Neon branch that never gets your migrations, and the `APP_DATABASE_URL` override
+  only takes effect on a **redeploy**. Prefer `npm run db:migrate` (applies the
+  whole journal in order) over pasting files, and apply the full chain on **every**
+  branch.
+- **"Only some pages error" is a strong signal.** It rules out env-var / DB-connection
+  problems (those break everything) and points at a specific missing column on the
+  table those pages read. Diagnose by querying `information_schema.columns` for the
+  exact columns the failing page selects, not by re-reading code.
+- **Percentile tiers need a tie-tolerant rank.** A cohort-relative "top 10%" tier
+  with a naive inclusive rank puts a fully-tied cohort (which is exactly what you
+  get right after a bootstrap migration sets everyone to the same score) all in the
+  bottom tier. The midrank (`below + 0.5*equal`) lands ties mid-pack — the sane
+  default.
+- **A rolling-window sum decays for free if it's log-derived + seeded with a real
+  row.** Instead of special decay code, rolling-365 = `sum(log delta where
+  created_at >= now-365d)`; the migration inserts one baseline log row per agent so
+  the value starts at the bootstrapped score and ages out naturally after the
+  window. Recompute on write + nightly.
+- **Match concurrency to the split.** Splitting one column into four tracks touched
+  ~20 files; a parallel read-only survey agent inventoried every `score` read/write
+  first, which made the redirect (routing→rolling, tier/profile→lifetime) mechanical
+  and complete. Fan out for the inventory, serialize the edits.
+- **When a blocking question tool errors, don't stall.** The `AskUserQuestion`
+  call failed mid-build; the spec-recommended defaults (earn-up-from-1-slot,
+  top-20 leaderboard) were the right call to proceed with, stated explicitly and
+  flagged as reversible, rather than blocking the whole implementation.

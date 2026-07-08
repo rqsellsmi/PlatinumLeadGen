@@ -8,10 +8,12 @@ import { leadOffers, leads, statusUpdates } from '@/drizzle/schema';
 import { getCurrentAgent } from '@/lib/agentSession';
 import { applyScore } from '@/lib/scoring';
 import { logLeadEvent } from '@/lib/leadEvents';
+import { isLostReason } from '@/lib/leadLifecycle';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+// Agents move a lead forward through these; 'reopened' is set by intake, never here.
 const VALID_STATUSES = ['new', 'contacted', 'qualified', 'closed', 'lost'] as const;
 type LeadStatus = (typeof VALID_STATUSES)[number];
 
@@ -25,7 +27,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = (await req.json().catch(() => null)) as
-      | { leadOfferId?: number; newStatus?: string; note?: string }
+      | { leadOfferId?: number; newStatus?: string; note?: string; lostReason?: string }
       | null;
     if (
       !body ||
@@ -47,6 +49,24 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'offer_not_found' }, { status: 404 });
     }
 
+    const leadRows = await db
+      .select({ acceptedAt: leads.acceptedAt, contactedAt: leads.contactedAt })
+      .from(leads)
+      .where(eq(leads.id, offer.leadId))
+      .limit(1);
+    const leadRow = leadRows[0];
+
+    // Lost precondition (spec v2 §4.2): a lead can only be marked Lost after it
+    // has been Contacted at least once, and requires a reason from the fixed set.
+    if (newStatus === 'lost') {
+      if (!leadRow?.contactedAt) {
+        return NextResponse.json({ error: 'must_contact_before_lost' }, { status: 400 });
+      }
+      if (!isLostReason(body.lostReason)) {
+        return NextResponse.json({ error: 'lost_reason_required' }, { status: 400 });
+      }
+    }
+
     const now = new Date();
 
     await db.insert(statusUpdates).values({
@@ -57,15 +77,28 @@ export async function POST(req: NextRequest) {
       note: body.note ?? null,
     });
 
-    await db
-      .update(leads)
-      .set({ status: newStatus, lastStatusChangedAt: now, updatedAt: now })
-      .where(eq(leads.id, offer.leadId));
+    // Lifecycle timestamps: stamp contactedAt on first Contacted; record the Lost
+    // reason/time. lastStatusChangedAt is the stall-clock reference.
+    const leadUpdate: Record<string, unknown> = {
+      status: newStatus,
+      lastStatusChangedAt: now,
+      updatedAt: now,
+    };
+    if (newStatus === 'contacted' && !leadRow?.contactedAt) leadUpdate.contactedAt = now;
+    if (newStatus === 'lost') {
+      leadUpdate.lostReason = body.lostReason;
+      leadUpdate.lostAt = now;
+    }
+    await db.update(leads).set(leadUpdate).where(eq(leads.id, offer.leadId));
 
     await logLeadEvent(
       offer.leadId,
-      'status_updated',
-      body.note ? `${newStatus} — ${body.note}` : newStatus,
+      newStatus === 'lost' ? 'marked_lost' : 'status_updated',
+      newStatus === 'lost'
+        ? `Lost — ${body.lostReason}${body.note ? ` · ${body.note}` : ''}`
+        : body.note
+          ? `${newStatus} — ${body.note}`
+          : newStatus,
     );
 
     // Mark first update if this is the agent's first one for this offer.
@@ -78,12 +111,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Pipeline scoring.
-    const leadRows = await db
-      .select({ acceptedAt: leads.acceptedAt })
-      .from(leads)
-      .where(eq(leads.id, offer.leadId))
-      .limit(1);
-    const acceptedAt = leadRows[0]?.acceptedAt ?? offer.acceptedAt ?? null;
+    const acceptedAt = leadRow?.acceptedAt ?? offer.acceptedAt ?? null;
 
     try {
       if (newStatus === 'contacted') {

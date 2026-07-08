@@ -21,7 +21,7 @@ export async function GET() {
   const { rotationList, pointer } = await getRoutingQueue(available);
 
   const agentRows = await db
-    .select({ id: agents.id, first: agents.firstName, last: agents.lastName, score: agents.score })
+    .select({ id: agents.id, first: agents.firstName, last: agents.lastName, score: agents.scoreRolling365 })
     .from(agents);
   const summary = agentRows.map((a) => ({
     id: a.id,

@@ -14,6 +14,8 @@ import {
   stale6DayWarningEmail,
 } from '@/lib/email';
 import { applyScore } from '@/lib/scoring';
+import { logLeadEvent } from '@/lib/leadEvents';
+import { STALL_WINDOW_MS } from '@/lib/leadLifecycle';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -255,6 +257,42 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // (g) 30-day stall (spec v2 §4.3) — a Qualified lead with no status change /
+    //     logged activity for 30 days. Penalize the assigned agent −3, recurring
+    //     every 30 days until the lead is Closed or marked Lost (both move it out
+    //     of 'qualified', so it naturally stops). Marking Lost after a stall
+    //     penalty already posted does NOT reverse it — that's intended.
+    const t30 = new Date(now.getTime() - STALL_WINDOW_MS);
+    let stalled = 0;
+    const stalledRows = await db
+      .select({ offer: leadOffers, lead: leads })
+      .from(leadOffers)
+      .innerJoin(leads, eq(leadOffers.leadId, leads.id))
+      .where(
+        and(
+          eq(leadOffers.status, 'accepted'),
+          eq(leads.status, 'qualified'),
+          isNotNull(leads.lastStatusChangedAt),
+          lt(leads.lastStatusChangedAt, t30),
+          or(isNull(leads.stallPenaltyAt), lt(leads.stallPenaltyAt, t30)),
+        ),
+      );
+    for (const row of stalledRows) {
+      try {
+        await applyScore({
+          agentId: row.offer.agentId,
+          reason: 'pipeline_stalled',
+          leadId: row.lead.id,
+          leadOfferId: row.offer.id,
+        });
+        await db.update(leads).set({ stallPenaltyAt: now, updatedAt: now }).where(eq(leads.id, row.lead.id));
+        await logLeadEvent(row.lead.id, 'pipeline_stalled', '30-day stall penalty (−3)');
+        stalled += 1;
+      } catch (err) {
+        console.error(`[cron/followup-check] stall penalty lead ${row.lead.id} failed:`, err);
+      }
+    }
+
     return NextResponse.json({
       escalated,
       reminded,
@@ -262,6 +300,7 @@ export async function GET(req: NextRequest) {
       stale48Penalized,
       stale6dWarned,
       stale7dPenalized,
+      stalled,
     });
   } catch (err) {
     console.error('[cron/followup-check] error:', err);

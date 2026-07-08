@@ -7,7 +7,8 @@ import { desc, eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { agentScoreLog } from '@/drizzle/schema';
 import { getCurrentAgent } from '@/lib/agentSession';
-import { scoreTier, scoreReasonLabel } from '@/lib/scoreTiers';
+import { tierFor, scoreReasonLabel } from '@/lib/scoreTiers';
+import { loadTierContext } from '@/lib/scoreTiersServer';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -30,8 +31,10 @@ export async function GET() {
     .orderBy(desc(agentScoreLog.createdAt))
     .limit(15);
 
-  const score = agent.score ?? 0;
-  const tier = scoreTier(score);
+  // The agent's private profile shows the lifetime track (spec v2 §1/§6); tier is
+  // their standing within the active cohort (Top Performer = top 10%).
+  const score = agent.scoreLifetime ?? 0;
+  const tier = tierFor(score, await loadTierContext());
 
   return NextResponse.json({
     score,

@@ -6,6 +6,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { agents } from '@/drizzle/schema';
 import { applyScore } from '@/lib/scoring';
+import { geocodeAddress } from '@/lib/geocode';
 import { requireAdmin } from '@/components/admin/requireAdmin';
 
 function num(v: FormDataEntryValue | null): number | null {
@@ -24,6 +25,23 @@ export async function updateAgent(formData: FormData) {
   if (!firstName || !lastName || !email) {
     throw new Error('First name, last name, and email are required');
   }
+
+  const anchor = String(formData.get('proximityAnchor') ?? 'office') === 'custom' ? 'custom' : 'office';
+  const locationCity = String(formData.get('locationCity') ?? '').trim() || null;
+  const radiusMiles = num(formData.get('radiusMiles'));
+
+  // Geocode the custom city so proximity has coordinates; on 'office' or a
+  // blank/failed city, coordinates clear and routing uses the office anchor.
+  let latitude: number | null = null;
+  let longitude: number | null = null;
+  if (anchor === 'custom' && locationCity) {
+    const geo = await geocodeAddress({ city: locationCity });
+    if (geo) {
+      latitude = geo.lat;
+      longitude = geo.lng;
+    }
+  }
+
   await db
     .update(agents)
     .set({
@@ -32,8 +50,11 @@ export async function updateAgent(formData: FormData) {
       email,
       phone: String(formData.get('phone') ?? '').trim() || null,
       officeId: num(formData.get('officeId')),
-      latitude: num(formData.get('lat')),
-      longitude: num(formData.get('lng')),
+      proximityAnchor: anchor,
+      locationCity,
+      latitude,
+      longitude,
+      proximityRadiusMiles: radiusMiles != null && radiusMiles > 0 ? radiusMiles : null,
       updatedAt: new Date(),
     })
     .where(eq(agents.id, id));

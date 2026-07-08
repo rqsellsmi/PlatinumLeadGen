@@ -7,6 +7,8 @@ import { Card, CardHeader, CardBody, Button, Input, Label, Select, Textarea, Bad
 import { requireAdmin } from '@/components/admin/requireAdmin';
 import ResetOnSubmitForm from '@/components/admin/ResetOnSubmitForm';
 import LocalTime from '@/components/LocalTime';
+import { tierFor } from '@/lib/scoreTiers';
+import { loadTierContext } from '@/lib/scoreTiersServer';
 import { updateAgent, setAgentPassword, adjustScore, deactivateAgent } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -30,6 +32,8 @@ export default async function AgentDetailPage({ params }: { params: { id: string
       .limit(100),
   ]);
 
+  const tier = tierFor(agent.scoreLifetime, await loadTierContext());
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -41,8 +45,12 @@ export default async function AgentDetailPage({ params }: { params: { id: string
             {agent.firstName} {agent.lastName}
           </h1>
         </div>
-        <div className="flex items-center gap-2">
-          <Badge tone="info">Score {agent.score.toFixed(1)}</Badge>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`text-sm font-bold ${tier.color}`}>{tier.label}</span>
+          <Badge tone="info">Lifetime {agent.scoreLifetime.toFixed(1)}</Badge>
+          <Badge tone="neutral">Routing (365d) {agent.scoreRolling365.toFixed(1)}</Badge>
+          <Badge tone="neutral">YTD {agent.scoreYtd.toFixed(1)}</Badge>
+          <Badge tone="neutral">Month {agent.scoreMonthly.toFixed(1)}</Badge>
           <Badge tone={agent.isActive ? 'success' : 'neutral'}>
             {agent.isActive ? 'Active' : 'Inactive'}
           </Badge>
@@ -85,12 +93,41 @@ export default async function AgentDetailPage({ params }: { params: { id: string
                 </Select>
               </div>
               <div>
-                <Label htmlFor="lat">Latitude</Label>
-                <Input id="lat" name="lat" type="number" step="any" defaultValue={agent.latitude ?? ''} />
+                <Label htmlFor="proximityAnchor">Measure distance from</Label>
+                <Select
+                  id="proximityAnchor"
+                  name="proximityAnchor"
+                  defaultValue={agent.proximityAnchor}
+                >
+                  <option value="office">Office</option>
+                  <option value="custom">A city</option>
+                </Select>
               </div>
               <div>
-                <Label htmlFor="lng">Longitude</Label>
-                <Input id="lng" name="lng" type="number" step="any" defaultValue={agent.longitude ?? ''} />
+                <Label htmlFor="radiusMiles">Accept within (mi)</Label>
+                <Input
+                  id="radiusMiles"
+                  name="radiusMiles"
+                  type="number"
+                  min="1"
+                  step="1"
+                  defaultValue={agent.proximityRadiusMiles ?? ''}
+                  placeholder="Brokerage default"
+                />
+              </div>
+              <div className="col-span-2">
+                <Label htmlFor="locationCity">City (used when anchor is “A city”)</Label>
+                <Input
+                  id="locationCity"
+                  name="locationCity"
+                  defaultValue={agent.locationCity ?? ''}
+                  placeholder="e.g. Ann Arbor, MI"
+                />
+                {agent.proximityAnchor === 'custom' && agent.latitude == null ? (
+                  <p className="mt-1 text-xs text-platinum-red">
+                    City hasn&rsquo;t geocoded — routing falls back to the office anchor.
+                  </p>
+                ) : null}
               </div>
               <div className="col-span-2">
                 <Button type="submit">Save changes</Button>

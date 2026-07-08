@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { SCORE_DELTAS, resolveScoreDelta, SCORE_MIN, SCORE_MAX } from '../lib/scoring';
-import { scoreTier, scoreReasonLabel } from '../lib/scoreTiers';
+import { SCORE_DELTAS, resolveScoreDelta } from '../lib/scoring';
+import { tierFor, tierForPercentile, percentileRank, scoreReasonLabel } from '../lib/scoreTiers';
 import {
   parseMoney,
   parsePercentOfList,
@@ -15,20 +15,22 @@ import {
 } from '../lib/metrics';
 import type { Closing } from '../drizzle/schema';
 
-describe('scoring corrections (§E/§J)', () => {
-  it('uses the corrected fixed deltas', () => {
-    expect(SCORE_DELTAS.system_response_fast).toBe(10.0);
-    expect(SCORE_DELTAS.system_response_good).toBe(5.0);
-    expect(SCORE_DELTAS.system_response_slow).toBe(2.0);
+describe('scoring v2 deltas (spec v2 §2)', () => {
+  it('uses the v2 fixed deltas', () => {
+    expect(SCORE_DELTAS.system_response_fast).toBe(8.0);
+    expect(SCORE_DELTAS.system_response_good).toBe(4.0);
+    expect(SCORE_DELTAS.system_response_slow).toBe(1.0);
     expect(SCORE_DELTAS.system_decline).toBe(-3.0);
-    expect(SCORE_DELTAS.system_no_response).toBe(-1.5);
-    expect(SCORE_DELTAS.stale_48h).toBe(-1.0);
-    expect(SCORE_DELTAS.stale_7day).toBe(-1.0);
+    expect(SCORE_DELTAS.system_no_response).toBe(-4.0);
+    expect(SCORE_DELTAS.system_closing).toBe(25.0);
+    expect(SCORE_DELTAS.stale_48h).toBe(-2.0);
+    expect(SCORE_DELTAS.stale_7day).toBe(-2.0);
+    expect(SCORE_DELTAS.pipeline_stalled).toBe(-3.0);
   });
 
-  it('allows an explicit delta override (15–30 min tier = +7.65)', () => {
-    expect(resolveScoreDelta('system_response_fast', 7.65)).toBe(7.65);
-    expect(resolveScoreDelta('system_response_fast')).toBe(10.0);
+  it('allows an explicit delta override (15–30 min tier = +6)', () => {
+    expect(resolveScoreDelta('system_response_fast', 6)).toBe(6);
+    expect(resolveScoreDelta('system_response_fast')).toBe(8.0);
   });
 
   it('requires an explicit delta for reversals and manual adjustments', () => {
@@ -36,23 +38,38 @@ describe('scoring corrections (§E/§J)', () => {
     expect(() => resolveScoreDelta('manual_adjustment')).toThrow();
     expect(resolveScoreDelta('lead_deleted_reversal', 1.5)).toBe(1.5);
   });
-
-  it('exposes the [0,200] clamp bounds', () => {
-    expect(SCORE_MIN).toBe(0);
-    expect(SCORE_MAX).toBe(200);
-  });
 });
 
-describe('score tiers (§K.8)', () => {
-  it('maps scores to the exact tier labels', () => {
-    expect(scoreTier(120).label).toBe('Top Performer');
-    expect(scoreTier(100).label).toBe('Top Performer');
-    expect(scoreTier(80).label).toBe('Strong');
-    expect(scoreTier(60).label).toBe('Good Standing');
-    expect(scoreTier(40).label).toBe('Average');
-    expect(scoreTier(20).label).toBe('Needs Improvement');
-    expect(scoreTier(0).label).toBe('At Risk');
-    expect(scoreTier(50).label).toBe('Average');
+describe('percentile tiers (spec v2 update)', () => {
+  it('maps percentiles to tier labels (top 10% = Top Performer)', () => {
+    expect(tierForPercentile(1.0).label).toBe('Top Performer');
+    expect(tierForPercentile(0.9).label).toBe('Top Performer');
+    expect(tierForPercentile(0.89).label).toBe('Strong');
+    expect(tierForPercentile(0.7).label).toBe('Strong');
+    expect(tierForPercentile(0.5).label).toBe('Good Standing');
+    expect(tierForPercentile(0.3).label).toBe('Average');
+    expect(tierForPercentile(0.1).label).toBe('Needs Improvement');
+    expect(tierForPercentile(0.05).label).toBe('At Risk');
+  });
+
+  it('ranks an agent within the active cohort', () => {
+    // 10 agents scored 10,20,…,100. The 100 sits in the top 10% (Top Performer);
+    // the 10 sits in the bottom 10% (At Risk).
+    const ctx = { sortedScores: [10, 20, 30, 40, 50, 60, 70, 80, 90, 100] };
+    expect(percentileRank(100, ctx)).toBeCloseTo(0.95);
+    expect(percentileRank(10, ctx)).toBeCloseTo(0.05);
+    expect(tierFor(100, ctx).label).toBe('Top Performer');
+    expect(tierFor(10, ctx).label).toBe('At Risk');
+    expect(tierFor(60, ctx).label).toBe('Good Standing');
+  });
+
+  it('puts a fully-tied cohort mid-pack, not all At Risk', () => {
+    const ctx = { sortedScores: Array(20).fill(50) };
+    expect(tierFor(50, ctx).label).toBe('Good Standing');
+  });
+
+  it('returns Unranked when the cohort is empty', () => {
+    expect(tierFor(50, { sortedScores: [] }).label).toBe('Unranked');
   });
   it('has human-readable reason labels', () => {
     expect(scoreReasonLabel('system_decline')).toBe('Declined lead');

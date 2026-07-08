@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Badge, statusTone } from '@/components/ui';
 import { cn } from '@/lib/utils';
 
-export type LeadStatus = 'new' | 'contacted' | 'qualified' | 'closed' | 'lost';
+export type LeadStatus = 'new' | 'contacted' | 'qualified' | 'closed' | 'lost' | 'reopened';
 
 export interface AgentLeadItem {
   leadOfferId: number;

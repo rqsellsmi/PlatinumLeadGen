@@ -129,23 +129,23 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
         .set({ acceptedAt: now, lastStatusChangedAt: now, updatedAt: now })
         .where(eq(leads.id, offer.leadId));
 
-      // Response-time score, 4 bands (§E.3). A null offerSentAt (queued offer
-      // dispatched asynchronously) is treated as the top tier — not the agent's
-      // fault the timestamp was missing.
+      // Response-time score, 4 bands (spec v2 §2). A null offerSentAt (queued
+      // offer dispatched asynchronously) is treated as the top tier — not the
+      // agent's fault the timestamp was missing.
       {
         let reason: ScoreReason = 'system_response_fast';
         let explicitDelta: number | undefined;
         if (offer.offerSentAt) {
           const elapsed = now.getTime() - offer.offerSentAt.getTime();
           if (elapsed < FIFTEEN_MIN_MS) {
-            reason = 'system_response_fast'; // +10
+            reason = 'system_response_fast'; // +8
           } else if (elapsed <= THIRTY_MIN_MS) {
             reason = 'system_response_fast';
-            explicitDelta = 7.65; // 15–30 min tier
+            explicitDelta = 6; // 15–30 min tier
           } else if (elapsed <= ONE_HOUR_MS) {
-            reason = 'system_response_good'; // +5
+            reason = 'system_response_good'; // +4
           } else {
-            reason = 'system_response_slow'; // +2 (>= 60 min)
+            reason = 'system_response_slow'; // +1 (>= 60 min)
           }
         }
         try {

@@ -13,7 +13,7 @@ import {
   notificationSettings,
 } from '../drizzle/schema';
 import { recommendAgents, type RoutingAgent } from './routing';
-import { getRoutingQueue, persistQueuePointer } from './queue';
+import { getRoutingQueue, persistQueue } from './queue';
 import { isWithinOfferWindow } from './offerWindow';
 import { sendEmail, agentLeadOfferEmail, agentAcceptanceEmail, adminAlertEmail } from './email';
 import { sendSms } from './sms';
@@ -36,14 +36,22 @@ function siteUrl(): string {
   return process.env.SITE_URL ?? 'https://remax-platinumonline.com';
 }
 
-/** Load active agents with effective coordinates (own preferred, office fallback). */
+/**
+ * Load active+available agents with their effective proximity anchor: the
+ * agent's geocoded custom location when they chose 'custom' (and it geocoded),
+ * otherwise their office coordinates. Also carries each agent's own acceptance
+ * radius (null → global default applied in routing).
+ */
 export async function getActiveRoutingAgents(): Promise<RoutingAgent[]> {
   const rows = await db
     .select({
       id: agents.id,
+      anchor: agents.proximityAnchor,
       lat: agents.latitude,
       lng: agents.longitude,
-      score: agents.score,
+      radius: agents.proximityRadiusMiles,
+      // Routing slots are driven by the rolling-365 track (spec v2 §3).
+      score: agents.scoreRolling365,
       officeLat: offices.latitude,
       officeLng: offices.longitude,
     })
@@ -53,12 +61,16 @@ export async function getActiveRoutingAgents(): Promise<RoutingAgent[]> {
     // paused their own lead routing (Section 16.3).
     .where(and(eq(agents.isActive, true), eq(agents.isAvailable, true)));
 
-  return rows.map((r) => ({
-    id: r.id,
-    lat: r.lat ?? r.officeLat ?? null,
-    lng: r.lng ?? r.officeLng ?? null,
-    score: r.score ?? 0,
-  }));
+  return rows.map((r) => {
+    const useCustom = r.anchor === 'custom' && r.lat != null && r.lng != null;
+    return {
+      id: r.id,
+      lat: useCustom ? r.lat : r.officeLat ?? null,
+      lng: useCustom ? r.lng : r.officeLng ?? null,
+      score: r.score ?? 0,
+      radiusMiles: r.radius ?? null,
+    };
+  });
 }
 
 /** Read (or lazily create) the single notificationSettings row. */
@@ -119,7 +131,6 @@ export async function autoOfferLead(
     propertyLat: lead.propertyLat,
     propertyLng: lead.propertyLng,
     radiusMiles: settings.proximityRadiusMiles ?? 20,
-    queuePointer: queue.pointer,
     rotationList: queue.rotationList,
     excludedAgentIds: opts.excludeAgentIds ?? [],
   });
@@ -133,12 +144,12 @@ export async function autoOfferLead(
     return { ok: false, sent: false, reason: 'no-agent' };
   }
 
-  // Persist the advanced queue pointer (Step 6) to agent_queue + keep the
-  // settings pointer in sync for the admin Overview snapshot.
-  await persistQueuePointer(result.newQueuePointer);
+  // Persist the mutated queue (served slot moved to the back; distance-skipped
+  // slots kept at the front) to agent_queue. Pointer is vestigial (front = next).
+  await persistQueue(result.rotationList);
   await db
     .update(notificationSettings)
-    .set({ queuePointer: result.newQueuePointer, updatedAt: new Date() })
+    .set({ queuePointer: 0, updatedAt: new Date() })
     .where(eq(notificationSettings.id, settings.id));
 
   const now = new Date();

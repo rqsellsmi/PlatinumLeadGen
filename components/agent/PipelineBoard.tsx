@@ -55,7 +55,11 @@ export default function PipelineBoard({ initial }: { initial: AgentLeadRow[] }) 
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {COLUMNS.map((col) => {
-          const colCards = cards.filter((c) => c.status === col.key);
+          // Reopened leads (came back after Lost) surface in "New" so the agent
+          // re-engages them; "Lost" leads stay hidden from the board.
+          const colCards = cards.filter(
+            (c) => c.status === col.key || (col.key === 'new' && c.status === 'reopened'),
+          );
           return (
             <div
               key={col.key}

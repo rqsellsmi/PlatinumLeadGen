@@ -1,10 +1,10 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { eq } from 'drizzle-orm';
+import { eq, isNotNull } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { testimonials, notificationSettings, googleReviews } from '@/drizzle/schema';
-import { fetchGooglePlaceReviews } from '@/lib/googleReviews';
+import { testimonials, notificationSettings, googleReviews, offices } from '@/drizzle/schema';
+import { fetchGooglePlaceDetails } from '@/lib/googleReviews';
 import { requireAdmin } from '@/components/admin/requireAdmin';
 
 function intOrNull(v: FormDataEntryValue | null): number | null {
@@ -68,48 +68,79 @@ export async function deleteTestimonial(formData: FormData) {
   revalidate();
 }
 
-/** Save the testimonial source (manual | google | both) + Google Place ID. */
+/**
+ * Save the homepage testimonial source (manual | google | both). Place IDs are
+ * now per-office (Admin → Offices), so this only stores the source toggle.
+ */
 export async function saveReviewSettings(formData: FormData) {
   await requireAdmin();
   const raw = String(formData.get('testimonialSource') ?? 'manual');
   const source = ['manual', 'google', 'both'].includes(raw) ? raw : 'manual';
-  const placeId = str(formData.get('googlePlaceId'));
   const rows = await db.select({ id: notificationSettings.id }).from(notificationSettings).limit(1);
   if (rows[0]) {
     await db
       .update(notificationSettings)
-      .set({ testimonialSource: source, googlePlaceId: placeId, updatedAt: new Date() })
+      .set({ testimonialSource: source, updatedAt: new Date() })
       .where(eq(notificationSettings.id, rows[0].id));
   } else {
-    await db.insert(notificationSettings).values({ testimonialSource: source, googlePlaceId: placeId });
+    await db.insert(notificationSettings).values({ testimonialSource: source });
   }
   revalidate();
 }
 
-/** Pull the latest Google reviews for the configured Place ID into the cache. */
+/**
+ * Pull the latest Google reviews for every office that has a Place ID into the
+ * cache. Each office has its own Google Business Profile; reviews are stored in
+ * google_reviews keyed by place_id, and each office's overall rating/count are
+ * cached back onto the office row.
+ */
 export async function refreshGoogleReviews() {
   await requireAdmin();
-  const rows = await db
-    .select({ placeId: notificationSettings.googlePlaceId })
-    .from(notificationSettings)
-    .limit(1);
-  const placeId = rows[0]?.placeId ?? null;
-  if (!placeId) throw new Error('Set a Google Place ID and save first');
+  const officeRows = await db
+    .select({ id: offices.id, name: offices.name, placeId: offices.googlePlaceId })
+    .from(offices)
+    .where(isNotNull(offices.googlePlaceId));
+  const targets = officeRows.filter((o) => o.placeId && o.placeId.trim());
+  if (!targets.length) {
+    throw new Error('Add a Google Place ID to at least one office (Admin → Offices) first');
+  }
 
-  const reviews = await fetchGooglePlaceReviews(placeId);
-  await db.delete(googleReviews).where(eq(googleReviews.placeId, placeId));
-  if (reviews.length) {
-    await db.insert(googleReviews).values(
-      reviews.map((r) => ({
-        placeId,
-        authorName: r.authorName,
-        rating: r.rating,
-        text: r.text,
-        relativeTime: r.relativeTime,
-        profilePhotoUrl: r.profilePhotoUrl,
-        reviewTime: r.reviewTime,
-      })),
-    );
+  const now = new Date();
+  for (const office of targets) {
+    const placeId = office.placeId!.trim();
+    const { reviews, rating, reviewCount, error } = await fetchGooglePlaceDetails(placeId);
+
+    if (error) {
+      // Record why it failed; keep any previously cached reviews so a transient
+      // failure doesn't wipe good data. Don't touch fetchedAt/rating on failure.
+      await db.update(offices).set({ googleReviewsError: error }).where(eq(offices.id, office.id));
+      continue;
+    }
+
+    // Success: replace this place's cached reviews with the freshly fetched set.
+    await db.delete(googleReviews).where(eq(googleReviews.placeId, placeId));
+    if (reviews.length) {
+      await db.insert(googleReviews).values(
+        reviews.map((r) => ({
+          placeId,
+          authorName: r.authorName,
+          rating: r.rating,
+          text: r.text,
+          relativeTime: r.relativeTime,
+          profilePhotoUrl: r.profilePhotoUrl,
+          reviewTime: r.reviewTime,
+        })),
+      );
+    }
+    await db
+      .update(offices)
+      .set({
+        googleReviewRating: rating,
+        googleReviewCount: reviewCount,
+        googleReviewsFetchedAt: now,
+        googleReviewsError: null,
+      })
+      .where(eq(offices.id, office.id));
   }
   revalidate();
 }

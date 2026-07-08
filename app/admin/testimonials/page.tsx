@@ -1,10 +1,11 @@
-import { asc, eq, sql } from 'drizzle-orm';
+import { asc, eq, sql, isNotNull } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import {
   locations,
   testimonials,
   notificationSettings,
   googleReviews,
+  offices,
   type Testimonial,
   type Location,
 } from '@/drizzle/schema';
@@ -91,7 +92,7 @@ function Fields({
 export default async function TestimonialsAdminPage() {
   await requireAdmin();
 
-  const [list, locationList, settingsRows, googleCountRows] = await Promise.all([
+  const [list, locationList, settingsRows, googleCountRows, officePlaceRows] = await Promise.all([
     db
       .select({ t: testimonials, cityName: locations.name })
       .from(testimonials)
@@ -99,14 +100,15 @@ export default async function TestimonialsAdminPage() {
       .orderBy(asc(locations.name), asc(testimonials.displayOrder), asc(testimonials.id)),
     db.select().from(locations).orderBy(asc(locations.name)),
     db
-      .select({ source: notificationSettings.testimonialSource, placeId: notificationSettings.googlePlaceId })
+      .select({ source: notificationSettings.testimonialSource })
       .from(notificationSettings)
       .limit(1),
     db.select({ n: sql<number>`count(*)::int` }).from(googleReviews),
+    db.select({ n: sql<number>`count(*)::int` }).from(offices).where(isNotNull(offices.googlePlaceId)),
   ]);
   const reviewSource = settingsRows[0]?.source ?? 'manual';
-  const placeId = settingsRows[0]?.placeId ?? '';
   const googleCount = Number(googleCountRows[0]?.n ?? 0);
+  const officePlaceCount = Number(officePlaceRows[0]?.n ?? 0);
 
   return (
     <div className="space-y-6">
@@ -133,19 +135,17 @@ export default async function TestimonialsAdminPage() {
                 <option value="both">Both (mixed)</option>
               </Select>
             </div>
-            <div className="md:col-span-2">
-              <Label htmlFor="googlePlaceId">Google Place ID</Label>
-              <Input
-                id="googlePlaceId"
-                name="googlePlaceId"
-                defaultValue={placeId}
-                placeholder="ChIJ… (from Google Maps / Place ID Finder)"
-              />
-            </div>
             <div className="md:col-span-3">
               <Button type="submit">Save source</Button>
             </div>
           </form>
+          <p className="text-sm text-mute">
+            Each office has its own Google Business Profile, so Place IDs are set per office in{' '}
+            <a href="/admin/offices" className="font-semibold text-platinum-red underline">
+              Admin → Offices
+            </a>
+            . Fetching pulls reviews for every office that has a Place ID.
+          </p>
           <div className="flex flex-wrap items-center gap-3 border-t border-line pt-4">
             <form action={refreshGoogleReviews}>
               <Button type="submit" variant="secondary" size="sm">
@@ -153,9 +153,12 @@ export default async function TestimonialsAdminPage() {
               </Button>
             </form>
             <p className="text-sm text-mute-light">
+              {officePlaceCount > 0
+                ? `${officePlaceCount} office${officePlaceCount === 1 ? '' : 's'} with a Place ID · `
+                : 'No offices have a Place ID yet · '}
               {googleCount > 0
                 ? `${googleCount} Google review${googleCount === 1 ? '' : 's'} cached.`
-                : 'No Google reviews cached yet.'}{' '}
+                : 'no Google reviews cached yet.'}{' '}
               Google returns up to 5 reviews per place. Requires GOOGLE_MAPS_API_KEY with the Places
               API enabled.
             </p>

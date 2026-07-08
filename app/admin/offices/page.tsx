@@ -17,7 +17,31 @@ const FIELDS: { name: keyof Office; label: string; type?: string }[] = [
   { name: 'state', label: 'State' },
   { name: 'zip', label: 'Zip' },
   { name: 'phone', label: 'Phone' },
+  // Google Business Profile Place ID for this office's reviews (fetched from
+  // Admin → Testimonials → "Fetch Google reviews now").
+  { name: 'googlePlaceId', label: 'Google Place ID' },
 ];
+
+function reviewStatus(office: Office): { text: string; isError: boolean } {
+  if (office.googleReviewsError) {
+    return { text: `Last fetch failed — ${office.googleReviewsError}`, isError: true };
+  }
+  if (!office.googlePlaceId) {
+    return { text: 'No Place ID — add one to pull this office’s Google reviews.', isError: false };
+  }
+  if (office.googleReviewsFetchedAt == null) {
+    return {
+      text: 'Place ID set — not fetched yet. Use “Fetch Google reviews now” on the Testimonials page.',
+      isError: false,
+    };
+  }
+  const rating = office.googleReviewRating != null ? office.googleReviewRating.toFixed(1) : '—';
+  const count = office.googleReviewCount != null ? office.googleReviewCount : '—';
+  return {
+    text: `Google ${rating}★ (${count} ratings) · last fetched ${office.googleReviewsFetchedAt.toLocaleDateString()}`,
+    isError: false,
+  };
+}
 
 export default async function OfficesPage() {
   await requireAdmin();
@@ -74,6 +98,16 @@ export default async function OfficesPage() {
                     />
                   </div>
                 ))}
+                {(() => {
+                  const s = reviewStatus(office);
+                  return (
+                    <p
+                      className={`text-xs md:col-span-4 ${s.isError ? 'font-semibold text-platinum-red' : 'text-mute-light'}`}
+                    >
+                      {s.text}
+                    </p>
+                  );
+                })()}
                 <div className="flex items-end gap-2 md:col-span-4">
                   <Button type="submit">Save</Button>
                 </div>

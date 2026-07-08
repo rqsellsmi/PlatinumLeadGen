@@ -5,6 +5,8 @@ import { Card, CardHeader, CardBody, Button, Input, Label, Select } from '@/comp
 import { requireAdmin } from '@/components/admin/requireAdmin';
 import ResetOnSubmitForm from '@/components/admin/ResetOnSubmitForm';
 import AgentDirectory, { type AgentRow } from '@/components/admin/AgentDirectory';
+import { tierFor } from '@/lib/scoreTiers';
+import { loadTierContext } from '@/lib/scoreTiersServer';
 import { createAgent } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -54,6 +56,7 @@ export default async function AgentsPage() {
   const acceptedById = new Map(acceptedCounts.map((r) => [r.agentId, Number(r.n)]));
   const closedById = new Map(closedCounts.map((r) => [r.agentId, Number(r.n)]));
   const respById = new Map(respRows.map((r) => [r.agentId, r.mins != null ? Number(r.mins) : null]));
+  const tierCtx = await loadTierContext();
 
   // Build serializable rows (with precomputed metrics) for the client directory.
   const agentRows: AgentRow[] = rows.map(({ agent, officeName, officeCity }) => {
@@ -66,7 +69,9 @@ export default async function AgentsPage() {
       officeName: officeName ?? null,
       officeCity: officeCity ?? null,
       isActive: agent.isActive,
-      score: agent.score,
+      score: agent.scoreLifetime, // directory shows lifetime + its cohort tier (spec v2 §6)
+      tierLabel: tierFor(agent.scoreLifetime, tierCtx).label,
+      tierColor: tierFor(agent.scoreLifetime, tierCtx).color,
       activeLeads: activeById.get(agent.id) ?? 0,
       conversionPct:
         accepted === 0 ? null : Math.round(((closedById.get(agent.id) ?? 0) / accepted) * 100),

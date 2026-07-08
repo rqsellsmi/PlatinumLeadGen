@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Card, Badge } from '@/components/ui';
 import { cn } from '@/lib/utils';
 
-export type LeadStatus = 'new' | 'contacted' | 'qualified' | 'closed' | 'lost';
+export type LeadStatus = 'new' | 'contacted' | 'qualified' | 'closed' | 'lost' | 'reopened';
 
 export interface LeadListItem {
   leadOfferId: number;
@@ -21,6 +21,7 @@ const statusStyles: Record<LeadStatus, string> = {
   qualified: 'bg-emerald-100 text-emerald-800',
   closed: 'bg-slate-200 text-slate-700',
   lost: 'bg-red-100 text-brand-red',
+  reopened: 'bg-purple-100 text-purple-800',
 };
 
 function daysLabel(days: number | null): string {

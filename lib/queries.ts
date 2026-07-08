@@ -2,7 +2,7 @@
  * Server-side data loading for public pages (Section 4.2).
  * City page data is fetched at render time. Next.js ISR caches the rendered page.
  */
-import { eq, and, or, desc, asc, sql, inArray } from 'drizzle-orm';
+import { eq, and, or, desc, asc, sql, inArray, isNotNull } from 'drizzle-orm';
 import { db } from './db';
 import {
   locations,
@@ -14,6 +14,7 @@ import {
   agents,
   closings,
   guides,
+  offices,
   notificationSettings,
   googleReviews,
   type Location,
@@ -24,6 +25,15 @@ import {
   type Guide,
 } from '../drizzle/schema';
 
+export interface CityGoogleReview {
+  id: number;
+  quote: string;
+  authorName: string;
+  relativeTime: string | null;
+  rating: number;
+  photoUrl: string | null;
+}
+
 export interface CityPageData {
   location: Location;
   stats: MarketStat | null;
@@ -31,6 +41,11 @@ export interface CityPageData {
   testimonials: Testimonial[];
   neighborhoodLinks: NeighborhoodLink[];
   trackingScripts: TrackingScript[];
+  /** Cached Google reviews for this city (from its linked office, or pooled). */
+  googleReviews: CityGoogleReview[];
+  /** Star rating for the hero/social-proof bar (linked office, else manual). */
+  reviewRating: number | null;
+  reviewCount: number | null;
 }
 
 /** The mailing cities a location covers (falls back to its own short name). */
@@ -81,6 +96,76 @@ export async function getMarketStats(locationId: number): Promise<MarketStat | n
 }
 
 /**
+ * Cached Google reviews for a city page, plus the star rating/count to show in
+ * the hero. Uses the location's linked office (`officeId`) when set; otherwise
+ * falls back to a mix of all offices' reviews. The rating/count prefer the
+ * linked office's live Google numbers, falling back to the manual per-location
+ * fields that already drove the hero.
+ */
+async function getLocationReviews(location: Location): Promise<{
+  reviews: CityGoogleReview[];
+  rating: number | null;
+  count: number | null;
+}> {
+  try {
+    let placeIds: string[] = [];
+    let officeRating: number | null = null;
+    let officeCount: number | null = null;
+
+    if (location.officeId != null) {
+      const rows = await db
+        .select({
+          placeId: offices.googlePlaceId,
+          rating: offices.googleReviewRating,
+          count: offices.googleReviewCount,
+        })
+        .from(offices)
+        .where(eq(offices.id, location.officeId))
+        .limit(1);
+      const o = rows[0];
+      if (o?.placeId?.trim()) placeIds = [o.placeId.trim()];
+      officeRating = o?.rating ?? null;
+      officeCount = o?.count ?? null;
+    } else {
+      placeIds = await getOfficePlaceIds();
+    }
+
+    let reviews: CityGoogleReview[] = [];
+    if (placeIds.length) {
+      const rows = await db
+        .select()
+        .from(googleReviews)
+        .where(inArray(googleReviews.placeId, placeIds))
+        .orderBy(desc(googleReviews.reviewTime));
+      reviews = rows
+        .filter((r) => (r.rating ?? 0) >= 4 && (r.text ?? '').trim().length > 0)
+        .slice(0, 6)
+        .map((r) => ({
+          id: r.id,
+          quote: r.text ?? '',
+          authorName: r.authorName ?? 'Google reviewer',
+          relativeTime: r.relativeTime,
+          rating: r.rating ?? 5,
+          photoUrl: r.profilePhotoUrl,
+        }));
+    }
+
+    return {
+      reviews,
+      rating: officeRating ?? location.googleReviewRating ?? null,
+      count: officeCount ?? location.googleReviewCount ?? null,
+    };
+  } catch (err) {
+    console.warn('[queries] getLocationReviews failed:', err);
+    return {
+      reviews: [],
+      rating: location.googleReviewRating ?? null,
+      count: location.googleReviewCount ?? null,
+    };
+  }
+}
+
+/**
  * Full city page payload. The page-level ISR configuration handles caching.
  */
 export async function getCityPageData(slug: string): Promise<CityPageData | null> {
@@ -92,8 +177,13 @@ export async function getCityPageData(slug: string): Promise<CityPageData | null
   let tms: Testimonial[] = [];
   let links: NeighborhoodLink[] = [];
   let scripts: TrackingScript[] = [];
+  let reviews: { reviews: CityGoogleReview[]; rating: number | null; count: number | null } = {
+    reviews: [],
+    rating: location.googleReviewRating ?? null,
+    count: location.googleReviewCount ?? null,
+  };
   try {
-    [stats, sales, tms, links, scripts] = await Promise.all([
+    [stats, sales, tms, links, scripts, reviews] = await Promise.all([
       getMarketStats(location.id),
       getCityRecentSales(locationMatchCities(location), 6),
       db
@@ -107,6 +197,7 @@ export async function getCityPageData(slug: string): Promise<CityPageData | null
         .where(eq(neighborhoodLinks.locationId, location.id))
         .orderBy(asc(neighborhoodLinks.displayOrder)),
       getTrackingScriptsForLocation(location.id),
+      getLocationReviews(location),
     ]);
   } catch (err) {
     console.warn('[queries] getCityPageData secondary fetch failed:', err);
@@ -119,6 +210,9 @@ export async function getCityPageData(slug: string): Promise<CityPageData | null
     testimonials: tms,
     neighborhoodLinks: links,
     trackingScripts: scripts,
+    googleReviews: reviews.reviews,
+    reviewRating: reviews.rating,
+    reviewCount: reviews.count,
   };
 
   return data;
@@ -337,20 +431,34 @@ export interface HomeTestimonial {
   photoUrl: string | null;
 }
 
-/** Read the testimonials source setting ('manual' | 'google' | 'both') + place id. */
+/** Read the homepage testimonials source setting ('manual' | 'google' | 'both'). */
 export async function getReviewSettings(): Promise<{
   source: 'manual' | 'google' | 'both';
-  placeId: string | null;
 }> {
   try {
     const rows = await db
-      .select({ source: notificationSettings.testimonialSource, placeId: notificationSettings.googlePlaceId })
+      .select({ source: notificationSettings.testimonialSource })
       .from(notificationSettings)
       .limit(1);
     const source = (rows[0]?.source as 'manual' | 'google' | 'both') ?? 'manual';
-    return { source: ['manual', 'google', 'both'].includes(source) ? source : 'manual', placeId: rows[0]?.placeId ?? null };
+    return { source: ['manual', 'google', 'both'].includes(source) ? source : 'manual' };
   } catch {
-    return { source: 'manual', placeId: null };
+    return { source: 'manual' };
+  }
+}
+
+/** Place IDs across all offices — reviews are fetched per Google Business Profile. */
+async function getOfficePlaceIds(): Promise<string[]> {
+  try {
+    const rows = await db
+      .select({ placeId: offices.googlePlaceId })
+      .from(offices)
+      .where(isNotNull(offices.googlePlaceId));
+    return Array.from(
+      new Set(rows.map((r) => r.placeId?.trim()).filter((p): p is string => !!p)),
+    );
+  } catch {
+    return [];
   }
 }
 
@@ -361,7 +469,7 @@ export async function getReviewSettings(): Promise<{
  */
 export async function getHomeTestimonials(limit = 3): Promise<HomeTestimonial[]> {
   try {
-    const { source, placeId } = await getReviewSettings();
+    const { source } = await getReviewSettings();
 
     const manual: HomeTestimonial[] =
       source === 'google'
@@ -377,11 +485,12 @@ export async function getHomeTestimonials(limit = 3): Promise<HomeTestimonial[]>
           }));
 
     let google: HomeTestimonial[] = [];
-    if ((source === 'google' || source === 'both') && placeId) {
+    const placeIds = source === 'manual' ? [] : await getOfficePlaceIds();
+    if ((source === 'google' || source === 'both') && placeIds.length) {
       const rows = await db
         .select()
         .from(googleReviews)
-        .where(eq(googleReviews.placeId, placeId))
+        .where(inArray(googleReviews.placeId, placeIds))
         .orderBy(desc(googleReviews.reviewTime));
       google = rows
         .filter((r) => (r.rating ?? 0) >= 4 && (r.text ?? '').trim().length > 0)

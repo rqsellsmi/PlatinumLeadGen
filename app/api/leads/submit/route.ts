@@ -58,6 +58,53 @@ async function notifyAssignedAgentOfResubmit(lead: Lead, email: string | null, p
 }
 
 /**
+ * Reopen a Lost lead (spec v2 §4.4): flip Lost → Reopened, reset the stall clock
+ * and the Contacted precondition, and route back to the same agent if they still
+ * hold it and are active; otherwise route it as a fresh lead. The prior Lost
+ * episode (reason, stall penalties, point history) stays on the lead's log.
+ */
+async function reopenLostLead(lead: Lead, email: string | null, phone: string | null) {
+  const now = new Date();
+  await db
+    .update(leads)
+    .set({
+      status: 'reopened',
+      reopenedAt: now,
+      lastStatusChangedAt: now,
+      stallPenaltyAt: null,
+      contactedAt: null, // Lost again requires a fresh Contacted
+      updatedAt: now,
+    })
+    .where(eq(leads.id, lead.id));
+  await logLeadEvent(
+    lead.id,
+    'reopened',
+    `Reopened${lead.lostReason ? ` — prior Lost (${lead.lostReason})` : ''}`,
+  );
+
+  // Same agent if the most recent accepted offer's agent is still active.
+  const rows = await db
+    .select({ agent: agents })
+    .from(leadOffers)
+    .innerJoin(agents, eq(leadOffers.agentId, agents.id))
+    .where(and(eq(leadOffers.leadId, lead.id), eq(leadOffers.status, 'accepted')))
+    .orderBy(desc(leadOffers.acceptedAt))
+    .limit(1);
+  const priorAgent = rows[0]?.agent;
+  if (priorAgent?.isActive) {
+    // Keep the existing assignment; notify the agent the client is back.
+    await notifyAssignedAgentOfResubmit({ ...lead, status: 'reopened' }, email, phone);
+    return;
+  }
+  // No active assigned agent → route as a fresh lead.
+  try {
+    await autoOfferLead(lead.id);
+  } catch (err) {
+    console.error('[api/leads/submit] reopen autoOffer failed:', err);
+  }
+}
+
+/**
  * Soft-delete the throwaway partial lead created THIS session (via
  * /api/leads/partial) when the submit turns out to be a duplicate of a lead
  * captured in another session. Without this the partial lingers in the console
@@ -125,6 +172,18 @@ export async function POST(req: NextRequest) {
     // ----- Dedup Layer 1: contact (email/phone) against prior leads -----
     const contactMatch = await findExistingLeadByContact(email, phone);
     if (contactMatch) {
+      // Reopen (spec v2 §4.4): a Lost lead whose contact submitted again is a
+      // real returning client — flip Lost → Reopened, reset the lifecycle clocks
+      // and the Contacted precondition, and route back to the same agent when
+      // still assigned + active, else route fresh.
+      if (contactMatch.status === 'lost') {
+        await reopenLostLead(contactMatch, email, phone);
+        await discardSessionPartial(input.sessionId, contactMatch.id);
+        await discardAddressPartials(normalizedAddressKey(input.propertyAddress), contactMatch.id);
+        if (input.valuationToken) await linkValuationToLead(input.valuationToken, contactMatch.id);
+        return NextResponse.json({ success: true, leadId: contactMatch.id, isReopened: true });
+      }
+
       await logLeadEvent(contactMatch.id, 'duplicate_submission', `Resubmitted via ${pageVariant} page`);
       await notifyAssignedAgentOfResubmit(contactMatch, email, phone);
       await discardSessionPartial(input.sessionId, contactMatch.id);
