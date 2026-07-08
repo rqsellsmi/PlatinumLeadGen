@@ -9,7 +9,7 @@
  *
  * Usage: tsx scripts/idx-verify-metadata.ts
  */
-import 'dotenv/config';
+import './loadEnv';
 import { fetchMetadata, isRealcompConfigured } from '../lib/realcomp';
 import { SELECT_FIELDS } from '../lib/idxSync';
 

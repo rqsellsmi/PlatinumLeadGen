@@ -14,7 +14,7 @@
  * prints roughly every 500 records. Exits non-zero on error (GitHub Actions
  * shows a red X).
  */
-import 'dotenv/config';
+import './loadEnv';
 import { realcompFetchPages, isRealcompConfigured } from '../lib/realcomp';
 import { activeBackfillParams, soldBackfillParams, upsertRawListings } from '../lib/idxSync';
 
