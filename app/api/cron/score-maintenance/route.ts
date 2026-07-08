@@ -1,6 +1,6 @@
 /**
  * Cron: score-track maintenance (spec v2 §1/§5). Runs daily.
- *  - Recomputes every agent's rolling-90d from the log (so aging events decay
+ *  - Recomputes every agent's rolling-365 from the log (so aging events decay
  *    out of the trailing-90-day window even without a new scoring event).
  *  - Resets score_monthly on the first run of a new calendar month, and
  *    score_ytd on the first run of a new year — each guarded by a stored period
@@ -26,12 +26,12 @@ export async function GET(req: NextRequest) {
     const monthKey = now.toISOString().slice(0, 7); // YYYY-MM
     const yearKey = now.toISOString().slice(0, 4); // YYYY
 
-    // 1. Decay rolling-90d for every agent from the log (single statement).
+    // 1. Decay rolling-365 for every agent from the log (single statement).
     await db.execute(sql`
-      UPDATE ${agents} SET score_rolling_90d = COALESCE((
+      UPDATE ${agents} SET score_rolling_365 = COALESCE((
         SELECT SUM(l.delta) FROM agent_score_log l
         WHERE l.agent_id = ${agents}.id
-          AND l.created_at >= now() - interval '90 days'
+          AND l.created_at >= now() - interval '365 days'
       ), 0)
     `);
 

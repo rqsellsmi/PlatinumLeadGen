@@ -17,7 +17,7 @@ export default async function RoundRobinPage() {
     getRoutingQueue(available),
     distributionThisWeek(),
     db
-      .select({ id: agents.id, first: agents.firstName, last: agents.lastName, score: agents.scoreRolling90d })
+      .select({ id: agents.id, first: agents.firstName, last: agents.lastName, score: agents.scoreRolling365 })
       .from(agents),
   ]);
 

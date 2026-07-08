@@ -107,7 +107,7 @@ RentCast AVM `GET /avm/value`. Returns estimate + range (RentCast's own range, o
 - **Acceptance** deadline = send + 3h.
 
 ### 4.3 Agent score — Scoring v2 (`lib/scoring.ts`, uncapped; see `docs/agent-rating-system.md`)
-Four tracks per agent, all written by `applyScore`: **lifetime** (never resets, tier label, private), **YTD** (Jan 1), **monthly** (1st), **rolling-90d** (trailing-90d log sum, drives routing only). No clamp.
+Four tracks per agent, all written by `applyScore`: **lifetime** (never resets, tier label, private), **YTD** (Jan 1), **monthly** (1st), **rolling-365** (trailing-365d log sum, drives routing only). No clamp.
 
 | Event | Delta | Event | Delta |
 |---|---|---|---|
@@ -118,9 +118,9 @@ Four tracks per agent, all written by `applyScore`: **lifetime** (never resets, 
 | Decline | −3 | Stalled 30-day | −3 (recurs) |
 | No response (expired) | −4 | Marked Lost | 0 |
 
-Slots = `1 + floor(sqrt(max(rolling90d,0)/10))` (uncapped, from rolling-90d). Tiers (from lifetime): ≥100 Top Performer · ≥80 Strong · ≥60 Good Standing · ≥40 Average · ≥20 Needs Improvement · <20 At Risk. Leaderboards at `/agent/leaderboard` (monthly + YTD, top 20 + your rank).
+Slots = `1 + floor(sqrt(max(rolling365,0)/10))` (uncapped, from rolling-365). Tiers are **cohort-relative percentiles** of active agents' lifetime score (top 10% Top Performer, then 70/50/30/10th down to At Risk; `lib/scoreTiers.ts`). Leaderboards at `/agent/leaderboard` (monthly + YTD, top 20 + your rank). Admin **Lost-reason roll-up** at `/admin/lost-reasons` (reason mix + per-agent unresponsive-rate signal).
 
-**Lifecycle (spec v2 §4):** **Lost** needs a prior Contacted + a fixed reason (no score); **stall** (`pipeline_stalled`) hits Qualified leads idle 30d, recurring, until Closed/Lost; **reopen** flips a Lost lead whose contact submits again to **Reopened**, resets clocks, routes to the same active agent else fresh. `/api/cron/score-maintenance` (daily) decays rolling-90d and resets monthly/YTD at boundaries.
+**Lifecycle (spec v2 §4):** **Lost** needs a prior Contacted + a fixed reason (no score); **stall** (`pipeline_stalled`) hits Qualified leads idle 30d, recurring, until Closed/Lost; **reopen** flips a Lost lead whose contact submits again to **Reopened**, resets clocks, routes to the same active agent else fresh. `/api/cron/score-maintenance` (daily) decays rolling-365 and resets monthly/YTD at boundaries.
 
 ### 4.4 Stale follow-up (cron `followup-check`)
 36h warning email → 48h penalty (−2) → 6-day warning → 7-day recurring penalty (−2) → 30-day Qualified stall (−3, recurring). The 6-day warning reuses `staleWarningSentAt` with the compound "warned-before-last-penalty" filter (§K.4). Also: 48h broker escalation, weekly agent reminder, Thursday broker digest.

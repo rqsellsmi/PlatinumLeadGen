@@ -50,8 +50,8 @@ export async function getActiveRoutingAgents(): Promise<RoutingAgent[]> {
       lat: agents.latitude,
       lng: agents.longitude,
       radius: agents.proximityRadiusMiles,
-      // Routing slots are driven by the rolling-90d track (spec v2 §3).
-      score: agents.scoreRolling90d,
+      // Routing slots are driven by the rolling-365 track (spec v2 §3).
+      score: agents.scoreRolling365,
       officeLat: offices.latitude,
       officeLng: offices.longitude,
     })

@@ -6,11 +6,11 @@
  *   - score_lifetime   never resets (tier label, private profile)
  *   - score_ytd        reset Jan 1 (YTD leaderboard)
  *   - score_monthly    reset 1st of month (monthly leaderboard)
- *   - score_rolling_90d trailing-90-day sum (drives routing slots ONLY)
+ *   - score_rolling_365 trailing-365-day sum (drives routing slots ONLY)
  *
  * Lifetime/ytd/monthly are maintained incrementally (and reset by the
- * score-maintenance cron); rolling-90d is derived from the log (sum of deltas in
- * the trailing 90 days) so it decays as events age out. There is NO score clamp
+ * score-maintenance cron); rolling-365 is derived from the log (sum of deltas in
+ * the trailing 365 days) so it decays as events age out. There is NO score clamp
  * in v2 — the score is uncapped.
  */
 import { and, eq, gte, sql } from 'drizzle-orm';
@@ -33,7 +33,7 @@ export type ScoreReason =
   | 'lead_deleted_reversal'
   | 'manual_adjustment';
 
-const ROLLING_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
+const ROLLING_WINDOW_MS = 365 * 24 * 60 * 60 * 1000;
 
 /**
  * Fixed deltas for system reasons (spec v2 §2). manual_adjustment and
@@ -105,7 +105,7 @@ export async function applyScore(args: ApplyScoreArgs): Promise<number> {
     createdAt: now,
   });
 
-  // Rolling-90d = sum of the agent's log deltas in the trailing 90 days
+  // Rolling-365 = sum of the agent's log deltas in the trailing 365 days
   // (includes the row just inserted; naturally decays as rows age out).
   const since = new Date(now.getTime() - ROLLING_WINDOW_MS);
   const rollRows = await db
@@ -120,7 +120,7 @@ export async function applyScore(args: ApplyScoreArgs): Promise<number> {
       scoreLifetime: sql`${agents.scoreLifetime} + ${delta}`,
       scoreYtd: sql`${agents.scoreYtd} + ${delta}`,
       scoreMonthly: sql`${agents.scoreMonthly} + ${delta}`,
-      scoreRolling90d: rolling,
+      scoreRolling365: rolling,
       score: sql`${agents.scoreLifetime} + ${delta}`, // mirror lifetime for back-compat reads
       updatedAt: now,
     })
@@ -129,14 +129,14 @@ export async function applyScore(args: ApplyScoreArgs): Promise<number> {
   return delta;
 }
 
-/** Recompute one agent's rolling-90d from the log (used by the maintenance cron). */
-export async function recomputeRolling90d(agentId: number, now = new Date()): Promise<number> {
+/** Recompute one agent's rolling-365 from the log (used by the maintenance cron). */
+export async function recomputeRolling365(agentId: number, now = new Date()): Promise<number> {
   const since = new Date(now.getTime() - ROLLING_WINDOW_MS);
   const rows = await db
     .select({ total: sql<number>`coalesce(sum(${agentScoreLog.delta}), 0)` })
     .from(agentScoreLog)
     .where(and(eq(agentScoreLog.agentId, agentId), gte(agentScoreLog.createdAt, since)));
   const rolling = Number(rows[0]?.total ?? 0);
-  await db.update(agents).set({ scoreRolling90d: rolling }).where(eq(agents.id, agentId));
+  await db.update(agents).set({ scoreRolling365: rolling }).where(eq(agents.id, agentId));
   return rolling;
 }

@@ -7,6 +7,8 @@ import { Card, CardHeader, CardBody, Button, Input, Label, Select, Textarea, Bad
 import { requireAdmin } from '@/components/admin/requireAdmin';
 import ResetOnSubmitForm from '@/components/admin/ResetOnSubmitForm';
 import LocalTime from '@/components/LocalTime';
+import { tierFor } from '@/lib/scoreTiers';
+import { loadTierContext } from '@/lib/scoreTiersServer';
 import { updateAgent, setAgentPassword, adjustScore, deactivateAgent } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -30,6 +32,8 @@ export default async function AgentDetailPage({ params }: { params: { id: string
       .limit(100),
   ]);
 
+  const tier = tierFor(agent.scoreLifetime, await loadTierContext());
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -42,8 +46,9 @@ export default async function AgentDetailPage({ params }: { params: { id: string
           </h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <span className={`text-sm font-bold ${tier.color}`}>{tier.label}</span>
           <Badge tone="info">Lifetime {agent.scoreLifetime.toFixed(1)}</Badge>
-          <Badge tone="neutral">Routing (90d) {agent.scoreRolling90d.toFixed(1)}</Badge>
+          <Badge tone="neutral">Routing (365d) {agent.scoreRolling365.toFixed(1)}</Badge>
           <Badge tone="neutral">YTD {agent.scoreYtd.toFixed(1)}</Badge>
           <Badge tone="neutral">Month {agent.scoreMonthly.toFixed(1)}</Badge>
           <Badge tone={agent.isActive ? 'success' : 'neutral'}>

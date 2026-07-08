@@ -3,7 +3,6 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { Button, Input, Select, Badge } from '@/components/ui';
-import { scoreTier } from '@/lib/scoreTiers';
 import { toggleAgentActive } from '@/app/admin/agents/actions';
 
 export interface AgentRow {
@@ -15,6 +14,9 @@ export interface AgentRow {
   officeCity: string | null;
   isActive: boolean;
   score: number;
+  /** Cohort-relative tier (computed server-side from lifetime percentiles). */
+  tierLabel: string;
+  tierColor: string;
   activeLeads: number;
   /** null = no accepted offers yet (shown as —). */
   conversionPct: number | null;
@@ -167,7 +169,7 @@ export default function AgentDirectory({ agents }: { agents: AgentRow[] }) {
       ) : view === 'tiles' ? (
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
           {filtered.map((agent, i) => {
-            const tier = scoreTier(agent.score);
+            const tier = { label: agent.tierLabel, color: agent.tierColor };
             return (
               <div key={agent.id} className="rounded-card border border-line bg-white p-5">
                 <div className="flex items-center gap-3.5">
@@ -238,7 +240,7 @@ export default function AgentDirectory({ agents }: { agents: AgentRow[] }) {
             </thead>
             <tbody className="divide-y divide-line-hair">
               {filtered.map((agent) => {
-                const tier = scoreTier(agent.score);
+                const tier = { label: agent.tierLabel, color: agent.tierColor };
                 return (
                   <tr key={agent.id} className="hover:bg-offwhite">
                     <td className="px-4 py-2.5">

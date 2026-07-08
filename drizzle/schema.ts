@@ -123,7 +123,7 @@ export const agents = pgTable(
     scoreLifetime: real('score_lifetime').notNull().default(50), // never resets; tier label
     scoreYtd: real('score_ytd').notNull().default(0), // resets Jan 1
     scoreMonthly: real('score_monthly').notNull().default(0), // resets 1st of month
-    scoreRolling90d: real('score_rolling_90d').notNull().default(0), // trailing 90d; drives routing slots
+    scoreRolling365: real('score_rolling_365').notNull().default(0), // trailing 365d; drives routing slots
     // Admin-controlled membership.
     isActive: boolean('is_active').notNull().default(true),
     // Agent self-controlled availability (Section 16). Both must be true to

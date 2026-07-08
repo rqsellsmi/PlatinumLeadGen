@@ -14,11 +14,11 @@ aggregate columns on the agent together:
 | `scoreLifetime` | never | tier label | own Performance page only (private) |
 | `scoreYtd` | Jan 1 | YTD leaderboard | public leaderboard |
 | `scoreMonthly` | 1st of month | monthly leaderboard | public leaderboard |
-| `scoreRolling90d` | trailing 90-day sum | **routing slots only** | never |
+| `scoreRolling365` | trailing 365-day sum | **routing slots only** | never |
 
 - Lifetime/YTD/monthly are incremented on write and zeroed at their boundaries
   by `/api/cron/score-maintenance` (guarded by period keys so each fires once).
-- Rolling-90d = sum of the agent's log deltas in the trailing 90 days; recomputed
+- Rolling-365 = sum of the agent's log deltas in the trailing 365 days; recomputed
   on every write and nightly by the maintenance cron so aging events decay out.
 - The legacy `agents.score` column is kept as a mirror of `scoreLifetime`.
 - **No clamp** — scores are uncapped in v2.
@@ -45,7 +45,7 @@ aggregate columns on the agent together:
 ## Routing slots (uncapped)
 
 ```
-slots = 1 + floor( sqrt( max(scoreRolling90d, 0) / 10 ) )
+slots = 1 + floor( sqrt( max(scoreRolling365, 0) / 10 ) )
 ```
 
 No upper cap; each additional slot costs progressively more. Slot thresholds:
@@ -70,10 +70,22 @@ the proximity radius; the slot count sets frequency among eligible agents.
   else routes fresh. Contacted/qualified points can be re-earned; the prior Lost
   episode stays on the log.
 
-## Tiers (display only, from `scoreLifetime`)
+## Tiers (display only, from `scoreLifetime`) — cohort-relative
 
-≥100 Top Performer · ≥80 Strong · ≥60 Good Standing · ≥40 Average ·
-≥20 Needs Improvement · <20 At Risk.
+Tiers are **percentiles of the active-agent cohort's lifetime score**, not fixed
+thresholds (`lib/scoreTiers.ts`, cohort loaded by `lib/scoreTiersServer.ts`):
+
+| Percentile | Tier |
+| --- | --- |
+| top 10% (≥90th) | Top Performer |
+| 70–90th | Strong |
+| 50–70th | Good Standing |
+| 30–50th | Average |
+| 10–30th | Needs Improvement |
+| bottom 10% (<10th) | At Risk |
+
+Rank uses the midrank (ties share a rank), so a fully-tied cohort lands mid-pack
+rather than all bottoming out. Empty cohort → "Unranked".
 
 ## Leaderboards
 
@@ -86,7 +98,9 @@ Performance page.
 | Concern | File |
 | --- | --- |
 | Deltas + `applyScore` (4 tracks, uncapped) | `lib/scoring.ts` |
-| Rolling-90d → slots (uncapped) | `lib/routing.ts` (`slotCountForScore`) |
+| Rolling-365 → slots (uncapped) | `lib/routing.ts` (`slotCountForScore`) |
+| Percentile tiers | `lib/scoreTiers.ts` + `lib/scoreTiersServer.ts` |
+| Lost-reason roll-up (admin) | `app/admin/lost-reasons/page.tsx` |
 | Lost reasons + stall window | `lib/leadLifecycle.ts` |
 | Accept/decline scoring | `app/api/offer/[token]/route.ts` |
 | No-response (expiry) | `app/api/cron/expire-offers/route.ts` |

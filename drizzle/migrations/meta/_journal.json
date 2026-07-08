@@ -99,6 +99,13 @@
       "when": 1784000000000,
       "tag": "0013_scoring_v2",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1784100000000,
+      "tag": "0014_rolling_365",
+      "breakpoints": true
     }
   ]
 }
