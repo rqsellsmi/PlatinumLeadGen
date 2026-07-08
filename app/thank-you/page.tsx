@@ -13,6 +13,15 @@ import {
   type HomeRecentSale,
 } from '@/lib/queries';
 import { getRevealedValuation, type RevealedValuation } from '@/lib/valuationStore';
+import { getReportContext, logReportView } from '@/lib/reportAccess';
+import {
+  getSimilarHomes,
+  getRecentSoldComps,
+  getCityMarketStats,
+  getPhotosForListings,
+  type IdxCard,
+  type CityMarketStats,
+} from '@/lib/idx';
 import type { MarketTrends } from '@/lib/valuation';
 import type { MarketStat } from '@/drizzle/schema';
 
@@ -24,13 +33,57 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
+/** Load the IDX Similar Homes / sold comps / market stats for the subject home. */
+async function loadIdxSections(
+  report: RevealedValuation | null,
+  idxCity: string,
+): Promise<{
+  forSale: IdxCard[];
+  sold: IdxCard[];
+  forSalePhotos: Record<string, string[]>;
+  marketStats: CityMarketStats | null;
+}> {
+  const empty = { forSale: [], sold: [], forSalePhotos: {}, marketStats: null };
+  if (!report) return empty;
+  try {
+    const est = report.estimatedValue;
+    const lat = report.latitude;
+    const lng = report.longitude;
+
+    const [forSale, sold, marketStats] = await Promise.all([
+      est != null
+        ? getSimilarHomes({
+            latitude: lat,
+            longitude: lng,
+            priceRangeLow: est * 0.8,
+            priceRangeHigh: est * 1.2,
+            limit: 6,
+          })
+        : Promise.resolve([]),
+      getRecentSoldComps({ latitude: lat, longitude: lng, city: idxCity || null, withinDays: 90, limit: 6 }),
+      idxCity ? getCityMarketStats(idxCity) : Promise.resolve(null),
+    ]);
+
+    const photoMap = await getPhotosForListings(forSale.map((l) => l.listingKey));
+    const forSalePhotos: Record<string, string[]> = {};
+    for (const [k, v] of photoMap) forSalePhotos[k] = v;
+
+    return { forSale, sold, forSalePhotos, marketStats };
+  } catch (err) {
+    // idx_listings may not be populated yet (or migrated) — degrade to nothing.
+    console.error('[thank-you] IDX sections failed:', err);
+    return empty;
+  }
+}
+
 export default async function ThankYouPage({
   searchParams,
 }: {
-  searchParams: { city?: string; v?: string };
+  searchParams: { city?: string; v?: string; report?: string };
 }) {
   const citySlug = (searchParams.city ?? '').trim();
   const token = (searchParams.v ?? '').trim();
+  const reportTok = (searchParams.report ?? '').trim();
 
   let cityName = '';
   let snapshot: MarketStat | null = null;
@@ -38,8 +91,34 @@ export default async function ThankYouPage({
   let compsSource: 'platinum' | 'area' = 'platinum';
   let marketTrends: MarketTrends | null = null;
 
-  // Reveal the full valuation ONLY if the token maps to a converted lead.
-  const report: RevealedValuation | null = token ? await getRevealedValuation(token) : null;
+  // Resolve the revealed valuation + subject city. The durable report token
+  // (from the confirmation email / post-submit redirect) is preferred; the
+  // valuation token (`v`) is the legacy immediate-reveal path.
+  let report: RevealedValuation | null = null;
+  let subjectCity = '';
+  if (reportTok) {
+    const ctx = await getReportContext(reportTok);
+    if (ctx) {
+      subjectCity = ctx.city ?? '';
+      report = {
+        provider: ctx.revealed?.provider ?? 'idx',
+        address: ctx.address,
+        estimatedValue: ctx.estimatedValue,
+        priceRangeLow: ctx.priceRangeLow,
+        priceRangeHigh: ctx.priceRangeHigh,
+        confidenceScore: ctx.revealed?.confidenceScore ?? null,
+        basics: ctx.revealed?.basics ?? null,
+        saleHistory: ctx.revealed?.saleHistory ?? [],
+        attomId: ctx.revealed?.attomId ?? null,
+        areaGeoId: ctx.revealed?.areaGeoId ?? null,
+        latitude: ctx.latitude,
+        longitude: ctx.longitude,
+      };
+      await logReportView(ctx.leadId); // admin access log (§8.3)
+    }
+  } else if (token) {
+    report = await getRevealedValuation(token);
+  }
 
   if (citySlug) {
     const loc = await getLocationBySlug(citySlug);
@@ -75,10 +154,14 @@ export default async function ThankYouPage({
     }
   }
 
+  // IDX Similar Homes / sold comps / market report for the Full Valuation page.
+  const idxCity = subjectCity || cityName;
+  const idx = await loadIdxSections(report, idxCity);
+
   return (
     <>
       <SiteHeader />
-      <main className="mx-auto max-w-3xl px-4 py-12 sm:py-16">
+      <main className="mx-auto max-w-5xl px-4 py-12 sm:py-16">
         <Suspense fallback={null}>
           <ThankYouClient
             report={report}
@@ -87,6 +170,11 @@ export default async function ThankYouPage({
             marketTrends={marketTrends}
             snapshot={snapshot}
             cityName={cityName}
+            idxForSale={idx.forSale}
+            idxSold={idx.sold}
+            idxForSalePhotos={idx.forSalePhotos}
+            idxMarketStats={idx.marketStats}
+            idxCityName={idxCity}
           />
         </Suspense>
         <div className="mt-10 text-center">

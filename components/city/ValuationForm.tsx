@@ -27,10 +27,11 @@ interface PlaceData {
   propertyLng: number | null;
 }
 
-interface ValuationResult {
-  estimatedValue: number;
-  priceRangeLow: number;
-  priceRangeHigh: number;
+/** Pre-contact teaser returned by /api/valuation — no precise estimate. */
+interface Teaser {
+  token: string | null;
+  rangeLow: number;
+  rangeHigh: number;
 }
 
 declare global {
@@ -74,7 +75,7 @@ export default function ValuationForm({ locationSlug, cityName, pageVariant = 's
     propertyLat: null,
     propertyLng: null,
   });
-  const [valuation, setValuation] = React.useState<ValuationResult | null>(null);
+  const [valuation, setValuation] = React.useState<Teaser | null>(null);
   const [valuationFailed, setValuationFailed] = React.useState(false);
 
   const [firstName, setFirstName] = React.useState('');
@@ -168,21 +169,16 @@ export default function ValuationForm({ locationSlug, cityName, pageVariant = 's
             propertyLng: data.propertyLng,
           }),
         });
-        const json = (await res.json()) as Partial<ValuationResult>;
-        if (
-          res.ok &&
-          json.estimatedValue != null &&
-          json.priceRangeLow != null &&
-          json.priceRangeHigh != null
-        ) {
+        const json = (await res.json()) as Partial<Teaser>;
+        if (res.ok && json.rangeLow != null && json.rangeHigh != null) {
           setValuation({
-            estimatedValue: json.estimatedValue,
-            priceRangeLow: json.priceRangeLow,
-            priceRangeHigh: json.priceRangeHigh,
+            token: json.token ?? null,
+            rangeLow: json.rangeLow,
+            rangeHigh: json.rangeHigh,
           });
           dataLayerPush('valuation_viewed', {
             city: cityName,
-            estimated_value: json.estimatedValue,
+            estimated_value: Math.round((json.rangeLow + json.rangeHigh) / 2),
           });
         } else {
           setValuationFailed(true);
@@ -236,9 +232,7 @@ export default function ValuationForm({ locationSlug, cityName, pageVariant = 's
           propertyAddress: place.propertyAddress,
           propertyLat: place.propertyLat,
           propertyLng: place.propertyLng,
-          estimatedValue: valuation?.estimatedValue,
-          priceRangeLow: valuation?.priceRangeLow,
-          priceRangeHigh: valuation?.priceRangeHigh,
+          valuationToken: valuation?.token ?? undefined,
           locationSlug,
           leadType: 'valuation',
           pageVariant,
@@ -246,7 +240,7 @@ export default function ValuationForm({ locationSlug, cityName, pageVariant = 's
         }),
       });
       if (!res.ok) throw new Error('We could not submit your request. Please try again.');
-      const data = (await res.json().catch(() => ({}))) as { leadId?: number };
+      const data = (await res.json().catch(() => ({}))) as { leadId?: number; reportToken?: string | null };
       const fullName = `${firstName} ${lastName}`.trim();
 
       // Fire the Google Ads conversion IMMEDIATELY after the confirmed save,
@@ -263,7 +257,14 @@ export default function ValuationForm({ locationSlug, cityName, pageVariant = 's
       sessionStorage.setItem('lead_name', fullName);
       if (data.leadId != null) sessionStorage.setItem('lead_id', String(data.leadId));
       sessionStorage.setItem(LEAD_SUBMITTED_FLAG, '1');
-      window.location.href = `/thank-you?type=valuation&city=${encodeURIComponent(locationSlug)}&variant=${pageVariant}`;
+      // Carry the durable report token (falls back to the valuation token) so the
+      // Full Valuation page reveals the estimate + IDX sections (IDX spec §5.3).
+      const reportParam = data.reportToken
+        ? `&report=${encodeURIComponent(data.reportToken)}`
+        : valuation?.token
+          ? `&v=${encodeURIComponent(valuation.token)}`
+          : '';
+      window.location.href = `/thank-you?type=valuation&city=${encodeURIComponent(locationSlug)}&variant=${pageVariant}${reportParam}`;
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong. Please try again.');
       setLoading(false);
@@ -419,29 +420,21 @@ export default function ValuationForm({ locationSlug, cityName, pageVariant = 's
   );
 }
 
-/** Horizontal range bar with low / mid / high (Section 22.5). */
-function ValuationRange({ v }: { v: ValuationResult }) {
-  const pct =
-    v.priceRangeHigh > v.priceRangeLow
-      ? ((v.estimatedValue - v.priceRangeLow) / (v.priceRangeHigh - v.priceRangeLow)) * 100
-      : 50;
-  const clamped = Math.max(6, Math.min(94, pct));
+/** Horizontal teaser range bar with low / high (Section 22.5). The precise
+ *  estimate stays gated until contact info is submitted (two-tier gating). */
+function ValuationRange({ v }: { v: Teaser }) {
   return (
     <div className="rounded-card bg-cream px-5 py-6">
       <p className="text-center text-sm font-semibold text-mute">Estimated value</p>
       <p className="mt-1 text-center font-numeric text-3xl font-bold text-charcoal sm:text-4xl">
-        {formatCurrency(v.priceRangeLow)} – {formatCurrency(v.priceRangeHigh)}
+        {formatCurrency(v.rangeLow)} – {formatCurrency(v.rangeHigh)}
       </p>
       <div className="relative mt-5 h-2 rounded-pill bg-line">
-        <div className="absolute inset-y-0 left-0 rounded-pill bg-platinum-red" style={{ width: `${clamped}%` }} />
-        <div
-          className="absolute top-1/2 h-4 w-4 -translate-y-1/2 rounded-full border-2 border-white bg-platinum-red shadow"
-          style={{ left: `calc(${clamped}% - 8px)` }}
-        />
+        <div className="absolute inset-y-0 left-0 right-0 rounded-pill bg-gradient-to-r from-platinum-red/40 via-platinum-red to-platinum-red/40" />
       </div>
       <div className="mt-2 flex justify-between text-xs text-mute-light">
-        <span>{formatCurrency(v.priceRangeLow)} Low</span>
-        <span>{formatCurrency(v.priceRangeHigh)} High</span>
+        <span>{formatCurrency(v.rangeLow)} Low</span>
+        <span>{formatCurrency(v.rangeHigh)} High</span>
       </div>
     </div>
   );

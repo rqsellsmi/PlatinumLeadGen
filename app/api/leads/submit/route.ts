@@ -12,6 +12,7 @@ import { autoOfferLead } from '@/lib/autoOffer';
 import { getValuation } from '@/lib/valuation';
 import { getValuationByToken, linkValuationToLead } from '@/lib/valuationStore';
 import { sendEmail, homeownerConfirmationEmail, leadResubmittedEmail } from '@/lib/email';
+import { ensureReportToken, reportUrl } from '@/lib/reportAccess';
 import { checkPreset, clientIp } from '@/lib/rateLimit';
 import { attributionColumns } from '@/lib/attributionServer';
 import { findExistingLeadByContact, findLeadByAddress, normalizedAddressKey } from '@/lib/leadDedup';
@@ -181,7 +182,12 @@ export async function POST(req: NextRequest) {
         await discardSessionPartial(input.sessionId, contactMatch.id);
         await discardAddressPartials(normalizedAddressKey(input.propertyAddress), contactMatch.id);
         if (input.valuationToken) await linkValuationToLead(input.valuationToken, contactMatch.id);
-        return NextResponse.json({ success: true, leadId: contactMatch.id, isReopened: true });
+        return NextResponse.json({
+          success: true,
+          leadId: contactMatch.id,
+          isReopened: true,
+          reportToken: await ensureReportToken(contactMatch.id),
+        });
       }
 
       await logLeadEvent(contactMatch.id, 'duplicate_submission', `Resubmitted via ${pageVariant} page`);
@@ -191,7 +197,12 @@ export async function POST(req: NextRequest) {
       if (input.valuationToken) await linkValuationToLead(input.valuationToken, contactMatch.id);
       // From Google's perspective the user converted — client still fires the
       // conversion (§D.2). No new lead, no new offer.
-      return NextResponse.json({ success: true, leadId: contactMatch.id, isDuplicate: true });
+      return NextResponse.json({
+        success: true,
+        leadId: contactMatch.id,
+        isDuplicate: true,
+        reportToken: await ensureReportToken(contactMatch.id),
+      });
     }
 
     // Valuation fill-in. Prefer the server-stored valuation (linked by token)
@@ -272,7 +283,12 @@ export async function POST(req: NextRequest) {
           await discardSessionPartial(input.sessionId, addrMatch.id);
           await discardAddressPartials(normalizedAddressKey(input.propertyAddress), addrMatch.id);
           if (input.valuationToken) await linkValuationToLead(input.valuationToken, addrMatch.id);
-          return NextResponse.json({ success: true, leadId: addrMatch.id, isDuplicate: true });
+          return NextResponse.json({
+            success: true,
+            leadId: addrMatch.id,
+            isDuplicate: true,
+            reportToken: await ensureReportToken(addrMatch.id),
+          });
         }
       }
     }
@@ -317,6 +333,10 @@ export async function POST(req: NextRequest) {
       console.error('[api/leads/submit] autoOfferLead failed:', err);
     }
 
+    // Durable report link (IDX spec §5.3) — generate before the email so the
+    // link is included, and return it so the client can redirect to the report.
+    const token = await ensureReportToken(leadId);
+
     if (email) {
       try {
         await sendEmail(
@@ -325,6 +345,7 @@ export async function POST(req: NextRequest) {
             firstName: input.firstName ?? null,
             city: input.propertyCity ?? null,
             relatedLeadId: leadId,
+            reportUrl: token ? reportUrl(input.locationSlug, token) : null,
           }),
         );
       } catch (err) {
@@ -332,7 +353,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ success: true, leadId });
+    return NextResponse.json({ success: true, leadId, reportToken: token });
   } catch (err) {
     console.error('[api/leads/submit] error:', err);
     return NextResponse.json({ error: 'internal_error' }, { status: 500 });

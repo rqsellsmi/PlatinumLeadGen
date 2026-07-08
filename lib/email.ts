@@ -328,20 +328,26 @@ export interface HomeownerConfirmationEmailData {
   firstName: string | null;
   city: string | null;
   relatedLeadId?: number;
+  reportUrl?: string | null; // durable link to the personalized market report
 }
 
 export function homeownerConfirmationEmail(d: HomeownerConfirmationEmailData): SendEmailArgs {
   const hi = d.firstName ? `Hi ${escapeHtml(d.firstName)},` : 'Hi,';
+  const reportBlock = d.reportUrl
+    ? `<p style="font-size:15px;line-height:1.5;">In the meantime, view your personalized market report — your estimated value, similar homes for sale, recent nearby sales, and local market trends:</p>
+       <p style="margin:20px 0;">${button(d.reportUrl, 'View your market report')}</p>`
+    : '';
   const html = shell(
     'We received your request',
     `<h1 style="margin:0 0 12px;font-size:22px;color:${BRAND_BLUE};">Thanks — we got your request</h1>
      <p style="font-size:15px;line-height:1.5;">${hi}</p>
      <p style="font-size:15px;line-height:1.5;">Your home valuation request${d.city ? ` for ${escapeHtml(d.city)}` : ''} has been received. A local RE/MAX Platinum expert will be in touch within one business day to review your personalized market report.</p>
+     ${reportBlock}
      <p style="font-size:15px;line-height:1.5;">Talk soon,<br>The RE/MAX Platinum Team</p>`,
   );
   const text = `${hi}
 Your home valuation request${d.city ? ` for ${d.city}` : ''} has been received. A local RE/MAX Platinum expert will be in touch within one business day.
-— The RE/MAX Platinum Team`;
+${d.reportUrl ? `\nView your personalized market report: ${d.reportUrl}\n` : ''}— The RE/MAX Platinum Team`;
   return {
     to: d.to,
     subject: 'We received your home valuation request',

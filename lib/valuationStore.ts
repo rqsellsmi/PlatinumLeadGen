@@ -8,7 +8,7 @@
  * - getRevealedValuation: called by the report page. Returns full detail ONLY
  *   once a lead is linked, so the gate can't be bypassed from the client.
  */
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, desc } from 'drizzle-orm';
 import { db } from './db';
 import { valuations, type Valuation } from '../drizzle/schema';
 import {
@@ -38,6 +38,25 @@ export interface RevealedValuation {
   saleHistory: SaleHistoryEntry[];
   attomId: string | null;
   areaGeoId: string | null;
+  latitude: number | null;
+  longitude: number | null;
+}
+
+function revealRow(row: Valuation): RevealedValuation {
+  return {
+    provider: row.provider,
+    address: row.address,
+    estimatedValue: row.estimatedValue,
+    priceRangeLow: row.priceRangeLow,
+    priceRangeHigh: row.priceRangeHigh,
+    confidenceScore: row.confidenceScore,
+    basics: basicsFromRow(row),
+    saleHistory: parseSaleHistory(row.saleHistory),
+    attomId: row.attomId,
+    areaGeoId: row.areaGeoId,
+    latitude: row.latitude,
+    longitude: row.longitude,
+  };
 }
 
 function basicsFromRow(row: Valuation): PropertyBasics | null {
@@ -156,20 +175,31 @@ export async function getRevealedValuation(token: string): Promise<RevealedValua
     const rows = await db.select().from(valuations).where(eq(valuations.token, token)).limit(1);
     const row = rows[0];
     if (!row || row.leadId == null) return null; // gate: no contact info → no reveal
-    return {
-      provider: row.provider,
-      address: row.address,
-      estimatedValue: row.estimatedValue,
-      priceRangeLow: row.priceRangeLow,
-      priceRangeHigh: row.priceRangeHigh,
-      confidenceScore: row.confidenceScore,
-      basics: basicsFromRow(row),
-      saleHistory: parseSaleHistory(row.saleHistory),
-      attomId: row.attomId,
-      areaGeoId: row.areaGeoId,
-    };
+    return revealRow(row);
   } catch (err) {
     console.error('[valuationStore] getRevealedValuation failed:', err);
+    return null;
+  }
+}
+
+/**
+ * Reveal a lead's stored valuation by leadId (used by the durable report link,
+ * where the gate is the report token → lead, not the valuation token). Returns
+ * the most recent valuation linked to the lead.
+ */
+export async function getRevealedValuationByLeadId(leadId: number): Promise<RevealedValuation | null> {
+  try {
+    const rows = await db
+      .select()
+      .from(valuations)
+      .where(eq(valuations.leadId, leadId))
+      .orderBy(desc(valuations.id))
+      .limit(1);
+    const row = rows[0];
+    if (!row) return null;
+    return revealRow(row);
+  } catch (err) {
+    console.error('[valuationStore] getRevealedValuationByLeadId failed:', err);
     return null;
   }
 }
