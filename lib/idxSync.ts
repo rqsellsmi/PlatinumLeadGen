@@ -386,6 +386,15 @@ export async function runIdxSync(fetchFn: FetchFn): Promise<SyncResult> {
     const q2Fetched = raw2.length;
     const q2Upserted = await upsertRawListings(raw2);
 
+    // Recompute brokerage metrics from the IDX feed (guarded — no-op until the
+    // office sold-backfill has run). Never fail the sync on a metrics error.
+    try {
+      const { updateMetricsFromIdx } = await import('./idxMetrics');
+      await updateMetricsFromIdx();
+    } catch (err) {
+      console.error('[idxSync] updateMetricsFromIdx failed:', err);
+    }
+
     await db
       .update(idxSyncLog)
       .set({
