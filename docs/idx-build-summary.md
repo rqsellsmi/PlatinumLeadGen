@@ -62,16 +62,25 @@ RAPI v2.4 (OData) IDX integration per `LeadPlatform_IDX_Spec`, the Realcomp
 5. **Add the Realcomp-approved logo** at `public/assets/realcomp-logo.png`
    (see `public/assets/README-realcomp-logo.md`).
 
-## Known unknowns to confirm against live `$metadata`
+## Resolved against the live API (confirmed with the owner's account)
 
-The spec itself flagged these; they are centralized for easy adjustment:
-- **StandardStatus enum quoting** in `$filter` — `enumEq()` in `lib/idxSync.ts`
-  currently uses single-quoted values; adjust if the enum is namespaced.
-- **Office-key `in()` quoting** — `officeFilterClause()` sends keys unquoted
-  (numeric); switch to quoted if `$metadata` types them as strings.
-- **MLS number field** — mapped from `ListingId` (fallback `MLSNumber`).
-- **Media expand** — `Media($select=MediaURL,Order,MediaCategory)`.
-- Township has no OData field (stored `null`; geo proxies stored instead).
+The spec's identifiers were mostly wrong for this account. Final values (all
+env-overridable where noted):
+- **Audience:** `rcapi.realcomp.com` (spec/sheet said `rapi` — a wrong-but-present
+  audience passed validation, then 500'd during token issuance). `REALCOMP_AUDIENCE`.
+- **Data host:** `idxapi.realcomp.com/odata` (spec's `fullapi` served `$metadata`
+  but 404'd on data). Token URL `auth.realcomp.com/Token`. `REALCOMP_BASE_URL`.
+- **Office keys:** the feed exposes `*OfficeMlsId` (Edm.String, quoted in `in()`),
+  `*OfficeKey` (string), `*OfficeKeyNumeric` (Int64). `REALCOMP_OFFICE_KEYS` are
+  **OfficeMlsId** values → sync filters/matches on `*OfficeMlsId`.
+- **StandardStatus:** `'Closed'` is correct (single-quoted string enum).
+- **Entity set:** `Property` (confirmed via the service document `/odata/`).
+- **City:** `OriginalPostalCity` (clean mailing city). `City`/`PostalCity`/
+  `CountyOrParish` are county-suffixed enums; county is humanized.
+- **MLS number** from `ListingId`; **Media** via `$expand=Media(...)`; Township
+  has no field (null; geo proxies stored).
+- **URL length:** the office query is split into one request per `*OfficeMlsId`
+  field to stay under IIS's ~2KB query-string limit (a 4-field clause 404'd).
 
-`runIdxSync` cannot run live from a code-only session (no creds); the first
-GitHub Actions backfill + the `/admin/idx-sync` page are the live verification.
+Verify anytime with `npm run idx:verify`; the `/admin/idx-sync` page shows live
+counts after a backfill.
