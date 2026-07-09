@@ -3,7 +3,7 @@
 **Branch:** `claude/previous-session-items-q3l47m` (rebased from `leadgenv1.6`)
 **Stack:** Next.js 14 (App Router) · TypeScript · Drizzle ORM · Neon Postgres · NextAuth v5 · Microsoft Graph email · RentCast AVM · **Realcomp IDX feed (RESO/OData)** · Tailwind
 **Deploy target:** Vercel (serverless) + GitHub Actions cron
-**As of:** the v1.6 addendum build + reviews/routing/**Scoring v2** + the **IDX feed integration** session (migrations `0006–0015`)
+**As of:** the v1.6 addendum build + reviews/routing/**Scoring v2** + the **IDX feed integration** session (migrations `0006–0016`)
 
 This document explains what the system is, what it does, and how it works, so anyone (human or AI) can orient quickly before testing or extending it.
 
@@ -93,7 +93,7 @@ IDX feed (Realcomp RAPI v2.4 — migration `0015`, spec `docs/idx-build-summary.
 Ops/infra:
 - **api_usage_logs** (RentCast calls, enriched with success/response-time/estimate), **rate_limits** (Neon fixed-window), **ms_graph_tokens** (persisted OAuth token), **email_send_log** (every send), **api_keys** (bcrypt-hashed webhook keys), **google_reviews** (cached Places reviews, keyed by `place_id`), **notification_settings** (single-row config: notification email, offer-window hours, proximity radius, queue pointer, testimonial source + `googlePlaceId`, and the `scoreMonthly/YtdResetKey` maintenance-cron guards).
 
-Migrations are hand-authored idempotent SQL in `drizzle/migrations/` and registered in `meta/_journal.json`. Current head is **`0015_idx_integration`** (IDX tables + leads report columns); the scoring/reviews/proximity work spans **0006–0014** (valuations `0006–0007`, google reviews `0008`, per-office reviews `0009–0010`, location→office `0011`, agent proximity `0012`, scoring v2 `0013`, rolling-365 rename `0014`). **Apply them in order on every DB** — several admin pages `select` the whole `agents`/`leads` row, so one skipped migration in the middle breaks those pages.
+Migrations are hand-authored idempotent SQL in `drizzle/migrations/` and registered in `meta/_journal.json`. Current head is **`0016_idx_widen_text`** (widens overflow-prone `idx_listings` text columns from `varchar` to `text` after the live feed exceeded `varchar(100)` mid-backfill); **`0015_idx_integration`** added the IDX tables + leads report columns; the scoring/reviews/proximity work spans **0006–0014** (valuations `0006–0007`, google reviews `0008`, per-office reviews `0009–0010`, location→office `0011`, agent proximity `0012`, scoring v2 `0013`, rolling-365 rename `0014`). **Apply them in order on every DB** — several admin pages `select` the whole `agents`/`leads` row, so one skipped migration in the middle breaks those pages.
 
 ---
 
@@ -187,7 +187,7 @@ Four Google Ads conversions fire client-side after a confirmed save (Seller Valu
 - **Still not built:** daily cron to auto-refresh Google reviews (fetch is manual via Admin → Testimonials); a tier above "Top Performer"; the operator config from the prior session (per-office Place IDs, location→office links, homepage review source, `TWILIO_*`, `BLOB_READ_WRITE_TOKEN`).
 - Excluded by owner decision: BoldTrail/CRM sync, AI chat, S3 photo upload, client-side instant calculator, per-agent capacity caps, "resend offer", "recommend agent" preview, nearest-locations, testimonials carousel, standalone `/faq`. (SMS is wired via `lib/sms.ts`, no-op until `TWILIO_*` set.)
 - Legal pages carry real copy dated Feb 19, 2026 — have counsel review before launch.
-- The Drizzle snapshot chain is SQL-only; keep authoring migrations by hand (see §3) rather than `drizzle-kit generate`. Apply the full 0006–**0015** chain **in order on every Neon branch**.
+- The Drizzle snapshot chain is SQL-only; keep authoring migrations by hand (see §3) rather than `drizzle-kit generate`. Apply the full 0006–**0016** chain **in order on every Neon branch**.
 
 ### IDX follow-ups (pre-launch)
 - **Run the backfills:** GitHub Actions `IDX Initial Sync` — `active` (12-month feed-wide) + `sold` year-by-year (dates required). Hourly incremental (`idx-sync.yml`) then keeps it current. If a run ever 401s from a poisoned cached token, the code now self-heals on retry; the manual eviction is `DELETE FROM realcomp_tokens;` in the DATABASE_URL DB.

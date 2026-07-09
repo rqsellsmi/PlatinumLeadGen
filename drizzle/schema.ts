@@ -814,18 +814,20 @@ export const idxListings = pgTable(
     daysOnMarket: integer('days_on_market'),
     cumulativeDaysOnMarket: integer('cumulative_days_on_market'),
     originalListPrice: integer('original_list_price'),
-    propertyType: varchar('property_type', { length: 50 }),
-    propertySubType: varchar('property_sub_type', { length: 50 }),
-    // Location.
-    address: varchar('address', { length: 500 }),
-    city: varchar('city', { length: 100 }),
-    postalCity: varchar('postal_city', { length: 100 }),
-    originalCity: varchar('original_city', { length: 100 }),
-    originalPostalCity: varchar('original_postal_city', { length: 100 }),
-    countyOrParish: varchar('county_or_parish', { length: 100 }),
-    township: varchar('township', { length: 100 }), // approximated; no direct OData field
-    subdivisionName: varchar('subdivision_name', { length: 200 }),
-    mlsAreaMajor: varchar('mls_area_major', { length: 100 }),
+    // text (not varchar): RESO property-type strings have no reliable max length.
+    propertyType: text('property_type'),
+    propertySubType: text('property_sub_type'),
+    // Location. text on the enum-derived fields (0016) — the live feed overflowed
+    // varchar(100) (county-suffixed city enums, long area names).
+    address: text('address'),
+    city: text('city'),
+    postalCity: text('postal_city'),
+    originalCity: text('original_city'),
+    originalPostalCity: text('original_postal_city'),
+    countyOrParish: text('county_or_parish'),
+    township: text('township'), // approximated; no direct OData field
+    subdivisionName: text('subdivision_name'),
+    mlsAreaMajor: text('mls_area_major'),
     stateOrProvince: varchar('state_or_province', { length: 10 }),
     postalCode: varchar('postal_code', { length: 20 }),
     latitude: real('latitude'),
@@ -837,12 +839,12 @@ export const idxListings = pgTable(
     yearBuilt: integer('year_built'),
     lotSizeAcres: real('lot_size_acres'),
     garageSpaces: integer('garage_spaces'),
-    basement: varchar('basement', { length: 100 }),
-    schoolDistrict: varchar('school_district', { length: 200 }),
+    basement: text('basement'), // multi-value enum serialized to a comma list
+    schoolDistrict: text('school_district'),
     // Waterfront.
     waterfrontYN: boolean('waterfront_yn'),
     waterfrontFeatures: text('waterfront_features'), // serialized comma-list from enum multi-value
-    waterBodyName: varchar('water_body_name', { length: 200 }),
+    waterBodyName: text('water_body_name'),
     waterFrontageFeet: real('water_frontage_feet'),
     // Media / marketing.
     photoUrl: varchar('photo_url', { length: 1000 }), // primary photo (lowest Order)
@@ -850,9 +852,9 @@ export const idxListings = pgTable(
     virtualTourUrl: varchar('virtual_tour_url', { length: 1000 }), // unbranded only
     publicRemarks: text('public_remarks'),
     // IDX-required display credit.
-    listingOfficeName: varchar('listing_office_name', { length: 500 }),
+    listingOfficeName: text('listing_office_name'),
     listingOfficePhone: varchar('listing_office_phone', { length: 50 }),
-    originatingSystemName: varchar('originating_system_name', { length: 100 }),
+    originatingSystemName: text('originating_system_name'),
     // Sync bookkeeping.
     modificationTimestamp: timestamp('modification_timestamp').notNull(), // incremental cursor
     isOfficeListing: boolean('is_office_listing').notNull().default(false), // computed on upsert

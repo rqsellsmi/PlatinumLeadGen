@@ -227,3 +227,23 @@ and the data API rejected it. Lessons:
   `process.env.X ?? default` keeps the empty string while `process.env.X || default`
   falls back. Use `||` for any env var whose "unset" and "empty" should behave
   identically (which is almost all of them).
+
+### 12e. Don't guess `varchar` widths for an external feed — use `text`
+
+The `active` backfill fetched 50,000 listings, then the whole batch died on
+`value too long for type character varying(100)` (Postgres 22001). A Realcomp
+value — most likely `basement` (a multi-value enum serialized to a comma list) or
+a county-suffixed city/area enum — exceeded the column's 100-char cap. Lessons:
+- **Postgres reports the *type*, not the *column*.** The error says
+  `varchar(100)` but `column: undefined`; with a dozen `varchar(100)` columns you
+  can't tell which overflowed. Don't bisect — widen the whole overflow-prone class.
+- **`text` vs `varchar(n)` is free in Postgres.** Identical storage and speed; the
+  only difference is the length constraint. For columns fed by an external system
+  whose max length you don't control, a bounded `varchar` buys nothing and can halt
+  a 50k-row import on one outlier. Migration `0016` converts the descriptive/enum
+  `idx_listings` columns to `text`. Reserve `varchar(n)` for values *you* generate
+  or that have a real spec'd max (state code, postal code, status enum).
+- **One bad row shouldn't kill the batch, but a schema that can't represent the
+  data is the real bug** — fix the column type, not the row. `ALTER COLUMN … TYPE
+  text` is idempotent (no-op if already text), so the fix is safe to re-run per
+  Neon branch.
