@@ -3,7 +3,8 @@
 Branch: `claude/idx-feed-integration-plan-wqpm0b`. Implements the Realcomp II
 RAPI v2.4 (OData) IDX integration per `LeadPlatform_IDX_Spec`, the Realcomp
 "Getting Started" guide, and the IDX Rules 2024. Migration head is now
-**`0015_idx_integration`**.
+**`0016_idx_widen_text`** (`0015` added the IDX tables; `0016` widened the
+overflow-prone `idx_listings` text columns from `varchar` to `text`).
 
 ## What was built
 
@@ -54,7 +55,7 @@ RAPI v2.4 (OData) IDX integration per `LeadPlatform_IDX_Spec`, the Realcomp
    plus `DATABASE_URL` + `DEPLOY_URL` in GitHub secrets. Per the Realcomp
    account setup sheet the data host is **`https://fullapi.realcomp.com/odata`**
    (not `idxapi`) and the token URL is `https://auth.realcomp.com/Token`.
-2. **Apply migration `0015`** on every Neon branch (`npm run db:migrate`).
+2. **Apply migrations `0015`+`0016`** on every Neon branch (`npm run db:migrate`).
 3. **Verify field names**: `npm run idx:verify` (fetches live `$metadata`; fix
    any flagged field in `lib/idxSync.ts`). See "known unknowns" below.
 4. **Run the backfill** from the GitHub Actions "IDX Initial Sync" workflow:
