@@ -45,11 +45,15 @@ jobs:
 
       - name: Run initial sync
         env:
+          # The backfill only needs the DB + Realcomp creds; skip the app's
+          # full env validation (which also requires NextAuth/admin vars).
+          SKIP_ENV_VALIDATION: '1'
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           REALCOMP_CLIENT_ID: ${{ secrets.REALCOMP_CLIENT_ID }}
           REALCOMP_CLIENT_SECRET: ${{ secrets.REALCOMP_CLIENT_SECRET }}
           REALCOMP_BASE_URL: ${{ secrets.REALCOMP_BASE_URL }}
           REALCOMP_AUTH_URL: ${{ secrets.REALCOMP_AUTH_URL }}
+          REALCOMP_AUDIENCE: ${{ secrets.REALCOMP_AUDIENCE }}
           REALCOMP_OFFICE_KEYS: ${{ secrets.REALCOMP_OFFICE_KEYS }}
         run: |
           ARGS="--query ${{ inputs.query }}"
