@@ -30,8 +30,8 @@ import {
 // OData field selection (IDX spec §2.4, Township removed — no such field)
 // ---------------------------------------------------------------------------
 export const SELECT_FIELDS = [
-  'ListingKey', 'ListingId', 'ListOfficeKeyNumeric', 'BuyerOfficeKeyNumeric',
-  'CoListOfficeKeyNumeric', 'CoBuyerOfficeKeyNumeric', 'MlsStatus', 'StandardStatus', 'ListPrice', 'ClosePrice',
+  'ListingKey', 'ListingId', 'ListOfficeMlsId', 'BuyerOfficeMlsId',
+  'CoListOfficeMlsId', 'CoBuyerOfficeMlsId', 'MlsStatus', 'StandardStatus', 'ListPrice', 'ClosePrice',
   'CloseDate', 'DaysOnMarket', 'CumulativeDaysOnMarket', 'OriginalListPrice',
   'PropertyType', 'PropertySubType', 'StreetNumber', 'StreetName', 'StreetSuffix',
   'StreetDirPrefix', 'StreetDirSuffix', 'UnitNumber', 'UnparsedAddress', 'City',
@@ -66,24 +66,26 @@ export function parseOfficeKeys(): string[] {
     .filter(Boolean);
 }
 
+// REALCOMP_OFFICE_KEYS hold OfficeMlsId values (confirmed against the Office
+// collection), so we filter/match on the *OfficeMlsId fields, not *KeyNumeric.
 const OFFICE_KEY_FIELDS = [
-  'ListOfficeKeyNumeric',
-  'BuyerOfficeKeyNumeric',
-  'CoListOfficeKeyNumeric',
-  'CoBuyerOfficeKeyNumeric',
+  'ListOfficeMlsId',
+  'BuyerOfficeMlsId',
+  'CoListOfficeMlsId',
+  'CoBuyerOfficeMlsId',
 ] as const;
 
 /**
- * One OData clause per office-key field (numeric ids, unquoted `in`). We split
- * across fields — rather than OR-ing all four into one filter — so each request
- * URL stays well under IIS's ~2KB query-string limit (a single 4-field clause
- * with ~24 keys blows past it and IIS returns a generic 404). Results union via
- * the listingKey upsert. Returns [] when REALCOMP_OFFICE_KEYS is unset.
+ * One OData clause per office field. We split across fields — rather than OR-ing
+ * all four into one filter — so each request URL stays well under IIS's ~2KB
+ * query-string limit (a single 4-field clause with ~24 keys blows past it and
+ * IIS returns a generic 404). OfficeMlsId is Edm.String, so values are quoted.
+ * Results union via the listingKey upsert. Returns [] when the env var is unset.
  */
 export function officeFieldClauses(): string[] {
   const keys = parseOfficeKeys();
   if (keys.length === 0) return [];
-  const list = keys.join(',');
+  const list = keys.map((k) => `'${k}'`).join(',');
   return OFFICE_KEY_FIELDS.map((f) => `${f} in (${list})`);
 }
 
@@ -172,11 +174,11 @@ export function mapRealcompListing(raw: Raw): NewIdxListing | null {
   const standardStatus = str(raw.StandardStatus) ?? 'Unknown';
 
   const keys = officeKeySet();
-  // Realcomp exposes numeric office keys as *OfficeKeyNumeric (Edm.Int64).
-  const listOfficeKey = str(raw.ListOfficeKeyNumeric);
-  const buyerOfficeKey = str(raw.BuyerOfficeKeyNumeric);
-  const coListOfficeKey = str(raw.CoListOfficeKeyNumeric);
-  const coBuyerOfficeKey = str(raw.CoBuyerOfficeKeyNumeric);
+  // REALCOMP_OFFICE_KEYS are OfficeMlsId values, so match on *OfficeMlsId.
+  const listOfficeKey = str(raw.ListOfficeMlsId);
+  const buyerOfficeKey = str(raw.BuyerOfficeMlsId);
+  const coListOfficeKey = str(raw.CoListOfficeMlsId);
+  const coBuyerOfficeKey = str(raw.CoBuyerOfficeMlsId);
   const isOfficeListing = [listOfficeKey, buyerOfficeKey, coListOfficeKey, coBuyerOfficeKey].some(
     (k) => k != null && keys.has(k),
   );

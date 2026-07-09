@@ -14,8 +14,8 @@ import { fetchMetadata, isRealcompConfigured } from '../lib/realcomp';
 import { SELECT_FIELDS } from '../lib/idxSync';
 
 const EXTRA_FIELDS = [
-  'ListOfficeKeyNumeric', 'BuyerOfficeKeyNumeric', 'CoListOfficeKeyNumeric',
-  'CoBuyerOfficeKeyNumeric', 'Media', 'MediaURL', 'Order', 'MediaCategory',
+  'ListOfficeMlsId', 'BuyerOfficeMlsId', 'CoListOfficeMlsId',
+  'CoBuyerOfficeMlsId', 'Media', 'MediaURL', 'Order', 'MediaCategory',
 ];
 
 async function main() {

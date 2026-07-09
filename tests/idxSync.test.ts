@@ -18,13 +18,13 @@ describe('office keys', () => {
     expect(parseOfficeKeys()).toEqual(['111', '222', '333']);
   });
 
-  it('builds one in() clause per office field (URL-length safe)', () => {
+  it('builds one quoted in() clause per office field (URL-length safe)', () => {
     const clauses = officeFieldClauses();
     expect(clauses).toEqual([
-      'ListOfficeKeyNumeric in (111,222,333)',
-      'BuyerOfficeKeyNumeric in (111,222,333)',
-      'CoListOfficeKeyNumeric in (111,222,333)',
-      'CoBuyerOfficeKeyNumeric in (111,222,333)',
+      "ListOfficeMlsId in ('111','222','333')",
+      "BuyerOfficeMlsId in ('111','222','333')",
+      "CoListOfficeMlsId in ('111','222','333')",
+      "CoBuyerOfficeMlsId in ('111','222','333')",
     ]);
   });
 
@@ -100,8 +100,8 @@ describe('mapRealcompListing', () => {
       ListingKey: 'RC1',
       ListingId: 'MLS100',
       StandardStatus: 'Closed',
-      BuyerOfficeKeyNumeric: '814805080452',
-      ListOfficeKeyNumeric: '999',
+      BuyerOfficeMlsId: '814805080452',
+      ListOfficeMlsId: '999',
       ListPrice: '350000',
       ClosePrice: '360000',
       CloseDate: '2025-03-01T00:00:00Z',
@@ -126,8 +126,8 @@ describe('mapRealcompListing', () => {
     const row = mapRealcompListing({
       ListingKey: 'RC2',
       StandardStatus: 'Active',
-      ListOfficeKeyNumeric: '123',
-      BuyerOfficeKeyNumeric: '456',
+      ListOfficeMlsId: '123',
+      BuyerOfficeMlsId: '456',
       ModificationTimestamp: '2025-01-01T00:00:00Z',
     })!;
     expect(row.isOfficeListing).toBe(false);
