@@ -66,17 +66,25 @@ export function parseOfficeKeys(): string[] {
     .filter(Boolean);
 }
 
-/** Build the "any of my offices on either side" OData clause, or null if unset. */
-export function officeFilterClause(): string | null {
+const OFFICE_KEY_FIELDS = [
+  'ListOfficeKeyNumeric',
+  'BuyerOfficeKeyNumeric',
+  'CoListOfficeKeyNumeric',
+  'CoBuyerOfficeKeyNumeric',
+] as const;
+
+/**
+ * One OData clause per office-key field (numeric ids, unquoted `in`). We split
+ * across fields — rather than OR-ing all four into one filter — so each request
+ * URL stays well under IIS's ~2KB query-string limit (a single 4-field clause
+ * with ~24 keys blows past it and IIS returns a generic 404). Results union via
+ * the listingKey upsert. Returns [] when REALCOMP_OFFICE_KEYS is unset.
+ */
+export function officeFieldClauses(): string[] {
   const keys = parseOfficeKeys();
-  if (keys.length === 0) return null;
-  // Office keys are numeric ids — sent unquoted. The `in` operator keeps the URL
-  // compact vs. 96 `eq` clauses. Change to quoted if $metadata types them as strings.
+  if (keys.length === 0) return [];
   const list = keys.join(',');
-  return (
-    `(ListOfficeKeyNumeric in (${list}) or BuyerOfficeKeyNumeric in (${list})` +
-    ` or CoListOfficeKeyNumeric in (${list}) or CoBuyerOfficeKeyNumeric in (${list}))`
-  );
+  return OFFICE_KEY_FIELDS.map((f) => `${f} in (${list})`);
 }
 
 const officeKeySet = () => new Set(parseOfficeKeys());
@@ -373,13 +381,13 @@ export async function runIdxSync(fetchFn: FetchFn): Promise<SyncResult> {
     const sinceClause = cursor ? `ModificationTimestamp gt ${cursor}` : `ModificationTimestamp gt ${oneYearAgoIso()}`;
 
     // Query 1 — your offices, no geographic filter (all statuses that changed).
-    const office = officeFilterClause();
+    // One request per office-key field (URL-length safe); union via upsert.
     let q1Fetched = 0;
     let q1Upserted = 0;
-    if (office) {
-      const raw1 = await runQuery(fetchFn, `${office} and ${sinceClause}`);
-      q1Fetched = raw1.length;
-      q1Upserted = await upsertRawListings(raw1);
+    for (const clause of officeFieldClauses()) {
+      const raw1 = await runQuery(fetchFn, `${clause} and ${sinceClause}`);
+      q1Fetched += raw1.length;
+      q1Upserted += await upsertRawListings(raw1);
     }
 
     // Query 2 — all Active/Pending/Closed, feed-wide.
@@ -436,17 +444,20 @@ export function activeBackfillParams(): Record<string, string> {
 }
 
 /**
- * OData params for the initial backfill of your offices' Closed sales over a
- * CloseDate window (one year at a time — IDX spec §2.8 Step 2/3).
+ * OData param sets for the initial backfill of your offices' Closed sales over a
+ * CloseDate window (one year at a time — IDX spec §2.8 Step 2/3). One set per
+ * office-key field (URL-length safe); the caller runs each and unions via upsert.
  */
-export function soldBackfillParams(startDate: string, endDate: string): Record<string, string> {
-  const office = officeFilterClause();
-  if (!office) throw new Error('REALCOMP_OFFICE_KEYS is not set — cannot run the sold backfill.');
-  return {
+export function soldBackfillParamsList(startDate: string, endDate: string): Record<string, string>[] {
+  const clauses = officeFieldClauses();
+  if (clauses.length === 0) {
+    throw new Error('REALCOMP_OFFICE_KEYS is not set — cannot run the sold backfill.');
+  }
+  const dateClause =
+    `${enumEq('StandardStatus', 'Closed')} and CloseDate ge ${startDate} and CloseDate lt ${endDate}`;
+  return clauses.map((c) => ({
     $select: SELECT_FIELDS,
     $expand: MEDIA_EXPAND,
-    $filter:
-      `${office} and ${enumEq('StandardStatus', 'Closed')}` +
-      ` and CloseDate ge ${startDate} and CloseDate lt ${endDate}`,
-  };
+    $filter: `${c} and ${dateClause}`,
+  }));
 }

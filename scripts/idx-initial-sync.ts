@@ -16,7 +16,7 @@
  */
 import './loadEnv';
 import { realcompFetchPages, isRealcompConfigured } from '../lib/realcomp';
-import { activeBackfillParams, soldBackfillParams, upsertRawListings } from '../lib/idxSync';
+import { activeBackfillParams, soldBackfillParamsList, upsertRawListings } from '../lib/idxSync';
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -33,32 +33,37 @@ async function main() {
     throw new Error("--query must be 'active' or 'sold'.");
   }
 
-  let params: Record<string, string>;
+  // One or more OData param sets to run in sequence (sold splits by office field).
+  let paramSets: Record<string, string>[];
   if (query === 'active') {
-    params = activeBackfillParams();
+    paramSets = [activeBackfillParams()];
     console.log('[idx-initial-sync] active: all Active/Pending/Closed, last 12 months, feed-wide.');
   } else {
     const start = arg('start');
     const end = arg('end');
     if (!start || !end) throw new Error('--query sold requires --start and --end (YYYY-MM-DD).');
-    params = soldBackfillParams(start, end);
-    console.log(`[idx-initial-sync] sold: your offices, Closed, ${start} .. ${end}.`);
+    paramSets = soldBackfillParamsList(start, end);
+    console.log(
+      `[idx-initial-sync] sold: your offices, Closed, ${start} .. ${end} (${paramSets.length} office-field passes).`,
+    );
   }
 
   let fetched = 0;
   let upserted = 0;
   let lastReport = 0;
 
-  const total = await realcompFetchPages('Property', params, async (page) => {
-    fetched += page.length;
-    upserted += await upsertRawListings(page);
-    if (fetched - lastReport >= 500) {
-      lastReport = fetched;
-      console.log(`[idx-initial-sync] ${fetched} fetched, ${upserted} upserted…`);
-    }
-  });
+  for (const params of paramSets) {
+    await realcompFetchPages('Property', params, async (page) => {
+      fetched += page.length;
+      upserted += await upsertRawListings(page);
+      if (fetched - lastReport >= 500) {
+        lastReport = fetched;
+        console.log(`[idx-initial-sync] ${fetched} fetched, ${upserted} upserted…`);
+      }
+    });
+  }
 
-  console.log(`[idx-initial-sync] DONE — ${total} fetched, ${upserted} upserted.`);
+  console.log(`[idx-initial-sync] DONE — ${fetched} fetched, ${upserted} upserted.`);
 }
 
 main().catch((err) => {

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   parseOfficeKeys,
-  officeFilterClause,
+  officeFieldClauses,
   serializeWaterfrontFeatures,
   buildAddress,
   computeBaths,
@@ -18,17 +18,19 @@ describe('office keys', () => {
     expect(parseOfficeKeys()).toEqual(['111', '222', '333']);
   });
 
-  it('builds an in() clause across all four office fields', () => {
-    const clause = officeFilterClause();
-    expect(clause).toContain('ListOfficeKeyNumeric in (111,222,333)');
-    expect(clause).toContain('BuyerOfficeKeyNumeric in (111,222,333)');
-    expect(clause).toContain('CoListOfficeKeyNumeric in (111,222,333)');
-    expect(clause).toContain('CoBuyerOfficeKeyNumeric in (111,222,333)');
+  it('builds one in() clause per office field (URL-length safe)', () => {
+    const clauses = officeFieldClauses();
+    expect(clauses).toEqual([
+      'ListOfficeKeyNumeric in (111,222,333)',
+      'BuyerOfficeKeyNumeric in (111,222,333)',
+      'CoListOfficeKeyNumeric in (111,222,333)',
+      'CoBuyerOfficeKeyNumeric in (111,222,333)',
+    ]);
   });
 
-  it('returns null when unset', () => {
+  it('returns [] when unset', () => {
     process.env.REALCOMP_OFFICE_KEYS = '';
-    expect(officeFilterClause()).toBeNull();
+    expect(officeFieldClauses()).toEqual([]);
   });
 });
 
