@@ -201,3 +201,29 @@ file. Root cause chain, each masking the next:
   result) ended the guessing in one attempt: `hashLen=32 hashStart=".LAZ"`
   instantly showed the hash was being mangled on read, not mistyped. Add the
   diagnostic to the failing code path early instead of theorizing about env.
+
+### 12d. A persisted OAuth token turns a transient misconfig into a permanent wedge
+
+The GitHub Actions backfill kept 401'ing `Invalid Audience` **long after** the
+audience/base-URL config was corrected. The cause wasn't the live config — it was
+a **stale token cached in the shared `realcomp_tokens` table**. An early run (before
+the empty-string env fell back to the right default) minted a token with a blank
+audience and persisted it; `getValidRealcompToken` reuses any token expiring >5 min
+out, so every later run — even with perfect env vars — replayed the poisoned token
+and the data API rejected it. Lessons:
+- **A cache that persists across runs will faithfully re-serve a bad value made
+  during a misconfigured run.** Fixing the config fixes new *mints*, not the row
+  already on disk. When "I fixed the config but it still fails," suspect persisted
+  state before re-checking the config a fifth time.
+- **Any credential cache needs an invalidation path on the auth error it can
+  cause.** `realcompFetch`/`realcompFetchPages` now treat a `401` as "the cached
+  token may be poisoned": drop it, force a fresh mint (`getValidRealcompToken(true)`),
+  retry once. A transient bad token can no longer wedge the sync indefinitely — it
+  self-heals on the next request instead of needing a manual `DELETE FROM
+  realcomp_tokens`. Build the self-heal when you build the cache, not after it
+  bites in production.
+- **The `??` vs `||` distinction is load-bearing for empty-string secrets.** An
+  unset GitHub Actions secret is passed to the process as `""`, not undefined, so
+  `process.env.X ?? default` keeps the empty string while `process.env.X || default`
+  falls back. Use `||` for any env var whose "unset" and "empty" should behave
+  identically (which is almost all of them).
