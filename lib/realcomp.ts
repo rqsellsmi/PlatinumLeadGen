@@ -25,10 +25,12 @@ function clientSecret(): string {
   return process.env.REALCOMP_CLIENT_SECRET ?? '';
 }
 function authUrl(): string {
-  return process.env.REALCOMP_AUTH_URL ?? 'https://auth.realcomp.com/token';
+  return process.env.REALCOMP_AUTH_URL ?? 'https://auth.realcomp.com/Token';
 }
 function baseUrl(): string {
-  return (process.env.REALCOMP_BASE_URL ?? 'https://idxapi.realcomp.com/odata').replace(/\/+$/, '');
+  // Per the Realcomp account setup sheet the data API is fullapi.realcomp.com;
+  // override via REALCOMP_BASE_URL if your account differs.
+  return (process.env.REALCOMP_BASE_URL ?? 'https://fullapi.realcomp.com/odata').replace(/\/+$/, '');
 }
 
 /** True when the minimum credentials to talk to Realcomp are configured. */

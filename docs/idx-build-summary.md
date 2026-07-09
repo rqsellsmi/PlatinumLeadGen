@@ -51,7 +51,9 @@ RAPI v2.4 (OData) IDX integration per `LeadPlatform_IDX_Spec`, the Realcomp
    secrets: `REALCOMP_CLIENT_ID`, `REALCOMP_CLIENT_SECRET`, `REALCOMP_BASE_URL`
    (`https://idxapi.realcomp.com/odata`), `REALCOMP_AUTH_URL`
    (`https://auth.realcomp.com/token`), `REALCOMP_OFFICE_KEYS` (comma list),
-   plus `DATABASE_URL` + `DEPLOY_URL` in GitHub secrets.
+   plus `DATABASE_URL` + `DEPLOY_URL` in GitHub secrets. Per the Realcomp
+   account setup sheet the data host is **`https://fullapi.realcomp.com/odata`**
+   (not `idxapi`) and the token URL is `https://auth.realcomp.com/Token`.
 2. **Apply migration `0015`** on every Neon branch (`npm run db:migrate`).
 3. **Verify field names**: `npm run idx:verify` (fetches live `$metadata`; fix
    any flagged field in `lib/idxSync.ts`). See "known unknowns" below.
