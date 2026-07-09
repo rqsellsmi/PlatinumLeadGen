@@ -21,18 +21,21 @@ function clientId(): string {
 function clientSecret(): string {
   return process.env.REALCOMP_CLIENT_SECRET ?? '';
 }
+// NOTE: use `||`, not `??` — an env var set to an EMPTY string (e.g. a GitHub
+// Actions secret that isn't configured is passed through as "") must fall back
+// to the default, not override it with blank.
 function authUrl(): string {
-  return process.env.REALCOMP_AUTH_URL ?? 'https://auth.realcomp.com/Token';
+  return process.env.REALCOMP_AUTH_URL || 'https://auth.realcomp.com/Token';
 }
 // The token `audience` is account-specific (Realcomp support: rcapi.realcomp.com,
 // NOT rapi.realcomp.com). Overridable so a future change is an env edit, not code.
 function audience(): string {
-  return process.env.REALCOMP_AUDIENCE ?? 'rcapi.realcomp.com';
+  return process.env.REALCOMP_AUDIENCE || 'rcapi.realcomp.com';
 }
 function baseUrl(): string {
   // Data API host per Realcomp support: idxapi.realcomp.com. Override via
   // REALCOMP_BASE_URL if your account differs.
-  return (process.env.REALCOMP_BASE_URL ?? 'https://idxapi.realcomp.com/odata').replace(/\/+$/, '');
+  return (process.env.REALCOMP_BASE_URL || 'https://idxapi.realcomp.com/odata').replace(/\/+$/, '');
 }
 
 /** True when the minimum credentials to talk to Realcomp are configured. */
