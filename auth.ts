@@ -31,20 +31,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           console.error('[auth] ADMIN_USERNAME or ADMIN_PASSWORD_HASH not configured');
           return null;
         }
-        // TEMP DEBUG (remove after diagnosing local login) — prints to the
-        // terminal running `npm run dev`, never to the browser.
-        const ok = await bcrypt.compare(password, passwordHash);
-        console.error(
-          '[auth-debug] recvUser=%j expectedUser=%j userMatch=%s | hashLen=%s hashStart=%j | bcrypt=%s',
-          username,
-          expectedUser,
-          username === expectedUser,
-          passwordHash?.length,
-          passwordHash?.slice(0, 4),
-          ok,
-        );
-
         if (username !== expectedUser) return null;
+
+        const ok = await bcrypt.compare(password, passwordHash);
         if (!ok) return null;
 
         return { id: 'admin', name: username, email: null };

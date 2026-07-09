@@ -157,6 +157,24 @@ export function buildAddress(raw: Raw): string | null {
   return addr || str(raw.UnparsedAddress);
 }
 
+/**
+ * Clean mailing city. Realcomp normalizes City into an enum label like
+ * "SturgisCity_StJoseph" (city+county) and OriginalCity carries abbreviations
+ * ("Sturgis City", "Lockport Twp") — the clean mailing name lives in
+ * OriginalPostalCity ("Sturgis"). Fall back through the rest, de-enum-ifying.
+ */
+export function cleanCity(raw: Raw): string | null {
+  const op = str(raw.OriginalPostalCity);
+  if (op) return op;
+  const oc = str(raw.OriginalCity);
+  if (oc) return oc;
+  // PostalCity / City are county-suffixed enums (e.g. "Sturgis_StJoseph") —
+  // drop the trailing _County segment and space out camelCase.
+  const enumCity = str(raw.PostalCity) ?? str(raw.City);
+  if (!enumCity) return null;
+  return humanizeEnum(enumCity.replace(/_[^_]+$/, ''));
+}
+
 /** Baths: prefer full + 0.5*half, else BathroomsTotalInteger (§2.5). */
 export function computeBaths(raw: Raw): number | null {
   const full = real(raw.BathroomsFull);
@@ -205,11 +223,15 @@ export function mapRealcompListing(raw: Raw): NewIdxListing | null {
     propertyType: str(raw.PropertyType),
     propertySubType: str(raw.PropertySubType),
     address: buildAddress(raw),
-    city: str(raw.City),
+    city: cleanCity(raw),
     postalCity: str(raw.PostalCity),
     originalCity: str(raw.OriginalCity),
     originalPostalCity: str(raw.OriginalPostalCity),
-    countyOrParish: str(raw.CountyOrParish),
+    // CountyOrParish is an enum too ("StJoseph" -> "St Joseph").
+    countyOrParish: (() => {
+      const c = str(raw.CountyOrParish);
+      return c ? humanizeEnum(c) : null;
+    })(),
     township: null, // no direct OData field; use geo proxies (originalCity/mlsAreaMajor/county) at query time
     subdivisionName: str(raw.SubdivisionName),
     mlsAreaMajor: str(raw.MLSAreaMajor),

@@ -7,6 +7,7 @@ import {
   computeBaths,
   extractPhotos,
   mapRealcompListing,
+  cleanCity,
 } from '../lib/idxSync';
 
 describe('office keys', () => {
@@ -62,6 +63,28 @@ describe('buildAddress', () => {
   });
   it('falls back to UnparsedAddress', () => {
     expect(buildAddress({ UnparsedAddress: '9 Elm Ct, Brighton, MI' })).toBe('9 Elm Ct, Brighton, MI');
+  });
+});
+
+describe('cleanCity', () => {
+  it('prefers OriginalPostalCity (the clean mailing city)', () => {
+    expect(
+      cleanCity({
+        City: 'SturgisCity_StJoseph',
+        PostalCity: 'Sturgis_StJoseph',
+        OriginalCity: 'Sturgis City',
+        OriginalPostalCity: 'Sturgis',
+      }),
+    ).toBe('Sturgis');
+  });
+  it('falls back to OriginalCity when OriginalPostalCity is missing', () => {
+    expect(cleanCity({ OriginalCity: 'Lockport Twp' })).toBe('Lockport Twp');
+  });
+  it('de-enum-ifies PostalCity as a last resort', () => {
+    expect(cleanCity({ PostalCity: 'ThreeRivers_StJoseph' })).toBe('Three Rivers');
+  });
+  it('returns null with nothing', () => {
+    expect(cleanCity({})).toBeNull();
   });
 });
 
