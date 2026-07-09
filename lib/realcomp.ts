@@ -52,21 +52,23 @@ interface TokenResponse {
 // ---------------------------------------------------------------------------
 // Token management — persisted to Neon (IDX spec §1.3)
 // ---------------------------------------------------------------------------
-export async function getValidRealcompToken(): Promise<string> {
+export async function getValidRealcompToken(forceRefresh = false): Promise<string> {
   if (!isRealcompConfigured()) {
     throw new Error('Realcomp is not configured (REALCOMP_CLIENT_ID / REALCOMP_CLIENT_SECRET).');
   }
 
-  const rows = await db
-    .select()
-    .from(realcompTokens)
-    .where(eq(realcompTokens.provider, TOKEN_PROVIDER))
-    .limit(1);
-
-  // Reuse if it expires more than 5 minutes from now (IDX spec §1.3).
-  const fiveMinFromNow = new Date(Date.now() + 5 * 60 * 1000);
-  if (rows[0] && rows[0].expiresAt > fiveMinFromNow) {
-    return rows[0].accessToken;
+  // Reuse the cached token unless a forced refresh is requested (e.g. after a
+  // 401 — a persisted token minted with a bad audience must not wedge the sync).
+  if (!forceRefresh) {
+    const rows = await db
+      .select()
+      .from(realcompTokens)
+      .where(eq(realcompTokens.provider, TOKEN_PROVIDER))
+      .limit(1);
+    const fiveMinFromNow = new Date(Date.now() + 5 * 60 * 1000);
+    if (rows[0] && rows[0].expiresAt > fiveMinFromNow) {
+      return rows[0].accessToken;
+    }
   }
 
   // Fetch a fresh token via client-credentials. JSON body, exactly three fields.
@@ -122,7 +124,7 @@ export async function realcompFetch<T = Record<string, unknown>>(
   path: string,
   params?: Record<string, string>,
 ): Promise<T[]> {
-  const token = await getValidRealcompToken();
+  let token = await getValidRealcompToken();
   const url = new URL(`${baseUrl()}/${path.replace(/^\/+/, '')}`);
   if (params) {
     for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
@@ -130,12 +132,19 @@ export async function realcompFetch<T = Record<string, unknown>>(
 
   const results: T[] = [];
   let nextUrl: string | null = url.toString();
+  let retriedAuth = false;
 
   while (nextUrl) {
     const res: Response = await fetch(nextUrl, {
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       cache: 'no-store',
     });
+    // A 401 usually means a stale cached token — re-mint once and retry.
+    if (res.status === 401 && !retriedAuth) {
+      retriedAuth = true;
+      token = await getValidRealcompToken(true);
+      continue;
+    }
     if (!res.ok) {
       throw new Error(`Realcomp API error: ${res.status} ${await res.text()}`);
     }
@@ -156,17 +165,24 @@ export async function realcompFetchPages<T = Record<string, unknown>>(
   params: Record<string, string>,
   onPage: (page: T[]) => Promise<void>,
 ): Promise<number> {
-  const token = await getValidRealcompToken();
+  let token = await getValidRealcompToken();
   const url = new URL(`${baseUrl()}/${path.replace(/^\/+/, '')}`);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
 
   let total = 0;
   let nextUrl: string | null = url.toString();
+  let retriedAuth = false;
   while (nextUrl) {
     const res: Response = await fetch(nextUrl, {
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       cache: 'no-store',
     });
+    // A 401 usually means a stale cached token — re-mint once and retry.
+    if (res.status === 401 && !retriedAuth) {
+      retriedAuth = true;
+      token = await getValidRealcompToken(true);
+      continue;
+    }
     if (!res.ok) throw new Error(`Realcomp API error: ${res.status} ${await res.text()}`);
     const data = (await res.json()) as ODataResponse<T>;
     const page = data.value ?? [];
