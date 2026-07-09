@@ -14,9 +14,6 @@ import { db } from './db';
 import { realcompTokens } from '../drizzle/schema';
 
 const TOKEN_PROVIDER = 'realcomp';
-// Realcomp requires EXACTLY these three fields — extra params fail the request
-// (IDX spec §1.1, and the Realcomp "Getting Started" guide, Step 1).
-const AUDIENCE = 'rapi.realcomp.com';
 
 function clientId(): string {
   return process.env.REALCOMP_CLIENT_ID ?? '';
@@ -27,10 +24,15 @@ function clientSecret(): string {
 function authUrl(): string {
   return process.env.REALCOMP_AUTH_URL ?? 'https://auth.realcomp.com/Token';
 }
+// The token `audience` is account-specific (Realcomp support: rcapi.realcomp.com,
+// NOT rapi.realcomp.com). Overridable so a future change is an env edit, not code.
+function audience(): string {
+  return process.env.REALCOMP_AUDIENCE ?? 'rcapi.realcomp.com';
+}
 function baseUrl(): string {
-  // Per the Realcomp account setup sheet the data API is fullapi.realcomp.com;
-  // override via REALCOMP_BASE_URL if your account differs.
-  return (process.env.REALCOMP_BASE_URL ?? 'https://fullapi.realcomp.com/odata').replace(/\/+$/, '');
+  // Data API host per Realcomp support: idxapi.realcomp.com. Override via
+  // REALCOMP_BASE_URL if your account differs.
+  return (process.env.REALCOMP_BASE_URL ?? 'https://idxapi.realcomp.com/odata').replace(/\/+$/, '');
 }
 
 /** True when the minimum credentials to talk to Realcomp are configured. */
@@ -71,7 +73,7 @@ export async function getValidRealcompToken(): Promise<string> {
     body: JSON.stringify({
       client_id: clientId(),
       client_secret: clientSecret(),
-      audience: AUDIENCE,
+      audience: audience(),
     }),
     cache: 'no-store',
   });
