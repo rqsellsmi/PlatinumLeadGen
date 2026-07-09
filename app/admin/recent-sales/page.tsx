@@ -1,12 +1,6 @@
-import { asc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { locations } from '@/drizzle/schema';
-import {
-  getFeaturedRecentSales,
-  getCityRecentSales,
-  locationMatchCities,
-  type HomeRecentSale,
-} from '@/lib/queries';
+import { closings } from '@/drizzle/schema';
 import { Card, CardHeader, CardBody } from '@/components/ui';
 import { requireAdmin } from '@/components/admin/requireAdmin';
 import { formatCurrency, formatMonthYear } from '@/lib/utils';
@@ -14,43 +8,47 @@ import RecentSalePhoto from './RecentSalePhoto';
 
 export const dynamic = 'force-dynamic';
 
+/**
+ * DEPRECATED (IDX migration): recent-sales tiles now come from the IDX feed
+ * (public pages read our IDX office listings first). This page still edits
+ * photos on legacy imported `closings` rows, so it queries closings directly
+ * (not the IDX-first public helpers) to keep the photo editor's ids correct.
+ */
 export default async function RecentSalesAdminPage() {
   await requireAdmin();
 
-  const locs = await db
-    .select()
-    .from(locations)
-    .where(eq(locations.isActive, true))
-    .orderBy(asc(locations.name));
-
-  const [home, perCity] = await Promise.all([
-    getFeaturedRecentSales(12),
-    Promise.all(locs.map((l) => getCityRecentSales(locationMatchCities(l), 6))),
-  ]);
-
-  // Union of every sale that can appear on a tile (homepage + each city), by id.
-  const byId = new Map<number, HomeRecentSale>();
-  for (const s of home) byId.set(s.id, s);
-  for (const list of perCity) for (const s of list) byId.set(s.id, s);
-  const sales = [...byId.values()].sort(
-    (a, b) => (b.closeDate?.getTime() ?? 0) - (a.closeDate?.getTime() ?? 0),
-  );
+  const sales = await db
+    .select({
+      id: closings.id,
+      address: closings.address,
+      soldPrice: closings.salePrice,
+      daysOnMarket: closings.daysOnMarket,
+      closeDate: closings.closeDate,
+      photoUrl: closings.photoUrl,
+      cityName: closings.city,
+    })
+    .from(closings)
+    .where(and(eq(closings.agentRole, 'listing'), inArray(closings.propertyType, ['RS', 'CO'])))
+    .orderBy(desc(closings.closeDate))
+    .limit(60);
 
   return (
     <div className="space-y-6">
+      <div className="rounded-lg border border-warning/40 bg-warning-bg px-4 py-3 text-sm text-charcoal">
+        <span className="font-bold">Deprecated.</span> Recent sales now come from the IDX feed
+        automatically (photos included). This page only edits photos on legacy CSV-imported sales.
+      </div>
       <div>
-        <h1 className="text-2xl font-bold text-charcoal">Recent sales</h1>
+        <h1 className="text-2xl font-bold text-charcoal">Recent sales (legacy CSV)</h1>
         <p className="text-sm text-mute">
-          Sales are pulled automatically from your imported list-side closings (newest residential
-          &amp; condo). Add a photo to any that appear on a tile — you only need the ones on display.
-          No photo shows a branded placeholder.
+          Photos for legacy imported list-side closings. New recent sales and their photos are
+          pulled from the MLS feed — see <span className="font-semibold">IDX → IDX Listings</span>.
         </p>
       </div>
 
       {sales.length === 0 ? (
         <div className="rounded-card border border-line bg-white px-5 py-12 text-center text-sm text-mute">
-          No list-side sales imported yet. Upload closings under{' '}
-          <span className="font-semibold">Data Upload</span> first.
+          No legacy CSV sales. Recent sales now come from the IDX feed automatically.
         </div>
       ) : (
         <Card>

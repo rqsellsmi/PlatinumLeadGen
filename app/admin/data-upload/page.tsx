@@ -22,5 +22,14 @@ export default async function DataUploadPage() {
     createdAt: b.createdAt ? new Date(b.createdAt).toISOString() : null,
   }));
 
-  return <DataUploadClient batches={batches} />;
+  return (
+    <div className="space-y-4">
+      <div className="rounded-lg border border-warning/40 bg-warning-bg px-4 py-3 text-sm text-charcoal">
+        <span className="font-bold">Deprecated.</span> Sales and market metrics now come from the
+        IDX feed automatically — see <span className="font-semibold">IDX → IDX Sync</span>. CSV upload
+        remains available for legacy/backfill data but is no longer required.
+      </div>
+      <DataUploadClient batches={batches} />
+    </div>
+  );
 }

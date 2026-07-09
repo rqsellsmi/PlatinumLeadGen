@@ -9,6 +9,8 @@ import type { HomeRecentSale } from '@/lib/queries';
 import type { RevealedValuation } from '@/lib/valuationStore';
 import type { MarketTrends } from '@/lib/valuation';
 import type { MarketStat } from '@/drizzle/schema';
+import type { IdxCard, CityMarketStats } from '@/lib/idx';
+import FullValuationIdxSections from '@/components/idx/FullValuationIdxSections';
 import AppointmentForm from './AppointmentForm';
 
 const STEPS = [
@@ -42,6 +44,11 @@ export default function ThankYouClient({
   marketTrends = null,
   snapshot,
   cityName,
+  idxForSale = [],
+  idxSold = [],
+  idxForSalePhotos = {},
+  idxMarketStats = null,
+  idxCityName = '',
 }: {
   report: RevealedValuation | null;
   comps: HomeRecentSale[];
@@ -49,6 +56,11 @@ export default function ThankYouClient({
   marketTrends?: MarketTrends | null;
   snapshot: MarketStat | null;
   cityName: string;
+  idxForSale?: IdxCard[];
+  idxSold?: IdxCard[];
+  idxForSalePhotos?: Record<string, string[]>;
+  idxMarketStats?: CityMarketStats | null;
+  idxCityName?: string;
 }) {
   const params = useSearchParams();
   const [name, setName] = React.useState('');
@@ -125,37 +137,54 @@ export default function ThankYouClient({
             </h1>
           ) : null}
 
-          {/* Estimated value card */}
+          {/* Estimated value card — headline number + confidence up top, the
+              range sits beneath it (IDX spec §6.1). */}
           <div className="mt-5 rounded-2xl bg-charcoal p-6 text-white sm:p-8">
             <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-mute-lighter">
               Estimated market value
             </p>
-            <p className="mt-1 font-numeric text-4xl font-bold leading-none sm:text-5xl">
-              {low != null && high != null
-                ? `${formatCurrency(Math.round(low * factor))} – ${formatCurrency(Math.round(high * factor))}`
-                : formatCurrency(Math.round((est as number) * factor))}
-            </p>
             {est != null ? (
-              <p className="mt-2 text-sm text-mute-lighter">
-                Most likely{' '}
-                <span className="font-bold text-white">
+              <>
+                <p className="mt-1 font-numeric text-5xl font-bold leading-none sm:text-6xl">
                   {formatCurrency(Math.round(est * factor))}
-                </span>
-                {report?.confidenceScore != null
-                  ? ` · ${report.confidenceScore}% confidence`
-                  : topComps.length
-                    ? ` · based on ${comps.length} comparable sales`
-                    : ''}
-              </p>
-            ) : null}
-            <div className="relative mt-5 h-1.5 rounded-pill bg-white/20">
-              <div className="absolute inset-y-0 left-0 right-0 rounded-pill bg-gradient-to-r from-white/30 via-platinum-red to-white/30" />
-            </div>
-            {low != null && high != null ? (
-              <div className="mt-1.5 flex justify-between text-xs text-mute-lighter">
-                <span>{formatCurrency(Math.round(low * factor))}</span>
-                <span>{formatCurrency(Math.round(high * factor))}</span>
-              </div>
+                </p>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  {report?.confidenceScore != null ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-pill bg-white/15 px-3 py-1 text-sm font-bold text-white">
+                      <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                      {report.confidenceScore}% confidence
+                    </span>
+                  ) : topComps.length ? (
+                    <span className="inline-flex items-center rounded-pill bg-white/15 px-3 py-1 text-sm font-semibold text-white">
+                      Based on {comps.length} comparable sales
+                    </span>
+                  ) : null}
+                </div>
+                {low != null && high != null ? (
+                  <div className="mt-5">
+                    <p className="text-xs font-semibold uppercase tracking-[0.06em] text-mute-lighter">
+                      Estimated range
+                    </p>
+                    <p className="mt-0.5 font-numeric text-lg font-semibold text-white/90">
+                      {formatCurrency(Math.round(low * factor))} –{' '}
+                      {formatCurrency(Math.round(high * factor))}
+                    </p>
+                    <div className="relative mt-2 h-1.5 rounded-pill bg-white/20">
+                      <div className="absolute inset-y-0 left-0 right-0 rounded-pill bg-gradient-to-r from-white/30 via-platinum-red to-white/30" />
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            ) : low != null && high != null ? (
+              <>
+                <p className="mt-1 font-numeric text-4xl font-bold leading-none sm:text-5xl">
+                  {formatCurrency(Math.round(low * factor))} –{' '}
+                  {formatCurrency(Math.round(high * factor))}
+                </p>
+                <div className="relative mt-5 h-1.5 rounded-pill bg-white/20">
+                  <div className="absolute inset-y-0 left-0 right-0 rounded-pill bg-gradient-to-r from-white/30 via-platinum-red to-white/30" />
+                </div>
+              </>
             ) : null}
           </div>
 
@@ -323,6 +352,16 @@ export default function ThankYouClient({
           </p>
         </div>
       )}
+
+      {/* IDX: Similar Homes For Sale + Recently Sold + Market Report (§4–§5).
+          Renders nothing until the IDX feed is populated. */}
+      <FullValuationIdxSections
+        forSale={idxForSale}
+        sold={idxSold}
+        forSalePhotos={idxForSalePhotos}
+        marketStats={idxMarketStats}
+        cityName={idxCityName || cityName}
+      />
 
       <div className="mt-12">
         <h2 className="text-center text-xl font-bold text-charcoal">What happens next</h2>

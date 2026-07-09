@@ -29,14 +29,19 @@ const GROUPS: NavGroup[] = [
   { label: 'Content', items: [
     { href: '/admin/locations', label: 'Locations' },
     { href: '/admin/testimonials', label: 'Testimonials' },
-    { href: '/admin/recent-sales', label: 'Recent Sales' },
     { href: '/admin/downloads', label: 'Downloads' },
   ] },
+  // Data Upload + Recent Sales retired: recent sales and market metrics now come
+  // from the IDX feed (see the IDX group). The pages still exist for reference.
   { label: 'Data & Insights', items: [
-    { href: '/admin/data-upload', label: 'Data Upload' },
     { href: '/admin/analytics', label: 'Analytics' },
     { href: '/admin/api-usage', label: 'API Usage' },
     { href: '/admin/email-log', label: 'Email Log' },
+  ] },
+  { label: 'IDX', items: [
+    { href: '/admin/idx-sync', label: 'IDX Sync' },
+    { href: '/admin/idx-listings', label: 'IDX Listings' },
+    { href: '/admin/market-reports', label: 'Market Reports' },
   ] },
   { label: 'System', items: [
     { href: '/admin/api-keys', label: 'API Keys' },

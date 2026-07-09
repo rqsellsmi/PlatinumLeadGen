@@ -264,7 +264,7 @@ export default function HeroValuation({
         }),
       });
       if (!res.ok) throw new Error('We could not submit your request. Please try again.');
-      const data = (await res.json().catch(() => ({}))) as { leadId?: number };
+      const data = (await res.json().catch(() => ({}))) as { leadId?: number; reportToken?: string | null };
       const fullName = `${firstName} ${lastName}`.trim();
       if (data.leadId != null) {
         const ud = { email, phone, name: fullName };
@@ -280,8 +280,14 @@ export default function HeroValuation({
       // The precise estimate + detail live server-side; the report page reveals
       // them by token once the lead is linked (the gate). Carry the token.
       const cityParam = locationSlug ? `&city=${encodeURIComponent(locationSlug)}` : '';
-      const tokenParam = valuation?.token ? `&v=${encodeURIComponent(valuation.token)}` : '';
-      window.location.href = `/thank-you?type=valuation${cityParam}&variant=${pageVariant}${tokenParam}`;
+      // Prefer the durable report token (also in the confirmation email + used for
+      // the IDX Full Valuation page); fall back to the valuation token.
+      const reportParam = data.reportToken
+        ? `&report=${encodeURIComponent(data.reportToken)}`
+        : valuation?.token
+          ? `&v=${encodeURIComponent(valuation.token)}`
+          : '';
+      window.location.href = `/thank-you?type=valuation${cityParam}&variant=${pageVariant}${reportParam}`;
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong. Please try again.');
       setLoading(false);

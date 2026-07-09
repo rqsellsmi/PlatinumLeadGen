@@ -101,3 +101,103 @@ New admin mutations used Server Actions + `requireAdmin()` (the established patt
   call failed mid-build; the spec-recommended defaults (earn-up-from-1-slot,
   top-20 leaderboard) were the right call to proceed with, stated explicitly and
   flagged as reversible, rather than blocking the whole implementation.
+
+## 12. IDX / Realcomp integration session
+
+- **The spec's intro carried scope the numbered phases didn't.** The build
+  phases described only the new `idx_listings` table + consumer features, but the
+  intro paragraph also mandated moving the existing brokerage metrics off CSV
+  onto the feed. Reading intent from the whole document (not just the numbered
+  list) surfaced a real scope fork worth confirming with the owner — they chose
+  "everything." Same lesson as §2: read the corrections/intent, not just the body.
+- **The thank-you page WAS the "report page."** The owner asked for a "Full
+  Valuation page" with the valuation + condition "like it is now"; that page
+  already existed (`/thank-you`, gated by a valuation token, with the condition
+  refiner + confidence). Enhancing it beat building a parallel `/report/[leadId]`.
+  Grepping the existing reveal flow (`getRevealedValuation`, the `v` token) before
+  designing avoided a duplicate page.
+- **Two valuation forms had drifted.** `HeroValuation.tsx` was current (teaser
+  token → reveal); `city/ValuationForm.tsx` still read a `estimatedValue` the API
+  no longer returns (always fell to the fallback). When wiring a cross-cutting
+  flow, grep *every* caller — the stale one silently no-ops.
+- **Can't run the feed from a code-only session.** No creds in the sandbox, and
+  the owner didn't want to paste them, so live `$metadata` validation had to be
+  deferred to a script the owner runs (`idx:verify`) + defensive field mapping
+  (coerce, don't assume) + the first GitHub Actions backfill as the real test.
+  Centralize every "confirm against $metadata" unknown (enum quoting, `in()`
+  quoting, MLS-number field) in one place so the fix is a one-liner, not a hunt.
+- **Guard a recompute that can zero out live data.** `updateMetricsFromIdx()`
+  writes the same `home_page_metrics`/`market_stats` the homepage reads; running
+  it before the sold-backfill would blank the homepage. It early-returns when
+  there are no office-closed listings, and the public readers fall back to
+  `closings` — so the cutover is data-driven and reversible, not a hard switch.
+- **Vercel Hobby caps crons at daily.** The hourly IDX sync runs from a GitHub
+  Actions schedule pinging the endpoint (the pattern `cron.yml` already used),
+  not a `vercel.json` hourly entry (which the plan would reject).
+- **§18.10 is a display rule, not a storage rule.** The spec said "store only the
+  primary photo"; the owner wanted all of them. Both are satisfiable: store the
+  full Media set, but gate *display* — full gallery for Active, primary-only for
+  Pending/Closed — in the card component.
+
+### 12b. Live-connection debugging (the spec's identifiers were all slightly wrong)
+
+Once the owner connected real credentials, almost every hardcoded identifier from
+the spec was subtly off. The pattern: **the vendor's own docs/spec drift from the
+live API — validate every value against `$metadata`/the service document, never
+trust the spec sheet.**
+
+- **A wrong-but-well-formed value fails *downstream*, not at validation.** The
+  OAuth `audience` was `rapi.realcomp.com`; the correct value was
+  `rcapi.realcomp.com` (one letter). The token endpoint accepted the request
+  (audience field present → passed validation) and then **500'd with an empty
+  body while minting the token**. Days-style debugging collapsed once we compared
+  behaviors: bogus client → `200 {access_token:null}`, real client → `500`,
+  missing-audience → clean `400`. That triad proved "endpoint healthy, request
+  valid, this specific account/value errors" = upstream/config, not our code.
+  **When a call fails, diff its behavior against deliberately-broken variants;
+  the shape of *which* inputs 500 vs 400 vs 200 localizes the fault fast.**
+- **`$metadata` lists fields; the service document (`/odata/`) lists queryable
+  entity sets.** `$metadata` worked while `/Property` 404'd — the service doc
+  confirmed `Property` was real and the base was right, redirecting us off a
+  dead-end.
+- **RESO field names have multiple variants — match the one your IDs use.** Office
+  keys came as `*OfficeKey` (string), `*OfficeKeyNumeric` (Int64), and
+  `*OfficeMlsId` (string). The spec said `*OfficeKey`; only `*OfficeKeyNumeric`
+  and `*OfficeMlsId` existed; and the owner's `REALCOMP_OFFICE_KEYS` were actually
+  **OfficeMlsId** values. Confirming by querying the `Office` collection and
+  eyeballing which column the IDs matched was decisive (they matched neither
+  KeyNumeric nor Key).
+- **IIS returns a generic 404 HTML page when the URL/query exceeds ~2 KB.** Our
+  sold query (big `$select` + a 4-field office `in()` clause with ~24 keys +
+  `$expand`) blew past `maxQueryString`. A bare `?$top=1` worked, the full query
+  404'd. Fix: **split one wide filter into several short requests** (one per
+  office field) and union via the upsert key. Watch total URL length whenever a
+  filter interpolates a user-sized list.
+- **Realcomp location fields are county-suffixed enums.** `City` =
+  `"SturgisCity_StJoseph"`, `PostalCity` = `"Sturgis_StJoseph"`, `CountyOrParish`
+  = `"StJoseph"`. The clean mailing city is **`OriginalPostalCity`** ("Sturgis").
+  Dump a few real records and pick the human-readable field rather than trusting
+  the obvious-sounding one.
+
+### 12c. The `$`-in-bcrypt-hash env trap (cost the most time, zero to do with IDX)
+
+Local admin login failed for a long time with a *correct* 60-char hash in the
+file. Root cause chain, each masking the next:
+- **Next.js's env loader interpolates `$`.** `@next/env` runs dotenv-expand, so a
+  bcrypt hash `$2a$12$…` in `.env`/`.env.local` gets `$2a`, `$12`, `$<salt>` eaten
+  as variables, leaving a ~30-char fragment → `bcrypt.compare` always false.
+  **Single quotes do NOT stop it in their version — escape each `$` as `\$`** (or
+  the hash breaks). This only bites local `.env` files; Vercel injects env vars
+  literally, so production used the unescaped hash fine — which is exactly why
+  "works in prod, fails locally" was so confusing.
+- **`set -a; source .env` pollutes the shell and everything launched from it.**
+  The earlier curl-test pattern exported a bash-`$`-expanded (mangled) hash into
+  the shell; `dotenv`/`@next/env` **do not override an already-set `process.env`
+  var**, so both the `node` check and `npm run dev` inherited the broken value
+  regardless of the file. Run throwaway `source .env` sessions in a *separate*
+  terminal from the dev server, and single-quote values used there.
+- **Stop guessing — log the ground truth.** A three-line temp `console.error` in
+  `authorize()` (received vs expected username, `hashLen`, `hashStart`, bcrypt
+  result) ended the guessing in one attempt: `hashLen=32 hashStart=".LAZ"`
+  instantly showed the hash was being mangled on read, not mistyped. Add the
+  diagnostic to the failing code path early instead of theorizing about env.

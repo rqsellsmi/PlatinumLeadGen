@@ -1,3 +1,69 @@
+# Session Summary — IDX Feed Integration (Realcomp RAPI v2.4)
+
+Branch: `claude/idx-feed-integration-plan-wqpm0b`. Migration added: **0015**.
+Full detail in `docs/idx-build-summary.md`. This section supersedes the prior
+one below for what's current.
+
+## What was done
+
+Integrated the Realcomp II IDX (RESO Web API / OData) feed end-to-end:
+
+- **Pipeline** — `realcomp_tokens` (Neon-persisted OAuth token), `idx_listings`
+  (~60 cols + `isOfficeListing`), `idx_listing_photos` (full Media set),
+  `idx_sync_log`. `lib/realcomp.ts` (token + paginating OData fetch),
+  `lib/idxSync.ts` (dual-query incremental sync, defensive mapping, no stale
+  deactivation, chunked upsert). Hourly via **GitHub Actions** (`idx-sync.yml`,
+  since Vercel Hobby caps crons at daily) + manual backfill workflow +
+  `scripts/idx-initial-sync.ts` / `idx-verify-metadata.ts`.
+- **Compliance** — `lib/idxDisclosures.ts` + `components/idx/*` (Realcomp logo,
+  office credit, all disclaimers). Public queries in `lib/idx.ts` enforce the
+  rules: Active/Pending/Closed only, entire-listing + address display gates,
+  full photo gallery for Active only (§18.10).
+- **Consumer** — the enhanced `/thank-you` **Full Valuation page**: restyled
+  hero (estimate + confidence prominent, range beneath), then Similar Homes For
+  Sale, Similar Homes Recently Sold, Market Report. Durable per-lead
+  `reportToken` (`lib/reportAccess.ts`) powers the confirmation-email link + the
+  admin view log. Both valuation forms redirect here (fixed a stale `city`
+  form that read a non-existent `estimatedValue`).
+- **Admin** — `/admin/idx-sync` (status + Run Now), `/admin/idx-listings`,
+  `/admin/market-reports`; new IDX nav group.
+- **Metrics (scope B)** — brokerage metrics + recent-sales tiles repointed to
+  `idx_listings` office-closed deals (`lib/idxMetrics.ts`), **fallback-safe** (a
+  no-op until the office sold-backfill runs, so nothing changes pre-data). CSV
+  Data Upload + Recent Sales deprecated.
+
+## Live-integration fixes (found during the owner's first connection)
+
+The spec's identifiers were wrong for this account; corrected against the live
+API + Realcomp support:
+- **Token audience** `rapi.realcomp.com` → **`rcapi.realcomp.com`** (a wrong-but-
+  present audience passed field validation, then 500'd during token issuance).
+- **Data host** `idxapi.realcomp.com` (spec's `fullapi` served `$metadata` but
+  404'd on data). Both now env-overridable (`REALCOMP_AUDIENCE`/`_BASE_URL`).
+- **Office keys** are **`*OfficeMlsId`** (Edm.String, quoted), not `*OfficeKey`/
+  `*OfficeKeyNumeric` — `REALCOMP_OFFICE_KEYS` hold OfficeMlsId values.
+- **City** comes from **`OriginalPostalCity`** ("Sturgis"); `City`/`PostalCity`/
+  `CountyOrParish` are county-suffixed enums ("SturgisCity_StJoseph"). County
+  humanized ("StJoseph" → "St Joseph").
+- **IIS query-length 404** on the office query → split the 4-field office filter
+  into one request per field (union via upsert).
+
+## What still needs to be done
+
+- Run the initial backfills (sold year-by-year + the full `active` pull).
+- Set `REALCOMP_*` (incl. `REALCOMP_AUDIENCE`, `REALCOMP_BASE_URL=idxapi`) in
+  **Vercel** + **GitHub Actions secrets**; add the approved Realcomp logo at
+  `public/assets/realcomp-logo.png`; apply migration `0015` on every Neon branch.
+- Reconcile `REALCOMP_OFFICE_KEYS` to only RE/MAX Platinum offices (the feed's
+  Office collection lists several unrelated "Platinum" brokerages — KW, RC).
+
+## Lessons
+See `docs/lessons-learned.md` §12 (spec-identifier drift, IIS URL limits, the
+`$`-in-bcrypt-hash env-escaping trap, enum-normalized location fields, and
+proving a token failure is upstream).
+
+---
+
 # Session Summary — Per-Office Reviews, Routing Rework & Scoring v2
 
 Branch: `claude/previous-session-items-q3l47m`. Migrations added this session:

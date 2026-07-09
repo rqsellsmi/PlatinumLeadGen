@@ -17,6 +17,7 @@ import {
   offices,
   notificationSettings,
   googleReviews,
+  idxListings,
   type Location,
   type MarketStat,
   type Testimonial,
@@ -24,6 +25,7 @@ import {
   type TrackingScript,
   type Guide,
 } from '../drizzle/schema';
+import { parseOfficeKeys } from './idxSync';
 
 export interface CityGoogleReview {
   id: number;
@@ -248,8 +250,16 @@ export interface HomepageAggregateStats {
 /** Aggregate, business-wide numbers for the homepage. All computed from data. */
 export async function getHomepageAggregateStats(): Promise<HomepageAggregateStats> {
   try {
-    const [metricsRow, closingsRow, agentsRow, reviewRow] = await Promise.all([
+    const [metricsRow, idxRow, closingsRow, agentsRow, reviewRow] = await Promise.all([
       db.select().from(homePageMetrics).limit(1),
+      // IDX office-closed deals (both sides) — the preferred source (§ intro).
+      db
+        .select({
+          vol: sql<string | null>`sum(${idxListings.closePrice})`,
+          cnt: sql<number>`count(*)::int`,
+        })
+        .from(idxListings)
+        .where(sql`${idxListings.isOfficeListing} = true and ${idxListings.standardStatus} = 'Closed' and ${idxListings.closePrice} is not null`),
       db
         .select({
           vol: sql<string | null>`sum(${closings.salePrice})`,
@@ -265,9 +275,18 @@ export async function getHomepageAggregateStats(): Promise<HomepageAggregateStat
         .from(locations)
         .where(sql`${locations.googleReviewRating} is not null`),
     ]);
-    const closedVolume = closingsRow[0]?.vol != null ? Number(closingsRow[0].vol) : null;
+    const idxCount = Number(idxRow[0]?.cnt ?? 0);
     const closingsCount = Number(closingsRow[0]?.cnt ?? 0);
-    const homesSold = metricsRow[0]?.totalHomesSold ?? (closingsCount > 0 ? closingsCount : null);
+    // Prefer IDX numbers once the feed carries office deals; else imported closings.
+    const closedVolume =
+      idxCount > 0 && idxRow[0]?.vol != null
+        ? Number(idxRow[0].vol)
+        : closingsRow[0]?.vol != null
+          ? Number(closingsRow[0].vol)
+          : null;
+    const homesSold =
+      metricsRow[0]?.totalHomesSold ??
+      (idxCount > 0 ? idxCount : closingsCount > 0 ? closingsCount : null);
     const localAgents = Number(agentsRow[0]?.n ?? 0);
     const avgRating = reviewRow[0]?.avg != null ? Number(reviewRow[0].avg) : null;
     const reviewCount = reviewRow[0]?.reviews != null ? Number(reviewRow[0].reviews) : null;
@@ -300,11 +319,51 @@ const TILE_SELECT = {
 } as const;
 
 /**
- * Newest list-side (RS/CO) sales across ALL areas — the homepage tiles.
- * Sourced straight from imported closings; photos come from closings.photoUrl.
+ * IDX-sourced recent sales — our own listing-side office deals (IDX spec intro:
+ * recent sales now come from the MLS feed). Returns [] when the feed is not yet
+ * populated / office keys unset, so callers fall back to imported closings.
+ */
+async function idxOfficeRecentSales(cities: string[] | null, limit: number): Promise<HomeRecentSale[]> {
+  const keys = parseOfficeKeys();
+  if (keys.length === 0) return [];
+  try {
+    const conds = [
+      eq(idxListings.standardStatus, 'Closed'),
+      isNotNull(idxListings.photoUrl),
+      or(inArray(idxListings.listOfficeKey, keys), inArray(idxListings.coListOfficeKey, keys)),
+    ];
+    if (cities && cities.length) {
+      conds.push(or(...cities.map((c) => sql`lower(${idxListings.city}) = ${c.toLowerCase()}`)));
+    }
+    const rows = await db
+      .select({
+        id: idxListings.id,
+        address: idxListings.address,
+        soldPrice: idxListings.closePrice,
+        daysOnMarket: idxListings.daysOnMarket,
+        closeDate: idxListings.closeDate,
+        photoUrl: idxListings.photoUrl,
+        cityName: idxListings.city,
+      })
+      .from(idxListings)
+      .where(and(...conds))
+      .orderBy(desc(idxListings.closeDate))
+      .limit(limit);
+    return rows.map((r) => ({ ...r, address: r.address ?? '' }));
+  } catch (err) {
+    console.warn('[queries] idxOfficeRecentSales failed:', err);
+    return [];
+  }
+}
+
+/**
+ * Newest sales across ALL areas — the homepage tiles. Prefers our IDX office
+ * deals; falls back to imported closings (list-side RS/CO) when the feed is empty.
  */
 export async function getFeaturedRecentSales(limit = 6): Promise<HomeRecentSale[]> {
   try {
+    const idx = await idxOfficeRecentSales(null, limit);
+    if (idx.length) return idx;
     return await db
       .select(TILE_SELECT)
       .from(closings)
@@ -317,10 +376,12 @@ export async function getFeaturedRecentSales(limit = 6): Promise<HomeRecentSale[
   }
 }
 
-/** Newest list-side (RS/CO) sales for the mailing cities a location covers. */
+/** Newest sales for the mailing cities a location covers (IDX-first, closings fallback). */
 export async function getCityRecentSales(cities: string[], limit = 6): Promise<HomeRecentSale[]> {
   if (cities.length === 0) return [];
   try {
+    const idx = await idxOfficeRecentSales(cities, limit);
+    if (idx.length) return idx;
     const cityConds = cities.map((c) => sql`lower(${closings.city}) = ${c.toLowerCase()}`);
     return await db
       .select(TILE_SELECT)
@@ -366,21 +427,26 @@ export async function getCityTiles(): Promise<CityTile[]> {
         const cities = locationMatchCities(l);
         let photoUrl: string | null = null;
         if (cities.length > 0) {
-          const cityConds = cities.map((c) => sql`lower(${closings.city}) = ${c.toLowerCase()}`);
-          const [photo] = await db
-            .select({ url: closings.photoUrl })
-            .from(closings)
-            .where(
-              and(
-                eq(closings.agentRole, 'listing'),
-                inArray(closings.propertyType, TILE_TYPES),
-                sql`${closings.photoUrl} is not null`,
-                or(...cityConds),
-              ),
-            )
-            .orderBy(desc(closings.closeDate))
-            .limit(1);
-          photoUrl = photo?.url ?? null;
+          // Prefer an IDX office-listing photo; fall back to imported closings.
+          const idxSale = await idxOfficeRecentSales(cities, 1);
+          photoUrl = idxSale[0]?.photoUrl ?? null;
+          if (!photoUrl) {
+            const cityConds = cities.map((c) => sql`lower(${closings.city}) = ${c.toLowerCase()}`);
+            const [photo] = await db
+              .select({ url: closings.photoUrl })
+              .from(closings)
+              .where(
+                and(
+                  eq(closings.agentRole, 'listing'),
+                  inArray(closings.propertyType, TILE_TYPES),
+                  sql`${closings.photoUrl} is not null`,
+                  or(...cityConds),
+                ),
+              )
+              .orderBy(desc(closings.closeDate))
+              .limit(1);
+            photoUrl = photo?.url ?? null;
+          }
         }
         return {
           slug: l.slug,
