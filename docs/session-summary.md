@@ -48,9 +48,24 @@ API + Realcomp support:
 - **IIS query-length 404** on the office query → split the 4-field office filter
   into one request per field (union via upsert).
 
+## GitHub Actions backfill saga (PRs #7–#10)
+
+The build merged in PR #7; getting the manual "IDX Initial Sync" workflow to run
+green took four follow-up fixes, each unmasking the next:
+- **#8** — the workflow ran the app's full `validateEnv`, which requires NextAuth/
+  admin vars the backfill doesn't need → set `SKIP_ENV_VALIDATION=1` in the job.
+- **#9** — env getters used `??`, so **empty** (unset) GitHub secrets overrode the
+  built-in defaults with `""` → switched auth/host/audience getters to `||`.
+- **#10** — the sync still 401'd `Invalid Audience` after the config was correct:
+  a **stale blank-audience token** cached in `realcomp_tokens` from an early run
+  was being reused. Fix = self-heal: `getValidRealcompToken(forceRefresh)` +
+  on-401 re-mint-and-retry in `realcompFetch`/`realcompFetchPages`, plus a one-time
+  `DELETE FROM realcomp_tokens` to evict the poisoned row.
+
 ## What still needs to be done
 
-- Run the initial backfills (sold year-by-year + the full `active` pull).
+- Run the initial backfills (sold year-by-year + the full `active` pull) — the
+  auth path now self-heals, so a bad cached token can't wedge it again.
 - Set `REALCOMP_*` (incl. `REALCOMP_AUDIENCE`, `REALCOMP_BASE_URL=idxapi`) in
   **Vercel** + **GitHub Actions secrets**; add the approved Realcomp logo at
   `public/assets/realcomp-logo.png`; apply migration `0015` on every Neon branch.
