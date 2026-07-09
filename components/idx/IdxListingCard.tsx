@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import type { IdxCard } from '@/lib/idx';
 import { formatCurrency, formatMonthYear } from '@/lib/utils';
 import RealcompLogo from './RealcompLogo';
@@ -49,8 +50,13 @@ export default function IdxListingCard({
       ? Math.round((listing.closePrice / listing.listPrice) * 100)
       : null;
 
+  const href = `/listing/${encodeURIComponent(listing.listingKey)}`;
+
   return (
-    <article className="overflow-hidden rounded-lg border border-line bg-white transition-shadow hover:shadow-[0_12px_32px_rgba(20,20,24,0.12)]">
+    <Link
+      href={href}
+      className="group block overflow-hidden rounded-lg border border-line bg-white transition-shadow hover:shadow-[0_12px_32px_rgba(20,20,24,0.12)]"
+    >
       <div className="relative h-52 w-full bg-line-hair">
         <Image
           src={current}
@@ -76,7 +82,11 @@ export default function IdxListingCard({
             <button
               type="button"
               aria-label="Previous photo"
-              onClick={() => setIdx((i) => (i - 1 + gallery.length) % gallery.length)}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setIdx((i) => (i - 1 + gallery.length) % gallery.length);
+              }}
               className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-white/85 px-2 py-1 text-charcoal shadow hover:bg-white"
             >
               ‹
@@ -84,7 +94,11 @@ export default function IdxListingCard({
             <button
               type="button"
               aria-label="Next photo"
-              onClick={() => setIdx((i) => (i + 1) % gallery.length)}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setIdx((i) => (i + 1) % gallery.length);
+              }}
               className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-white/85 px-2 py-1 text-charcoal shadow hover:bg-white"
             >
               ›
@@ -143,6 +157,6 @@ export default function IdxListingCard({
           </p>
         ) : null}
       </div>
-    </article>
+    </Link>
   );
 }
