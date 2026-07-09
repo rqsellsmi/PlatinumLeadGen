@@ -41,6 +41,23 @@ async function main() {
   }
   console.error(`[verify] ${missing.length} requested field(s) NOT found in $metadata:`);
   for (const f of missing) console.error(`  - ${f}`);
+
+  // Help locate renamed fields: for each missing field, show declared names that
+  // share its distinctive tokens (e.g. "Office", "Waterfront") so we can map them.
+  const STOP = new Set(['key', 'id', 'name', 'number', 'total', 'the', 'yn', 'url']);
+  const anchors = new Set(
+    missing
+      .flatMap((f) => f.replace(/([a-z])([A-Z])/g, '$1 $2').split(/\s+/))
+      .map((t) => t.toLowerCase())
+      .filter((t) => t.length >= 4 && !STOP.has(t)),
+  );
+  const related = [...declared]
+    .filter((d) => [...anchors].some((a) => d.toLowerCase().includes(a)))
+    .sort();
+  if (related.length) {
+    console.error('\n[verify] Declared fields that may be the intended ones:');
+    for (const d of related) console.error(`  · ${d}`);
+  }
   console.error('\nUpdate SELECT_FIELDS / the mapping in lib/idxSync.ts to match the live schema.');
   process.exit(2);
 }
