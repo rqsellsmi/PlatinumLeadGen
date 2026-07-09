@@ -1,5 +1,6 @@
 'use client';
 
+import * as React from 'react';
 import { useFormState, useFormStatus } from 'react-dom';
 import { Button, Input, Label, Card, CardBody } from '@/components/ui';
 import { loginAction, type LoginState } from './actions';
@@ -17,6 +18,7 @@ function SubmitButton() {
 
 export default function AdminLoginPage() {
   const [state, formAction] = useFormState(loginAction, initialState);
+  const [showPassword, setShowPassword] = React.useState(false);
 
   return (
     <div className="flex min-h-[70vh] items-center justify-center">
@@ -32,11 +34,21 @@ export default function AdminLoginPage() {
               <Input id="username" name="username" type="text" autoComplete="username" required />
             </div>
             <div>
-              <Label htmlFor="password">Password</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password">Password</Label>
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((s) => !s)}
+                  className="text-xs font-semibold text-platinum-blue hover:underline"
+                  aria-pressed={showPassword}
+                >
+                  {showPassword ? 'Hide' : 'Show'}
+                </button>
+              </div>
               <Input
                 id="password"
                 name="password"
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 autoComplete="current-password"
                 required
               />
