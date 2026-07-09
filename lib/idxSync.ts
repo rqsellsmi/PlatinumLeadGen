@@ -30,8 +30,8 @@ import {
 // OData field selection (IDX spec §2.4, Township removed — no such field)
 // ---------------------------------------------------------------------------
 export const SELECT_FIELDS = [
-  'ListingKey', 'ListingId', 'ListOfficeKey', 'BuyerOfficeKey', 'CoListOfficeKey',
-  'CoBuyerOfficeKey', 'MlsStatus', 'StandardStatus', 'ListPrice', 'ClosePrice',
+  'ListingKey', 'ListingId', 'ListOfficeKeyNumeric', 'BuyerOfficeKeyNumeric',
+  'CoListOfficeKeyNumeric', 'CoBuyerOfficeKeyNumeric', 'MlsStatus', 'StandardStatus', 'ListPrice', 'ClosePrice',
   'CloseDate', 'DaysOnMarket', 'CumulativeDaysOnMarket', 'OriginalListPrice',
   'PropertyType', 'PropertySubType', 'StreetNumber', 'StreetName', 'StreetSuffix',
   'StreetDirPrefix', 'StreetDirSuffix', 'UnitNumber', 'UnparsedAddress', 'City',
@@ -74,8 +74,8 @@ export function officeFilterClause(): string | null {
   // compact vs. 96 `eq` clauses. Change to quoted if $metadata types them as strings.
   const list = keys.join(',');
   return (
-    `(ListOfficeKey in (${list}) or BuyerOfficeKey in (${list})` +
-    ` or CoListOfficeKey in (${list}) or CoBuyerOfficeKey in (${list}))`
+    `(ListOfficeKeyNumeric in (${list}) or BuyerOfficeKeyNumeric in (${list})` +
+    ` or CoListOfficeKeyNumeric in (${list}) or CoBuyerOfficeKeyNumeric in (${list}))`
   );
 }
 
@@ -164,10 +164,11 @@ export function mapRealcompListing(raw: Raw): NewIdxListing | null {
   const standardStatus = str(raw.StandardStatus) ?? 'Unknown';
 
   const keys = officeKeySet();
-  const listOfficeKey = str(raw.ListOfficeKey);
-  const buyerOfficeKey = str(raw.BuyerOfficeKey);
-  const coListOfficeKey = str(raw.CoListOfficeKey);
-  const coBuyerOfficeKey = str(raw.CoBuyerOfficeKey);
+  // Realcomp exposes numeric office keys as *OfficeKeyNumeric (Edm.Int64).
+  const listOfficeKey = str(raw.ListOfficeKeyNumeric);
+  const buyerOfficeKey = str(raw.BuyerOfficeKeyNumeric);
+  const coListOfficeKey = str(raw.CoListOfficeKeyNumeric);
+  const coBuyerOfficeKey = str(raw.CoBuyerOfficeKeyNumeric);
   const isOfficeListing = [listOfficeKey, buyerOfficeKey, coListOfficeKey, coBuyerOfficeKey].some(
     (k) => k != null && keys.has(k),
   );

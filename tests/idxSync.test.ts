@@ -20,10 +20,10 @@ describe('office keys', () => {
 
   it('builds an in() clause across all four office fields', () => {
     const clause = officeFilterClause();
-    expect(clause).toContain('ListOfficeKey in (111,222,333)');
-    expect(clause).toContain('BuyerOfficeKey in (111,222,333)');
-    expect(clause).toContain('CoListOfficeKey in (111,222,333)');
-    expect(clause).toContain('CoBuyerOfficeKey in (111,222,333)');
+    expect(clause).toContain('ListOfficeKeyNumeric in (111,222,333)');
+    expect(clause).toContain('BuyerOfficeKeyNumeric in (111,222,333)');
+    expect(clause).toContain('CoListOfficeKeyNumeric in (111,222,333)');
+    expect(clause).toContain('CoBuyerOfficeKeyNumeric in (111,222,333)');
   });
 
   it('returns null when unset', () => {
@@ -98,8 +98,8 @@ describe('mapRealcompListing', () => {
       ListingKey: 'RC1',
       ListingId: 'MLS100',
       StandardStatus: 'Closed',
-      BuyerOfficeKey: '814805080452',
-      ListOfficeKey: '999',
+      BuyerOfficeKeyNumeric: '814805080452',
+      ListOfficeKeyNumeric: '999',
       ListPrice: '350000',
       ClosePrice: '360000',
       CloseDate: '2025-03-01T00:00:00Z',
@@ -124,8 +124,8 @@ describe('mapRealcompListing', () => {
     const row = mapRealcompListing({
       ListingKey: 'RC2',
       StandardStatus: 'Active',
-      ListOfficeKey: '123',
-      BuyerOfficeKey: '456',
+      ListOfficeKeyNumeric: '123',
+      BuyerOfficeKeyNumeric: '456',
       ModificationTimestamp: '2025-01-01T00:00:00Z',
     })!;
     expect(row.isOfficeListing).toBe(false);
