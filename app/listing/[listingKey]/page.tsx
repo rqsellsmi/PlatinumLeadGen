@@ -7,6 +7,7 @@ import ListingGallery from '@/components/idx/ListingGallery';
 import RealcompLogo from '@/components/idx/RealcompLogo';
 import IdxCompliance from '@/components/idx/IdxCompliance';
 import { getListingByKey, getListingPhotos } from '@/lib/idx';
+import { showsFullGallery } from '@/lib/idxSync';
 import { formatCurrency, formatMonthYear } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
@@ -58,10 +59,10 @@ export default async function ListingDetailPage({
   const listing = await getListingByKey(listingKey);
   if (!listing) notFound();
 
-  // §18.10: full gallery for Active only; primary photo for everything else
-  // (pending / sold / under-contract). Galleries are only stored for Active, so
-  // non-Active listings fall back to the primary photo column.
-  const showFullGallery = listing.standardStatus === 'Active';
+  // §18.10: full gallery for Active + Active Under Contract; primary photo only
+  // for pending/sold. Galleries are only stored for gallery-eligible statuses,
+  // so pending/sold fall back to the primary photo column.
+  const showFullGallery = showsFullGallery(listing.standardStatus);
   const photos = showFullGallery
     ? await getListingPhotos(listing.listingKey, listing.standardStatus)
     : listing.photoUrl
@@ -183,8 +184,7 @@ export default async function ListingDetailPage({
 
           {!showFullGallery ? (
             <p className="mt-4 text-xs italic text-mute-light">
-              Per MLS rules, only the primary photo is shown for listings that are pending, sold, or
-              under contract.
+              Per MLS rules, only the primary photo is shown for pending and sold listings.
             </p>
           ) : null}
         </div>

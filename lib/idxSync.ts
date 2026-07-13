@@ -74,6 +74,17 @@ export const DISPLAYABLE_STANDARD_STATUSES = [
   'Closed',
 ] as const;
 
+/**
+ * Statuses that may show the FULL photo gallery. §18.10 restricts only *pending*
+ * and *sold* to the primary photo; Active and Active Under Contract (backup /
+ * contingent, still actively marketed) are neither, so both show all photos.
+ * Pending and Closed fall through to primary-only.
+ */
+export const FULL_GALLERY_STATUSES: readonly string[] = ['Active', 'Active Under Contract'];
+export function showsFullGallery(standardStatus: string): boolean {
+  return FULL_GALLERY_STATUSES.includes(standardStatus);
+}
+
 // ---------------------------------------------------------------------------
 // Office keys (IDX spec §2.4) — parsed from REALCOMP_OFFICE_KEYS at runtime
 // ---------------------------------------------------------------------------
@@ -347,24 +358,24 @@ export async function upsertRawListings(rawRecords: Raw[]): Promise<number> {
     const row = mapRealcompListing(raw);
     if (!row) continue;
     mapped.push(row);
-    // Store the full photo gallery ONLY for Active listings — §18.10 forbids
-    // showing more than the primary photo for pending/sold/under-contract, and
-    // the primary already lives on idx_listings.photoUrl. Registering a fetched
-    // non-Active listing with an EMPTY set means replacePhotos deletes any
-    // gallery it still has, so photos "follow" the status: a listing that goes
-    // Active→Pending loses its gallery on the next sync, and Pending→Active
-    // gets it back (Media is in every incremental fetch). Huge storage win —
-    // the Closed-dominated feed no longer writes millions of unusable rows.
+    // Store the full photo gallery only for gallery-eligible statuses (Active +
+    // Active Under Contract). §18.10 restricts pending/sold to the primary
+    // photo, which already lives on idx_listings.photoUrl, so we don't store
+    // their galleries. Registering a fetched non-gallery listing with an EMPTY
+    // set means replacePhotos deletes any gallery it still has, so photos
+    // "follow" the status: a listing going Active→Pending loses its gallery on
+    // the next sync, and Pending→Active gets it back (Media is in every
+    // incremental fetch). Huge storage win — the Closed-dominated feed no longer
+    // writes millions of unusable rows.
     if (Array.isArray(raw.Media)) {
-      const photos =
-        row.standardStatus === 'Active'
-          ? extractPhotos(raw).map((p) => ({
-              listingKey: row.listingKey,
-              mediaUrl: p.url,
-              sortOrder: p.order,
-              mediaCategory: p.category,
-            }))
-          : [];
+      const photos = showsFullGallery(row.standardStatus)
+        ? extractPhotos(raw).map((p) => ({
+            listingKey: row.listingKey,
+            mediaUrl: p.url,
+            sortOrder: p.order,
+            mediaCategory: p.category,
+          }))
+        : [];
       photosByListing.set(row.listingKey, photos);
     }
   }
