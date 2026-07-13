@@ -210,7 +210,7 @@ export default async function ListingDetailPage({
           originatingSystemName={listing.originatingSystemName}
         />
       </main>
-      <SiteFooter />
+      <SiteFooter latitude={listing.latitude} longitude={listing.longitude} />
     </>
   );
 }

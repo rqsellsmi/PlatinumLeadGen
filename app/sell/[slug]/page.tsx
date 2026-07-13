@@ -167,7 +167,11 @@ export default async function CityPage({ params }: { params: { slug: string } })
         <NeighborhoodLinks links={neighborhoodLinks} cityName={cityName} />
         <TrackingScripts scripts={trackingScripts} />
       </main>
-      <SiteFooter />
+      <SiteFooter
+        locationId={location.id}
+        latitude={location.latitude}
+        longitude={location.longitude}
+      />
       <StickyCtaBar />
       <ExitIntentOverlay />
     </>

@@ -633,6 +633,98 @@ export async function getHomeTestimonials(limit = 3): Promise<HomeTestimonial[]>
   }
 }
 
+export interface FooterOffice {
+  name: string;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  zip: string | null;
+  phone: string | null;
+}
+
+/**
+ * Resolve the office to show in the site footer for a given page context:
+ *   1) the office linked to the page's location (locations.officeId), else
+ *   2) the geographically closest active office to the given coordinates, else
+ *   3) the Brighton office, else any active office.
+ * Returns null only when there are no offices at all (the footer then uses its
+ * hardcoded Brighton fallback), so the main page and any unknown page default
+ * to Brighton.
+ */
+export async function getFooterOffice(
+  opts: { locationId?: number | null; latitude?: number | null; longitude?: number | null } = {},
+): Promise<FooterOffice | null> {
+  const COLS = {
+    id: offices.id,
+    name: offices.name,
+    address: offices.address,
+    city: offices.city,
+    state: offices.state,
+    zip: offices.zip,
+    phone: offices.phone,
+    latitude: offices.latitude,
+    longitude: offices.longitude,
+  };
+  const norm = (o: { name: string; address: string | null; city: string | null; state: string | null; zip: string | null; phone: string | null }): FooterOffice => ({
+    name: o.name,
+    address: o.address,
+    city: o.city,
+    state: o.state,
+    zip: o.zip,
+    phone: o.phone,
+  });
+  try {
+    // 1) Office explicitly linked to this location.
+    if (opts.locationId != null) {
+      const [loc] = await db
+        .select({ officeId: locations.officeId })
+        .from(locations)
+        .where(eq(locations.id, opts.locationId))
+        .limit(1);
+      if (loc?.officeId != null) {
+        const [o] = await db
+          .select(COLS)
+          .from(offices)
+          .where(and(eq(offices.id, loc.officeId), eq(offices.isActive, true)))
+          .limit(1);
+        if (o) return norm(o);
+      }
+    }
+    // 2) Closest active office by coordinates.
+    if (opts.latitude != null && opts.longitude != null) {
+      const all = await db.select(COLS).from(offices).where(eq(offices.isActive, true));
+      const withCoords = all.filter((o) => o.latitude != null && o.longitude != null);
+      if (withCoords.length) {
+        const dist2 = (o: (typeof withCoords)[number]) => {
+          const dLat = (o.latitude! - opts.latitude!) * 69;
+          const dLng = (o.longitude! - opts.longitude!) * 69 * Math.cos((opts.latitude! * Math.PI) / 180);
+          return dLat * dLat + dLng * dLng;
+        };
+        withCoords.sort((a, b) => dist2(a) - dist2(b));
+        return norm(withCoords[0]);
+      }
+    }
+    // 3) Brighton office.
+    const [brighton] = await db
+      .select(COLS)
+      .from(offices)
+      .where(
+        and(
+          eq(offices.isActive, true),
+          sql`(lower(${offices.city}) like '%brighton%' or lower(${offices.name}) like '%brighton%')`,
+        ),
+      )
+      .limit(1);
+    if (brighton) return norm(brighton);
+    // 4) Any active office.
+    const [anyOffice] = await db.select(COLS).from(offices).where(eq(offices.isActive, true)).limit(1);
+    return anyOffice ? norm(anyOffice) : null;
+  } catch (err) {
+    console.warn('[queries] getFooterOffice failed:', err);
+    return null;
+  }
+}
+
 export async function getFeaturedTestimonials(limit = 3): Promise<Testimonial[]> {
   try {
     const featured = await db

@@ -199,7 +199,7 @@ export default async function ThankYouPage({
           </Link>
         </div>
       </main>
-      <SiteFooter />
+      <SiteFooter latitude={report?.latitude} longitude={report?.longitude} />
     </>
   );
 }
