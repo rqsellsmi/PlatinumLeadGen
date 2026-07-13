@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import {
   getHomepageAggregateStats,
+  getHomePageMetrics,
   getFeaturedRecentSales,
   getCityTiles,
   getGuidesForPage,
@@ -12,7 +13,7 @@ import SiteHeader from '@/components/SiteHeader';
 import SiteFooter from '@/components/SiteFooter';
 import HeroBackdrop from '@/components/HeroBackdrop';
 import HeroValuation from '@/components/HeroValuation';
-import HomeMetricsBar from '@/components/home/HomeMetricsBar';
+import MarketStatsBar from '@/components/city/MarketStatsBar';
 import HomeRecentSales from '@/components/home/HomeRecentSales';
 import ExploreMarket from '@/components/home/ExploreMarket';
 import GuideDownloadBlock from '@/components/home/GuideDownloadBlock';
@@ -32,8 +33,9 @@ export const metadata: Metadata = {
 };
 
 export default async function HomePage() {
-  const [stats, recentSales, cityTiles, guides, testimonials] = await Promise.all([
+  const [stats, homeMetrics, recentSales, cityTiles, guides, testimonials] = await Promise.all([
     getHomepageAggregateStats(),
+    getHomePageMetrics(),
     getFeaturedRecentSales(6),
     getCityTiles(),
     getGuidesForPage('home'),
@@ -82,8 +84,18 @@ export default async function HomePage() {
           </div>
         </section>
 
-        {/* Aggregate community metrics */}
-        <HomeMetricsBar stats={stats} />
+        {/* Market stats — same four metrics as the city pages, brokerage-wide */}
+        <MarketStatsBar
+          avgSalePrice={homeMetrics?.avgSalePrice ?? null}
+          daysToSell={homeMetrics?.avgDaysToSell ?? null}
+          homesSold={homeMetrics?.homesSold ?? null}
+          percentAboveList={homeMetrics?.pctAboveListPrice ?? null}
+          subtext={
+            homeMetrics?.homesSold
+              ? `Based on ${formatNumber(homeMetrics.homesSold)} homes sold across Southeast Michigan over the last 12 months.`
+              : null
+          }
+        />
 
         {/* Recent sales across all communities */}
         <HomeRecentSales sales={recentSales} />

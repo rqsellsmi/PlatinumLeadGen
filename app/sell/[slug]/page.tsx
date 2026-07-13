@@ -10,6 +10,7 @@ import {
   fillFaqStats,
   generateCityStructuredData,
 } from '@/lib/seo';
+import { formatNumber } from '@/lib/utils';
 import SiteHeader from '@/components/SiteHeader';
 import SiteFooter from '@/components/SiteFooter';
 import HeroSection from '@/components/city/HeroSection';
@@ -131,7 +132,17 @@ export default async function CityPage({ params }: { params: { slug: string } })
           googleReviewCount={reviewCount}
           topTestimonial={testimonials.find((t) => t.isActive) ?? null}
         />
-        <MarketStatsBar stats={stats} cityName={cityName} homesSold={stats?.homesSold ?? 0} />
+        <MarketStatsBar
+          avgSalePrice={stats?.avgSalePrice ?? null}
+          daysToSell={stats?.daysToSell ?? null}
+          homesSold={stats?.homesSold ?? null}
+          percentAboveList={stats?.percentAboveList ?? null}
+          subtext={
+            stats?.homesSold
+              ? `Based on ${formatNumber(stats.homesSold)} homes sold in ${cityName} over the last 12 months.`
+              : null
+          }
+        />
         <RecentSales sales={recentSales} cityName={cityName} />
         {hasMarketReport ? (
           <section className="bg-cream">
