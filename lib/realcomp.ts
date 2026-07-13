@@ -20,6 +20,32 @@ const TOKEN_PROVIDER = 'realcomp';
 // a genuine auth misconfiguration.
 const MAX_AUTH_RETRIES = 3;
 
+// Transient-error resilience: a long backfill will hit the occasional network
+// blip (headers/body timeout, connection reset) or 5xx from the upstream. Retry
+// those with backoff instead of failing the whole run; give each request its own
+// abort timeout so a hung connection becomes a retry, not a dead run.
+const MAX_NET_RETRIES = 5;
+const REQUEST_TIMEOUT_MS = 90_000;
+const RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const backoffMs = (attempt: number) => Math.min(30_000, 1000 * 2 ** attempt);
+
+/** One fetch with a per-request abort timeout (so a hung request can be retried). */
+async function fetchWithTimeout(url: string, token: string): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(url, {
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function clientId(): string {
   return process.env.REALCOMP_CLIENT_ID ?? '';
 }
@@ -138,25 +164,38 @@ export async function realcompFetch<T = Record<string, unknown>>(
   const results: T[] = [];
   let nextUrl: string | null = url.toString();
   let authRetries = 0;
+  let netRetries = 0;
 
   while (nextUrl) {
-    const res: Response = await fetch(nextUrl, {
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      cache: 'no-store',
-    });
-    // A 401 means the token is stale/expired — re-mint and retry. The token TTL
-    // can be shorter than a long paginated pull, so this must handle 401 EVERY
-    // time it happens, not once; the counter (reset on each success) only trips
-    // after several CONSECUTIVE failures (a real auth problem).
+    let res: Response;
+    try {
+      res = await fetchWithTimeout(nextUrl, token);
+    } catch (err) {
+      // Network error / abort timeout — retry with backoff before giving up.
+      if (netRetries < MAX_NET_RETRIES) {
+        netRetries += 1;
+        await sleep(backoffMs(netRetries));
+        continue;
+      }
+      throw err;
+    }
+    // A 401 means the token is stale/expired — re-mint and retry every time.
     if (res.status === 401 && authRetries < MAX_AUTH_RETRIES) {
       authRetries += 1;
       token = await getValidRealcompToken(true);
+      continue;
+    }
+    // Transient upstream error — back off and retry.
+    if (RETRYABLE_STATUS.has(res.status) && netRetries < MAX_NET_RETRIES) {
+      netRetries += 1;
+      await sleep(backoffMs(netRetries));
       continue;
     }
     if (!res.ok) {
       throw new Error(`Realcomp API error: ${res.status} ${await res.text()}`);
     }
     authRetries = 0; // recovered — reset so a later expiry gets its own retries
+    netRetries = 0;
     const data = (await res.json()) as ODataResponse<T>;
     if (data.value) results.push(...data.value);
     nextUrl = data['@odata.nextLink'] ?? null;
@@ -181,22 +220,36 @@ export async function realcompFetchPages<T = Record<string, unknown>>(
   let total = 0;
   let nextUrl: string | null = url.toString();
   let authRetries = 0;
+  let netRetries = 0;
   while (nextUrl) {
-    const res: Response = await fetch(nextUrl, {
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      cache: 'no-store',
-    });
-    // A 401 means the token is stale/expired — re-mint and retry. A full backfill
-    // outlives the token TTL, so this must recover EVERY time the token expires
-    // (not just once); the counter resets on each successful page and only trips
-    // after several consecutive failures (a real auth problem).
+    let res: Response;
+    try {
+      res = await fetchWithTimeout(nextUrl, token);
+    } catch (err) {
+      // Network error / abort timeout — a single blip must not kill a long
+      // backfill. Retry with backoff; only give up after several in a row.
+      if (netRetries < MAX_NET_RETRIES) {
+        netRetries += 1;
+        await sleep(backoffMs(netRetries));
+        continue;
+      }
+      throw err;
+    }
+    // A 401 means the token is stale/expired — re-mint and retry every time.
     if (res.status === 401 && authRetries < MAX_AUTH_RETRIES) {
       authRetries += 1;
       token = await getValidRealcompToken(true);
       continue;
     }
+    // Transient upstream error (5xx / 429 / 408) — back off and retry.
+    if (RETRYABLE_STATUS.has(res.status) && netRetries < MAX_NET_RETRIES) {
+      netRetries += 1;
+      await sleep(backoffMs(netRetries));
+      continue;
+    }
     if (!res.ok) throw new Error(`Realcomp API error: ${res.status} ${await res.text()}`);
     authRetries = 0; // recovered — reset so a later expiry gets its own retries
+    netRetries = 0;
     const data = (await res.json()) as ODataResponse<T>;
     const page = data.value ?? [];
     total += page.length;

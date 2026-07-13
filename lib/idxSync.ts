@@ -22,6 +22,7 @@ import {
   idxListings,
   idxListingPhotos,
   idxSyncLog,
+  idxBackfillCheckpoints,
   type NewIdxListing,
   type NewIdxListingPhoto,
 } from '../drizzle/schema';
@@ -496,34 +497,106 @@ export async function runIdxSync(fetchFn: FetchFn): Promise<SyncResult> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Resumable backfill (IDX spec §2.8) — checkpointed by ModificationTimestamp
+// ---------------------------------------------------------------------------
 /**
- * OData $select/$expand/$filter params for the initial full pull of Query 2
- * (all Active/Pending/Closed, 12-month window, no office/location filter). Run
- * via GitHub Actions — too slow for Vercel's timeout (IDX spec §2.8).
+ * A backfill unit of work. `buildParams(sinceIso)` returns the OData params for
+ * this job, resuming from `sinceIso` (the newest ModificationTimestamp already
+ * processed) when set. Every job orders by ModificationTimestamp ascending so a
+ * partial run has NO gaps below its checkpoint — the next run resumes cleanly.
  */
-export function activeBackfillParams(): Record<string, string> {
+export interface BackfillJob {
+  key: string;
+  buildParams: (sinceIso: string | null) => Record<string, string>;
+}
+
+/** The active/feed-wide job (all Active/Pending/Closed, 12-month window). */
+export function activeBackfillJob(): BackfillJob {
   return {
-    $select: SELECT_FIELDS,
-    $expand: MEDIA_EXPAND,
-    $filter: `${displayableStatusClause()} and ModificationTimestamp gt ${oneYearAgoIso()}`,
+    key: 'active',
+    buildParams: (sinceIso) => {
+      const floor = oneYearAgoIso();
+      // Resume is inclusive (ge) so a record on the boundary timestamp is never
+      // skipped; upserts are idempotent so re-fetching it is harmless.
+      const cursor = sinceIso && sinceIso > floor ? sinceIso : floor;
+      const op = sinceIso ? 'ge' : 'gt';
+      return {
+        $select: SELECT_FIELDS,
+        $expand: MEDIA_EXPAND,
+        $orderby: 'ModificationTimestamp',
+        $filter: `${displayableStatusClause()} and ModificationTimestamp ${op} ${cursor}`,
+      };
+    },
   };
 }
 
 /**
- * OData param sets for the initial backfill of your offices' Closed sales over a
- * CloseDate window (one year at a time — IDX spec §2.8 Step 2/3). One set per
- * office-key field (URL-length safe); the caller runs each and unions via upsert.
+ * The sold job(s): your offices' Closed sales over a CloseDate window. One job
+ * per office-key field (URL-length safe), each independently checkpointed.
  */
-export function soldBackfillParamsList(startDate: string, endDate: string): Record<string, string>[] {
+export function soldBackfillJobs(startDate: string, endDate: string): BackfillJob[] {
   const clauses = officeFieldClauses();
   if (clauses.length === 0) {
     throw new Error('REALCOMP_OFFICE_KEYS is not set — cannot run the sold backfill.');
   }
-  const dateClause =
-    `${enumEq('StandardStatus', 'Closed')} and CloseDate ge ${startDate} and CloseDate lt ${endDate}`;
-  return clauses.map((c) => ({
-    $select: SELECT_FIELDS,
-    $expand: MEDIA_EXPAND,
-    $filter: `${c} and ${dateClause}`,
+  const dateClause = `${enumEq('StandardStatus', 'Closed')} and CloseDate ge ${startDate} and CloseDate lt ${endDate}`;
+  return clauses.map((clause, i) => ({
+    key: `sold:${OFFICE_KEY_FIELDS[i]}:${startDate}:${endDate}`,
+    buildParams: (sinceIso) => ({
+      $select: SELECT_FIELDS,
+      $expand: MEDIA_EXPAND,
+      $orderby: 'ModificationTimestamp',
+      $filter: `${clause} and ${dateClause}${sinceIso ? ` and ModificationTimestamp ge ${sinceIso}` : ''}`,
+    }),
   }));
+}
+
+/** Newest ModificationTimestamp in a raw page (ISO), or null. */
+export function pageMaxModTimestamp(page: Raw[]): string | null {
+  let max: number | null = null;
+  for (const r of page) {
+    const d = date(r.ModificationTimestamp);
+    if (d) {
+      const t = d.getTime();
+      if (max == null || t > max) max = t;
+    }
+  }
+  return max != null ? new Date(max).toISOString() : null;
+}
+
+/** Read a backfill checkpoint (resume point) for a job, or null. */
+export async function getBackfillCheckpoint(jobKey: string): Promise<string | null> {
+  try {
+    const [row] = await db
+      .select({ ts: idxBackfillCheckpoints.lastModTs })
+      .from(idxBackfillCheckpoints)
+      .where(eq(idxBackfillCheckpoints.jobKey, jobKey))
+      .limit(1);
+    return row?.ts ? new Date(row.ts).toISOString() : null;
+  } catch (err) {
+    console.warn('[idxSync] getBackfillCheckpoint failed:', err);
+    return null;
+  }
+}
+
+/** Persist the newest processed ModificationTimestamp for a job (resume point). */
+export async function setBackfillCheckpoint(jobKey: string, iso: string): Promise<void> {
+  const ts = new Date(iso);
+  await db
+    .insert(idxBackfillCheckpoints)
+    .values({ jobKey, lastModTs: ts, updatedAt: new Date() })
+    .onConflictDoUpdate({
+      target: idxBackfillCheckpoints.jobKey,
+      set: { lastModTs: ts, updatedAt: new Date() },
+    });
+}
+
+/** Clear a job's checkpoint (on successful completion, or a forced restart). */
+export async function clearBackfillCheckpoint(jobKey: string): Promise<void> {
+  try {
+    await db.delete(idxBackfillCheckpoints).where(eq(idxBackfillCheckpoints.jobKey, jobKey));
+  } catch (err) {
+    console.warn('[idxSync] clearBackfillCheckpoint failed:', err);
+  }
 }

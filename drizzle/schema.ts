@@ -973,6 +973,27 @@ export const marketNarratives = pgTable(
 );
 export type MarketNarrativeRow = typeof marketNarratives.$inferSelect;
 
+/**
+ * Resumable-backfill checkpoints. Keyed by a job key (e.g. "active" or
+ * "sold:ListOfficeMlsId:2024-01-01:2025-01-01"), holding the newest
+ * ModificationTimestamp processed so far. A failed initial-sync run leaves the
+ * checkpoint behind so the next run resumes from there (the query orders by
+ * ModificationTimestamp ascending); a successful run clears it.
+ */
+export const idxBackfillCheckpoints = pgTable(
+  'idx_backfill_checkpoints',
+  {
+    id: serial('id').primaryKey(),
+    jobKey: varchar('job_key', { length: 200 }).notNull(),
+    lastModTs: timestamp('last_mod_ts'),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    jobIdx: uniqueIndex('idx_backfill_checkpoints_job_idx').on(t.jobKey),
+  }),
+);
+export type IdxBackfillCheckpointRow = typeof idxBackfillCheckpoints.$inferSelect;
+
 export type Closing = typeof closings.$inferSelect;
 export type NewClosing = typeof closings.$inferInsert;
 export type UploadBatch = typeof uploadBatches.$inferSelect;
