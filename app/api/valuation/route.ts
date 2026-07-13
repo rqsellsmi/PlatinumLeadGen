@@ -10,12 +10,13 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
-import { and, eq, gte, sql } from 'drizzle-orm';
+import { and, eq, gte, isNull, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { apiUsageLogs } from '@/drizzle/schema';
+import { apiUsageLogs, leads } from '@/drizzle/schema';
 import { valuationSchema } from '@/lib/validation';
 import { getValuation, activeProvider, type ValuationResult } from '@/lib/valuation';
 import { storeValuation } from '@/lib/valuationStore';
+import { normalizeAddress } from '@/lib/addressNormalization';
 import { checkPreset, clientIp } from '@/lib/rateLimit';
 import { sendEmail, rentcastQuotaAlertEmail } from '@/lib/email';
 
@@ -94,6 +95,36 @@ export async function POST(req: NextRequest) {
     // Store the full result server-side; return only the gated teaser.
     const token = randomUUID();
     const teaser = await storeValuation(token, address, result);
+
+    // Backfill the estimate onto the matching UNNAMED partial lead (address-only,
+    // no contact yet) so "Unnamed lead" rows carry a price in the admin even when
+    // the visitor never completes the form. The frontend creates the partial lead
+    // (POST /api/leads/partial) before calling this, so it already exists. We only
+    // copy the numbers — we deliberately do NOT set valuations.leadId, which would
+    // open the pre-contact reveal gate. Best-effort; never fail the response.
+    try {
+      const normalized = normalizeAddress(address).full || null;
+      if (normalized) {
+        await db
+          .update(leads)
+          .set({
+            estimatedValue: result.estimatedValue,
+            priceRangeLow: result.priceRangeLow,
+            priceRangeHigh: result.priceRangeHigh,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(leads.normalizedAddress, normalized),
+              isNull(leads.email), // unnamed partials only — never touch a real lead
+              eq(leads.isDeleted, false),
+            ),
+          );
+      }
+    } catch (err) {
+      console.error('[api/valuation] unnamed-lead price backfill failed:', err);
+    }
+
     return NextResponse.json(teaser);
   } catch (err) {
     console.error('[api/valuation] error:', err);
