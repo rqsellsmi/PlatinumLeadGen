@@ -16,6 +16,7 @@
 import type {
   MarketTrends,
   PropertyBasics,
+  PropertyRecord,
   SaleHistoryEntry,
   ValuationResult,
 } from './valuation';
@@ -71,6 +72,13 @@ function num(v: unknown): number | null {
   if (v == null || v === '') return null;
   const n = typeof v === 'number' ? v : Number(v);
   return Number.isFinite(n) ? n : null;
+}
+
+/** Coerce to a trimmed non-empty string or null. */
+function str(v: unknown): string | null {
+  if (v == null) return null;
+  const s = String(v).trim();
+  return s === '' || s.toLowerCase() === 'null' ? null : s;
 }
 
 /**
@@ -400,6 +408,148 @@ export async function probeAttom(address: string): Promise<{
     base.error = err instanceof Error ? err.message : 'probe error';
     return base;
   }
+}
+
+/**
+ * Full property record from ATTOM's `property/expandedprofile` endpoint — the
+ * most comprehensive single call (characteristics, lot, tax/assessment, last
+ * sale, and OWNER of record). Powers the agent/admin lead-detail "About this
+ * home" section and the admin property-lookup tool. Returns null (not throwing)
+ * when ATTOM has no match, so callers degrade gracefully.
+ *
+ * ATTOM's JSON is loosely typed and section names vary by plan; every field is
+ * parsed defensively across the likely locations.
+ */
+export async function getAttomPropertyRecord(
+  address: string,
+): Promise<{ raw: unknown; record: PropertyRecord } | null> {
+  const { address1, address2 } = splitAddress(address);
+  const url = new URL(`${ATTOM_BASE}/property/expandedprofile`);
+  url.searchParams.set('address1', address1);
+  if (address2) url.searchParams.set('address2', address2);
+
+  const res = await fetch(url.toString(), {
+    headers: { apikey: apiKey(), Accept: 'application/json' },
+    cache: 'no-store',
+  });
+  if (!res.ok) {
+    if (res.status === 400 || res.status === 404) return null;
+    throw new Error(`ATTOM error ${res.status}`);
+  }
+
+  const data = (await res.json()) as { property?: Array<Record<string, unknown>> };
+  const p = data.property?.[0];
+  if (!p) return null;
+
+  const sec = (k: string): Record<string, unknown> =>
+    (p[k] as Record<string, unknown> | undefined) ?? {};
+  const summary = sec('summary');
+  const building = sec('building');
+  const bRooms = (building.rooms as Record<string, unknown>) ?? {};
+  const bSize = (building.size as Record<string, unknown>) ?? {};
+  const bConstruction = (building.construction as Record<string, unknown>) ?? {};
+  const bParking = (building.parking as Record<string, unknown>) ?? {};
+  const bSummary = (building.summary as Record<string, unknown>) ?? {};
+  const lot = sec('lot');
+  const area = sec('area');
+  const addressSec = sec('address');
+  const location = sec('location');
+  const utilities = sec('utilities');
+  const sale = sec('sale');
+  const saleAmount = (sale.amount as Record<string, unknown>) ?? {};
+  const assessment = sec('assessment');
+  const assessed = (assessment.assessed as Record<string, unknown>) ?? {};
+  const market = (assessment.market as Record<string, unknown>) ?? {};
+  const tax = (assessment.tax as Record<string, unknown>) ?? {};
+  const ownerRaw =
+    (assessment.owner as Record<string, unknown> | undefined) ??
+    (p.owner as Record<string, unknown> | undefined) ??
+    {};
+
+  // Owner names — ATTOM splits into owner1/owner2 { lastname, firstnameandmi }.
+  const ownerName = (o: unknown): string | null => {
+    const oo = (o as Record<string, unknown>) ?? {};
+    const first = str(oo.firstnameandmi) ?? str(oo.firstname);
+    const last = str(oo.lastname);
+    const full = [first, last].filter(Boolean).join(' ').trim();
+    return full || str(oo.fullname) || null;
+  };
+  const ownerNames = [ownerName(ownerRaw.owner1), ownerName(ownerRaw.owner2)].filter(
+    (n): n is string => Boolean(n),
+  );
+  const absentee = str(ownerRaw.absenteeownerstatus) ?? str(summary.absenteeInd);
+  const ownerOccupied = absentee ? absentee.toUpperCase().startsWith('O') : null;
+  const mailing = str(ownerRaw.mailingaddressoneline);
+  const owner =
+    ownerNames.length || mailing || ownerOccupied != null
+      ? { names: ownerNames, ownerOccupied, mailingAddress: mailing }
+      : null;
+
+  const lotAcres = num(lot.lotsize1);
+  const lotSf = num(lot.lotsize2);
+
+  // Extra provider-specific fields for a generic "more detail" list.
+  const extra: { label: string; value: string }[] = [];
+  const addExtra = (label: string, v: unknown) => {
+    const s = str(v);
+    if (s) extra.push({ label, value: s });
+  };
+  addExtra('APN / Parcel', p.identifier && (p.identifier as Record<string, unknown>).apn);
+  addExtra('Fireplaces', (building.interior as Record<string, unknown>)?.fplccount);
+  addExtra('Basement', (building.interior as Record<string, unknown>)?.bsmtsize);
+  addExtra('Exterior wall', bConstruction.wallType);
+  addExtra('Frame', bConstruction.frameType);
+  addExtra('Land use', summary.propLandUse);
+  addExtra('Legal', (sec('lot').legal1 as unknown) ?? (summary.legal1 as unknown));
+
+  const record: PropertyRecord = {
+    provider: 'attom',
+    formattedAddress: str(addressSec.oneLine),
+    latitude: num(location.latitude),
+    longitude: num(location.longitude),
+    propertyType:
+      str(summary.propsubtype) ?? str(summary.proptype) ?? str(summary.propclass),
+    propertyUse: str(summary.propLandUse) ?? str(summary.propclass),
+    yearBuilt: num(summary.yearbuilt),
+    beds: num(bRooms.beds),
+    bathsFull: num(bRooms.bathsfull),
+    bathsHalf: num(bRooms.bathshalf),
+    bathsTotal: num(bRooms.bathstotal),
+    sqft: num(bSize.livingsize) ?? num(bSize.universalsize) ?? num(bSize.bldgsize),
+    lotSizeSqft: lotSf ?? (lotAcres != null ? Math.round(lotAcres * 43560) : null),
+    lotSizeAcres: lotAcres,
+    stories: num(bSummary.levels) ?? num(bSummary.storyDesc),
+    rooms: num(bRooms.roomsTotal) ?? num(bRooms.roomstotal),
+    units: num(bSummary.unitsCount) ?? num(summary.unitsCount),
+    garageType: str(bParking.prkgType) ?? str(bParking.garagetype),
+    garageSpaces: num(bParking.prkgSpaces),
+    pool: str(lot.pooltype) ? true : null,
+    heating: str(utilities.heatingtype),
+    cooling: str(utilities.coolingtype),
+    construction: str(bConstruction.wallType) ?? str(bConstruction.constructiontype),
+    roof: str(bConstruction.roofcover) ?? str(bConstruction.roofShape),
+    condition: str(bConstruction.condition),
+    county: str(area.munname) ?? str(addressSec.countrySubd),
+    subdivision: str(area.subdname),
+    zoning: str(lot.zoningType) ?? str(lot.zoning),
+    apn: str((p.identifier as Record<string, unknown> | undefined)?.apn),
+    lastSaleDate: (() => {
+      const d = str(sale.saleTransDate) ?? str(sale.salesearchdate);
+      return d ? d.slice(0, 10) : null;
+    })(),
+    lastSalePrice: num(saleAmount.saleamt),
+    assessedValue: num(assessed.assdttlvalue),
+    marketValue: num(market.mktttlvalue),
+    assessedLand: num(assessed.assdlandvalue),
+    assessedImprovements: num(assessed.assdimprvalue),
+    taxAmount: num(tax.taxamt),
+    taxYear: num(tax.taxyear),
+    owner,
+    attomId: parseAttomId(p as AttomProperty),
+    extra,
+  };
+
+  return { raw: p, record };
 }
 
 /**

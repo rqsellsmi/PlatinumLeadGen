@@ -10,6 +10,7 @@ import {
   fillFaqStats,
   generateCityStructuredData,
 } from '@/lib/seo';
+import { formatNumber } from '@/lib/utils';
 import SiteHeader from '@/components/SiteHeader';
 import SiteFooter from '@/components/SiteFooter';
 import HeroSection from '@/components/city/HeroSection';
@@ -79,16 +80,17 @@ export default async function CityPage({ params }: { params: { slug: string } })
     googleReviews,
     reviewRating,
     reviewCount,
-    idxMarketStats,
+    idxMarketReport,
+    idxMarketNarrative,
   } = data;
   const cityName = shortCityName(location.name);
 
   const hasMarketReport =
-    idxMarketStats != null &&
-    (idxMarketStats.medianDaysOnMarket != null ||
-      idxMarketStats.medianSalePrice != null ||
-      idxMarketStats.avgSaleToListRatio != null ||
-      idxMarketStats.activeListings > 0);
+    idxMarketReport != null &&
+    (idxMarketReport.medianSalePrice != null ||
+      idxMarketReport.homesSold90d > 0 ||
+      idxMarketReport.activeListings > 0 ||
+      idxMarketReport.trailing.some((t) => t.median != null));
 
   const faq = fillFaqStats(parseFaqJson(location.faqJson), stats);
 
@@ -130,12 +132,22 @@ export default async function CityPage({ params }: { params: { slug: string } })
           googleReviewCount={reviewCount}
           topTestimonial={testimonials.find((t) => t.isActive) ?? null}
         />
-        <MarketStatsBar stats={stats} cityName={cityName} homesSold={stats?.homesSold ?? 0} />
+        <MarketStatsBar
+          avgSalePrice={stats?.avgSalePrice ?? null}
+          daysToSell={stats?.daysToSell ?? null}
+          homesSold={stats?.homesSold ?? null}
+          percentAboveList={stats?.percentAboveList ?? null}
+          subtext={
+            stats?.homesSold
+              ? `Based on ${formatNumber(stats.homesSold)} homes sold in ${cityName} over the last 12 months.`
+              : null
+          }
+        />
         <RecentSales sales={recentSales} cityName={cityName} />
         {hasMarketReport ? (
           <section className="bg-cream">
             <div className="mx-auto max-w-6xl px-4 py-16 sm:py-24">
-              <MarketReport stats={idxMarketStats} cityName={cityName} />
+              <MarketReport report={idxMarketReport} cityName={cityName} narrative={idxMarketNarrative} />
               <IdxCompliance variant="summary" firstOnPage />
             </div>
           </section>
@@ -155,7 +167,11 @@ export default async function CityPage({ params }: { params: { slug: string } })
         <NeighborhoodLinks links={neighborhoodLinks} cityName={cityName} />
         <TrackingScripts scripts={trackingScripts} />
       </main>
-      <SiteFooter />
+      <SiteFooter
+        locationId={location.id}
+        latitude={location.latitude}
+        longitude={location.longitude}
+      />
       <StickyCtaBar />
       <ExitIntentOverlay />
     </>

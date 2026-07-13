@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import type { IdxCard, CityMarketStats } from '@/lib/idx';
+import type { IdxCard, CityMarketReport } from '@/lib/idx';
 import { copyrightNotice } from '@/lib/idxDisclosures';
 import IdxListingGrid from './IdxListingGrid';
 import MarketReport from './MarketReport';
@@ -16,13 +16,15 @@ export default function FullValuationIdxSections({
   forSale,
   sold,
   forSalePhotos,
-  marketStats,
+  marketReport,
+  marketNarrative,
   cityName,
 }: {
   forSale: IdxCard[];
   sold: IdxCard[];
   forSalePhotos: Record<string, string[]>;
-  marketStats: CityMarketStats | null;
+  marketReport: CityMarketReport | null;
+  marketNarrative: string | null;
   cityName: string;
 }) {
   const photoMap = React.useMemo(
@@ -30,7 +32,7 @@ export default function FullValuationIdxSections({
     [forSalePhotos],
   );
 
-  const nothing = forSale.length === 0 && sold.length === 0 && !marketStats;
+  const nothing = forSale.length === 0 && sold.length === 0 && !marketReport;
   if (nothing) return null;
 
   return (
@@ -49,7 +51,9 @@ export default function FullValuationIdxSections({
         listings={sold}
         variant="sold"
       />
-      <MarketReport stats={marketStats} cityName={cityName} />
+      <div className="mt-10">
+        <MarketReport report={marketReport} cityName={cityName} narrative={marketNarrative} />
+      </div>
 
       {/* Realcomp copyright / MLS credit for the IDX data on this page (§18.3.4). */}
       <p className="mt-8 border-t border-line pt-4 text-[11px] leading-relaxed text-mute-light">

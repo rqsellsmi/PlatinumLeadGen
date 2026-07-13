@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import Logo from '@/components/Logo';
+import { getFooterOffice, type FooterOffice } from '@/lib/queries';
 
 // Launch communities shown in the footer. Update if the active-city set changes.
 const COMMUNITIES = [
@@ -9,9 +10,38 @@ const COMMUNITIES = [
   { name: 'Grand Blanc', slug: 'grand-blanc-mi' },
 ];
 
-/** Shared public site footer — dark, multi-column (Section 15). */
-export default function SiteFooter() {
+// Ultimate fallback when there are no offices in the DB — the Brighton office.
+const BRIGHTON_FALLBACK: FooterOffice = {
+  name: 'RE/MAX Platinum',
+  address: '123 W Grand River Ave',
+  city: 'Brighton',
+  state: 'MI',
+  zip: '48116',
+  phone: '(810) 555-0199',
+};
+
+/**
+ * Shared public site footer — dark, multi-column (Section 15). The Contact
+ * address reflects the office for the page context (linked office → closest
+ * office by coordinates → Brighton). Pass `locationId` on a city page and/or
+ * `latitude`/`longitude`; pass nothing (main page, legal, etc.) to default to
+ * Brighton.
+ */
+export default async function SiteFooter({
+  locationId,
+  latitude,
+  longitude,
+}: {
+  locationId?: number | null;
+  latitude?: number | null;
+  longitude?: number | null;
+} = {}) {
   const year = new Date().getFullYear();
+  const office = (await getFooterOffice({ locationId, latitude, longitude })) ?? BRIGHTON_FALLBACK;
+  const telHref = office.phone ? `tel:+1${office.phone.replace(/\D/g, '')}` : null;
+  const cityStateZip = [office.city ? `${office.city},` : null, office.state, office.zip]
+    .filter(Boolean)
+    .join(' ');
   return (
     <footer className="bg-charcoal">
       <div className="mx-auto max-w-6xl px-4 py-14">
@@ -72,13 +102,27 @@ export default function SiteFooter() {
               Contact
             </p>
             <address className="mt-3 not-italic text-sm leading-relaxed text-white/85">
-              123 W Grand River Ave
-              <br />
-              Brighton, MI 48116
-              <br />
-              <a href="tel:+18105550199" className="text-[#A3D4F2] hover:underline">
-                (810) 555-0199
-              </a>
+              {office.name}
+              {office.address ? (
+                <>
+                  <br />
+                  {office.address}
+                </>
+              ) : null}
+              {cityStateZip ? (
+                <>
+                  <br />
+                  {cityStateZip}
+                </>
+              ) : null}
+              {telHref ? (
+                <>
+                  <br />
+                  <a href={telHref} className="text-[#A3D4F2] hover:underline">
+                    {office.phone}
+                  </a>
+                </>
+              ) : null}
             </address>
           </div>
         </div>

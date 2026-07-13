@@ -931,6 +931,69 @@ export type HomePageMetrics = typeof homePageMetrics.$inferSelect;
 export type MsGraphToken = typeof msGraphTokens.$inferSelect;
 export type EmailSendLogRow = typeof emailSendLog.$inferSelect;
 export type RateLimitRow = typeof rateLimits.$inferSelect;
+/**
+ * Cached AVM-provider property records (owner, features, tax, sale history),
+ * keyed by normalized address so multiple leads at the same address and the
+ * admin lookup tool share one cached fetch instead of re-billing the provider.
+ */
+export const propertyRecords = pgTable(
+  'property_records',
+  {
+    id: serial('id').primaryKey(),
+    normalizedAddress: varchar('normalized_address', { length: 500 }).notNull(),
+    address: varchar('address', { length: 300 }),
+    provider: varchar('provider', { length: 20 }).notNull().default('rentcast'),
+    rawJson: text('raw_json'), // full provider response for this address
+    fetchedAt: timestamp('fetched_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    addrIdx: uniqueIndex('property_records_addr_idx').on(t.normalizedAddress),
+  }),
+);
+export type PropertyRecordRow = typeof propertyRecords.$inferSelect;
+export type NewPropertyRecordRow = typeof propertyRecords.$inferInsert;
+
+/**
+ * Cached AI-written market-report narratives, keyed by lower(city). Regenerated
+ * only when the underlying stats change (tracked by `signature`), so the report
+ * isn't calling the model on every page render.
+ */
+export const marketNarratives = pgTable(
+  'market_narratives',
+  {
+    id: serial('id').primaryKey(),
+    cityKey: varchar('city_key', { length: 200 }).notNull(),
+    narrative: text('narrative'),
+    signature: varchar('signature', { length: 120 }),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    cityIdx: uniqueIndex('market_narratives_city_idx').on(t.cityKey),
+  }),
+);
+export type MarketNarrativeRow = typeof marketNarratives.$inferSelect;
+
+/**
+ * Resumable-backfill checkpoints. Keyed by a job key (e.g. "active" or
+ * "sold:ListOfficeMlsId:2024-01-01:2025-01-01"), holding the newest
+ * ModificationTimestamp processed so far. A failed initial-sync run leaves the
+ * checkpoint behind so the next run resumes from there (the query orders by
+ * ModificationTimestamp ascending); a successful run clears it.
+ */
+export const idxBackfillCheckpoints = pgTable(
+  'idx_backfill_checkpoints',
+  {
+    id: serial('id').primaryKey(),
+    jobKey: varchar('job_key', { length: 200 }).notNull(),
+    lastModTs: timestamp('last_mod_ts'),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    jobIdx: uniqueIndex('idx_backfill_checkpoints_job_idx').on(t.jobKey),
+  }),
+);
+export type IdxBackfillCheckpointRow = typeof idxBackfillCheckpoints.$inferSelect;
+
 export type Closing = typeof closings.$inferSelect;
 export type NewClosing = typeof closings.$inferInsert;
 export type UploadBatch = typeof uploadBatches.$inferSelect;

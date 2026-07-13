@@ -365,3 +365,140 @@ export async function getCityMarketStats(city: string): Promise<CityMarketStats 
     monthsOfInventory: monthsOfInventory != null ? Math.round(monthsOfInventory * 10) / 10 : null,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Rich market report (the designed "Market Report" card) — headline stats,
+// year-over-year, and a trailing-12-month median price series.
+// ---------------------------------------------------------------------------
+export interface MarketTrendPoint {
+  label: string; // e.g. "Jul '25"
+  median: number | null;
+}
+
+export interface CityMarketReport {
+  city: string;
+  periodLabel: string; // e.g. "Q2 2026"
+  medianSalePrice: number | null;
+  yoyChangePct: number | null; // median now vs. same 90d window a year ago
+  medianPricePerSqft: number | null;
+  avgDaysOnMarket: number | null;
+  listToSaleRatio: number | null; // percent
+  homesSold90d: number;
+  soldAboveAskingPct: number | null;
+  monthsOfInventory: number | null;
+  activeListings: number;
+  trailing: MarketTrendPoint[]; // 12 monthly points, oldest → newest
+  trailing12ChangeAbs: number | null; // newest median − oldest available median
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function toNum(v: unknown): number | null {
+  if (v == null) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Full market-report dataset for a city (IDX Closed sales, leases excluded). */
+export async function getCityMarketReport(city: string): Promise<CityMarketReport | null> {
+  if (!city.trim()) return null;
+
+  const headline = await db.execute(sql`
+    WITH sales90 AS (
+      SELECT close_price, list_price, days_on_market, living_area
+      FROM idx_listings
+      WHERE standard_status = 'Closed'
+        AND LOWER(city) = LOWER(${city})
+        AND close_date >= now() - interval '90 days'
+        AND close_price IS NOT NULL
+        AND (property_type IS NULL OR (lower(property_type) NOT LIKE '%lease%' AND lower(property_type) NOT LIKE '%rent%'))
+    ),
+    sales_prior_year AS (
+      SELECT close_price
+      FROM idx_listings
+      WHERE standard_status = 'Closed'
+        AND LOWER(city) = LOWER(${city})
+        AND close_date >= now() - interval '1 year 90 days'
+        AND close_date <  now() - interval '1 year'
+        AND close_price IS NOT NULL
+        AND (property_type IS NULL OR (lower(property_type) NOT LIKE '%lease%' AND lower(property_type) NOT LIKE '%rent%'))
+    )
+    SELECT
+      (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY close_price) FROM sales90) AS median_price,
+      (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY close_price) FROM sales_prior_year) AS median_price_prev,
+      (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY close_price::float / NULLIF(living_area, 0))
+         FROM sales90 WHERE living_area IS NOT NULL AND living_area > 0) AS median_ppsf,
+      (SELECT avg(days_on_market) FROM sales90 WHERE days_on_market IS NOT NULL) AS avg_dom,
+      (SELECT avg(close_price::float / NULLIF(list_price, 0)) * 100
+         FROM sales90 WHERE list_price IS NOT NULL AND list_price > 0) AS list_to_sale,
+      (SELECT count(*) FROM sales90) AS homes_90,
+      (SELECT count(*) FILTER (WHERE close_price > list_price)::float / NULLIF(count(*), 0) * 100
+         FROM sales90 WHERE list_price IS NOT NULL AND list_price > 0) AS above_asking_pct,
+      (SELECT count(*) FROM idx_listings
+         WHERE standard_status = 'Active' AND LOWER(city) = LOWER(${city})
+           AND (property_type IS NULL OR (lower(property_type) NOT LIKE '%lease%' AND lower(property_type) NOT LIKE '%rent%'))) AS active_count,
+      (SELECT count(*) FROM idx_listings
+         WHERE standard_status = 'Closed' AND LOWER(city) = LOWER(${city})
+           AND close_date >= now() - interval '30 days'
+           AND (property_type IS NULL OR (lower(property_type) NOT LIKE '%lease%' AND lower(property_type) NOT LIKE '%rent%'))) AS closed_30
+  `);
+
+  const monthly = await db.execute(sql`
+    SELECT to_char(date_trunc('month', close_date), 'YYYY-MM') AS m,
+           percentile_cont(0.5) WITHIN GROUP (ORDER BY close_price) AS med
+    FROM idx_listings
+    WHERE standard_status = 'Closed'
+      AND LOWER(city) = LOWER(${city})
+      AND close_date >= date_trunc('month', now()) - interval '11 months'
+      AND close_price IS NOT NULL
+      AND (property_type IS NULL OR (lower(property_type) NOT LIKE '%lease%' AND lower(property_type) NOT LIKE '%rent%'))
+    GROUP BY 1 ORDER BY 1
+  `);
+
+  const h = (headline.rows?.[0] ?? {}) as Record<string, unknown>;
+  const medianSalePrice = toNum(h.median_price) != null ? Math.round(toNum(h.median_price)!) : null;
+  const medianPrev = toNum(h.median_price_prev);
+  const yoyChangePct =
+    medianSalePrice != null && medianPrev != null && medianPrev > 0
+      ? Math.round(((medianSalePrice - medianPrev) / medianPrev) * 1000) / 10
+      : null;
+  const activeListings = toNum(h.active_count) ?? 0;
+  const closed30 = toNum(h.closed_30) ?? 0;
+  const moi = closed30 > 0 ? Math.round((activeListings / closed30) * 10) / 10 : null;
+
+  // Build 12 monthly buckets (oldest → newest), filling gaps with null.
+  const map = new Map<string, number | null>();
+  for (const row of (monthly.rows ?? []) as Record<string, unknown>[]) {
+    const k = String(row.m);
+    map.set(k, toNum(row.med) != null ? Math.round(toNum(row.med)!) : null);
+  }
+  const now = new Date();
+  const trailing: MarketTrendPoint[] = [];
+  for (let i = 11; i >= 0; i -= 1) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    trailing.push({ label: `${MONTHS[d.getMonth()]} '${String(d.getFullYear()).slice(2)}`, median: map.get(key) ?? null });
+  }
+  const nonNull = trailing.filter((t) => t.median != null);
+  const trailing12ChangeAbs =
+    nonNull.length >= 2 ? (nonNull[nonNull.length - 1].median! - nonNull[0].median!) : null;
+
+  const quarter = Math.floor(now.getMonth() / 3) + 1;
+  const periodLabel = `Q${quarter} ${now.getFullYear()}`;
+
+  return {
+    city,
+    periodLabel,
+    medianSalePrice,
+    yoyChangePct,
+    medianPricePerSqft: toNum(h.median_ppsf) != null ? Math.round(toNum(h.median_ppsf)!) : null,
+    avgDaysOnMarket: toNum(h.avg_dom) != null ? Math.round(toNum(h.avg_dom)!) : null,
+    listToSaleRatio: toNum(h.list_to_sale) != null ? Math.round(toNum(h.list_to_sale)! * 10) / 10 : null,
+    homesSold90d: toNum(h.homes_90) ?? 0,
+    soldAboveAskingPct: toNum(h.above_asking_pct) != null ? Math.round(toNum(h.above_asking_pct)!) : null,
+    monthsOfInventory: moi,
+    activeListings,
+    trailing,
+    trailing12ChangeAbs,
+  };
+}

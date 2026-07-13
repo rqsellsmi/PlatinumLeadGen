@@ -1,22 +1,35 @@
 /**
  * Initial IDX backfill (IDX spec §2.8). Runs via GitHub Actions (workflow_dispatch)
- * because the full pull takes 20-60 min — far past Vercel's serverless timeout.
+ * because the full pull takes 20-60+ min — far past Vercel's serverless timeout.
  *
  * Usage:
  *   tsx scripts/idx-initial-sync.ts --query active
  *   tsx scripts/idx-initial-sync.ts --query sold --start 2024-01-01 --end 2025-01-01
+ *   tsx scripts/idx-initial-sync.ts --query active --restart   (ignore any checkpoint)
  *
- * --query active : all Active/Pending/Closed feed-wide, 12-month window, no
- *                  office/location filter. Start/end ignored.
+ * --query active : all Active/Pending/Closed feed-wide, 12-month window.
  * --query sold   : your offices' Closed sales within [--start, --end).
  *
- * Streams page-by-page (upserting each page) so memory stays flat and progress
- * prints roughly every 500 records. Exits non-zero on error (GitHub Actions
- * shows a red X).
+ * RESUMABLE: each job orders by ModificationTimestamp ascending and checkpoints
+ * the newest timestamp processed (idx_backfill_checkpoints). If the run fails
+ * partway, the NEXT run resumes from that checkpoint instead of re-fetching
+ * everything — so a retry is fast. A successful job clears its own checkpoint;
+ * pass --restart to force a full pull. Streams page-by-page (upserting each
+ * page) so memory stays flat; the fetch layer retries transient network/5xx
+ * errors and re-mints the token on 401.
  */
 import './loadEnv';
 import { realcompFetchPages, isRealcompConfigured } from '../lib/realcomp';
-import { activeBackfillParams, soldBackfillParamsList, upsertRawListings } from '../lib/idxSync';
+import {
+  activeBackfillJob,
+  soldBackfillJobs,
+  upsertRawListings,
+  pageMaxModTimestamp,
+  getBackfillCheckpoint,
+  setBackfillCheckpoint,
+  clearBackfillCheckpoint,
+  type BackfillJob,
+} from '../lib/idxSync';
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -32,35 +45,45 @@ async function main() {
   if (query !== 'active' && query !== 'sold') {
     throw new Error("--query must be 'active' or 'sold'.");
   }
+  const restart = process.argv.includes('--restart');
 
-  // One or more OData param sets to run in sequence (sold splits by office field).
-  let paramSets: Record<string, string>[];
+  let jobs: BackfillJob[];
   if (query === 'active') {
-    paramSets = [activeBackfillParams()];
+    jobs = [activeBackfillJob()];
     console.log('[idx-initial-sync] active: all Active/Pending/Closed, last 12 months, feed-wide.');
   } else {
     const start = arg('start');
     const end = arg('end');
     if (!start || !end) throw new Error('--query sold requires --start and --end (YYYY-MM-DD).');
-    paramSets = soldBackfillParamsList(start, end);
-    console.log(
-      `[idx-initial-sync] sold: your offices, Closed, ${start} .. ${end} (${paramSets.length} office-field passes).`,
-    );
+    jobs = soldBackfillJobs(start, end);
+    console.log(`[idx-initial-sync] sold: your offices, Closed, ${start} .. ${end} (${jobs.length} passes).`);
   }
 
   let fetched = 0;
   let upserted = 0;
   let lastReport = 0;
 
-  for (const params of paramSets) {
-    await realcompFetchPages('Property', params, async (page) => {
+  for (const job of jobs) {
+    if (restart) await clearBackfillCheckpoint(job.key);
+    const since = restart ? null : await getBackfillCheckpoint(job.key);
+    if (since) console.log(`[idx-initial-sync] resuming ${job.key} from ${since}`);
+
+    await realcompFetchPages('Property', job.buildParams(since), async (page) => {
       fetched += page.length;
       upserted += await upsertRawListings(page);
+      // Checkpoint AFTER the page is upserted, so a crash never advances the
+      // resume point past unsaved data.
+      const maxTs = pageMaxModTimestamp(page);
+      if (maxTs) await setBackfillCheckpoint(job.key, maxTs);
       if (fetched - lastReport >= 500) {
         lastReport = fetched;
         console.log(`[idx-initial-sync] ${fetched} fetched, ${upserted} upserted…`);
       }
     });
+
+    // Job finished cleanly — clear its checkpoint so a later run is a full pull.
+    await clearBackfillCheckpoint(job.key);
+    console.log(`[idx-initial-sync] ${job.key} complete.`);
   }
 
   console.log(`[idx-initial-sync] DONE — ${fetched} fetched, ${upserted} upserted.`);

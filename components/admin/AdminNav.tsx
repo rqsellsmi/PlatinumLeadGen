@@ -19,6 +19,7 @@ const OVERVIEW: NavItem = { href: '/admin', label: 'Overview' };
 const GROUPS: NavGroup[] = [
   { label: 'Leads', items: [
     { href: '/admin/leads', label: 'Leads' },
+    { href: '/admin/property-lookup', label: 'Property Lookup' },
     { href: '/admin/round-robin', label: 'Round-Robin' },
     { href: '/admin/lost-reasons', label: 'Lost Reasons' },
   ] },

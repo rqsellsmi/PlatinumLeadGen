@@ -1,28 +1,43 @@
-import type { MarketStat } from '@/drizzle/schema';
 import { formatCurrency, formatNumber } from '@/lib/utils';
 
 interface MarketStatsBarProps {
-  stats: MarketStat | null;
-  cityName: string;
-  homesSold: number;
+  avgSalePrice: number | null;
+  daysToSell: number | null;
+  homesSold: number | null;
+  percentAboveList: number | null;
+  /** Optional caption below the bar, e.g. "Based on N homes sold …". */
+  subtext?: string | null;
 }
 
 /**
  * Dark headline stat bar (design mockup §2): four big Barlow numbers on
- * charcoal, with the "% above list" figure accented in Platinum Red.
- * Renders nothing when stats is null.
+ * charcoal, with the "% above list" figure accented in Platinum Red. Shared by
+ * the city pages (per-location market_stats) and the homepage (brokerage-wide
+ * home_page_metrics) so both show the same metrics. Renders nothing when there's
+ * no meaningful data.
  */
-export default function MarketStatsBar({ stats, cityName, homesSold }: MarketStatsBarProps) {
-  if (!stats) return null;
+export default function MarketStatsBar({
+  avgSalePrice,
+  daysToSell,
+  homesSold,
+  percentAboveList,
+  subtext,
+}: MarketStatsBarProps) {
+  const hasAny =
+    avgSalePrice != null ||
+    daysToSell != null ||
+    (homesSold != null && homesSold > 0) ||
+    percentAboveList != null;
+  if (!hasAny) return null;
 
   const blocks: { label: string; value: React.ReactNode }[] = [
-    { label: 'Average Sale Price', value: formatCurrency(stats.avgSalePrice) },
+    { label: 'Average Sale Price', value: formatCurrency(avgSalePrice) },
     {
       label: 'Average Days to Sell',
       value:
-        stats.daysToSell != null ? (
+        daysToSell != null ? (
           <>
-            {formatNumber(stats.daysToSell)}{' '}
+            {formatNumber(daysToSell)}{' '}
             <span className="text-[0.45em] font-semibold text-mute-lighter">days</span>
           </>
         ) : (
@@ -33,9 +48,9 @@ export default function MarketStatsBar({ stats, cityName, homesSold }: MarketSta
     {
       label: '% Sold Above List Price',
       value:
-        stats.percentAboveList != null ? (
+        percentAboveList != null ? (
           <>
-            {stats.percentAboveList}
+            {percentAboveList}
             <span className="text-platinum-red">%</span>
           </>
         ) : (
@@ -59,9 +74,9 @@ export default function MarketStatsBar({ stats, cityName, homesSold }: MarketSta
             </div>
           ))}
         </dl>
-        <p className="mt-9 text-center text-sm text-mute-light">
-          Based on {formatNumber(homesSold)} homes sold in {cityName} over the last 12 months.
-        </p>
+        {subtext ? (
+          <p className="mt-9 text-center text-sm text-mute-light">{subtext}</p>
+        ) : null}
       </div>
     </section>
   );
