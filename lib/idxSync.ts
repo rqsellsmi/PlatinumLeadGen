@@ -580,16 +580,24 @@ export async function getBackfillCheckpoint(jobKey: string): Promise<string | nu
   }
 }
 
-/** Persist the newest processed ModificationTimestamp for a job (resume point). */
+/**
+ * Persist the newest processed ModificationTimestamp for a job (resume point).
+ * Best-effort: if the checkpoint table is missing (migration 0020 not applied),
+ * this must NOT fail the backfill — it just runs without resume support.
+ */
 export async function setBackfillCheckpoint(jobKey: string, iso: string): Promise<void> {
-  const ts = new Date(iso);
-  await db
-    .insert(idxBackfillCheckpoints)
-    .values({ jobKey, lastModTs: ts, updatedAt: new Date() })
-    .onConflictDoUpdate({
-      target: idxBackfillCheckpoints.jobKey,
-      set: { lastModTs: ts, updatedAt: new Date() },
-    });
+  try {
+    const ts = new Date(iso);
+    await db
+      .insert(idxBackfillCheckpoints)
+      .values({ jobKey, lastModTs: ts, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: idxBackfillCheckpoints.jobKey,
+        set: { lastModTs: ts, updatedAt: new Date() },
+      });
+  } catch (err) {
+    console.warn('[idxSync] setBackfillCheckpoint failed (resume disabled):', err);
+  }
 }
 
 /** Clear a job's checkpoint (on successful completion, or a forced restart). */
