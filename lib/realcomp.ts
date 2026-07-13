@@ -15,6 +15,11 @@ import { realcompTokens } from '../drizzle/schema';
 
 const TOKEN_PROVIDER = 'realcomp';
 
+// Max CONSECUTIVE 401 re-mints before giving up (reset after any success). Lets a
+// long backfill ride through repeated token expiries while still failing fast on
+// a genuine auth misconfiguration.
+const MAX_AUTH_RETRIES = 3;
+
 function clientId(): string {
   return process.env.REALCOMP_CLIENT_ID ?? '';
 }
@@ -132,22 +137,26 @@ export async function realcompFetch<T = Record<string, unknown>>(
 
   const results: T[] = [];
   let nextUrl: string | null = url.toString();
-  let retriedAuth = false;
+  let authRetries = 0;
 
   while (nextUrl) {
     const res: Response = await fetch(nextUrl, {
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       cache: 'no-store',
     });
-    // A 401 usually means a stale cached token — re-mint once and retry.
-    if (res.status === 401 && !retriedAuth) {
-      retriedAuth = true;
+    // A 401 means the token is stale/expired — re-mint and retry. The token TTL
+    // can be shorter than a long paginated pull, so this must handle 401 EVERY
+    // time it happens, not once; the counter (reset on each success) only trips
+    // after several CONSECUTIVE failures (a real auth problem).
+    if (res.status === 401 && authRetries < MAX_AUTH_RETRIES) {
+      authRetries += 1;
       token = await getValidRealcompToken(true);
       continue;
     }
     if (!res.ok) {
       throw new Error(`Realcomp API error: ${res.status} ${await res.text()}`);
     }
+    authRetries = 0; // recovered — reset so a later expiry gets its own retries
     const data = (await res.json()) as ODataResponse<T>;
     if (data.value) results.push(...data.value);
     nextUrl = data['@odata.nextLink'] ?? null;
@@ -171,19 +180,23 @@ export async function realcompFetchPages<T = Record<string, unknown>>(
 
   let total = 0;
   let nextUrl: string | null = url.toString();
-  let retriedAuth = false;
+  let authRetries = 0;
   while (nextUrl) {
     const res: Response = await fetch(nextUrl, {
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       cache: 'no-store',
     });
-    // A 401 usually means a stale cached token — re-mint once and retry.
-    if (res.status === 401 && !retriedAuth) {
-      retriedAuth = true;
+    // A 401 means the token is stale/expired — re-mint and retry. A full backfill
+    // outlives the token TTL, so this must recover EVERY time the token expires
+    // (not just once); the counter resets on each successful page and only trips
+    // after several consecutive failures (a real auth problem).
+    if (res.status === 401 && authRetries < MAX_AUTH_RETRIES) {
+      authRetries += 1;
       token = await getValidRealcompToken(true);
       continue;
     }
     if (!res.ok) throw new Error(`Realcomp API error: ${res.status} ${await res.text()}`);
+    authRetries = 0; // recovered — reset so a later expiry gets its own retries
     const data = (await res.json()) as ODataResponse<T>;
     const page = data.value ?? [];
     total += page.length;
