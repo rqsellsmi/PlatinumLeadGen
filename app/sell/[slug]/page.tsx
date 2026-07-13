@@ -79,16 +79,17 @@ export default async function CityPage({ params }: { params: { slug: string } })
     googleReviews,
     reviewRating,
     reviewCount,
-    idxMarketStats,
+    idxMarketReport,
+    idxMarketNarrative,
   } = data;
   const cityName = shortCityName(location.name);
 
   const hasMarketReport =
-    idxMarketStats != null &&
-    (idxMarketStats.medianDaysOnMarket != null ||
-      idxMarketStats.medianSalePrice != null ||
-      idxMarketStats.avgSaleToListRatio != null ||
-      idxMarketStats.activeListings > 0);
+    idxMarketReport != null &&
+    (idxMarketReport.medianSalePrice != null ||
+      idxMarketReport.homesSold90d > 0 ||
+      idxMarketReport.activeListings > 0 ||
+      idxMarketReport.trailing.some((t) => t.median != null));
 
   const faq = fillFaqStats(parseFaqJson(location.faqJson), stats);
 
@@ -135,7 +136,7 @@ export default async function CityPage({ params }: { params: { slug: string } })
         {hasMarketReport ? (
           <section className="bg-cream">
             <div className="mx-auto max-w-6xl px-4 py-16 sm:py-24">
-              <MarketReport stats={idxMarketStats} cityName={cityName} />
+              <MarketReport report={idxMarketReport} cityName={cityName} narrative={idxMarketNarrative} />
               <IdxCompliance variant="summary" firstOnPage />
             </div>
           </section>

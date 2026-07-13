@@ -17,11 +17,12 @@ import { getReportContext, logReportView } from '@/lib/reportAccess';
 import {
   getSimilarHomes,
   getRecentSoldComps,
-  getCityMarketStats,
+  getCityMarketReport,
   getPhotosForListings,
   type IdxCard,
-  type CityMarketStats,
+  type CityMarketReport,
 } from '@/lib/idx';
+import { getMarketNarrative } from '@/lib/marketNarrative';
 import type { MarketTrends } from '@/lib/valuation';
 import type { MarketStat } from '@/drizzle/schema';
 
@@ -41,9 +42,10 @@ async function loadIdxSections(
   forSale: IdxCard[];
   sold: IdxCard[];
   forSalePhotos: Record<string, string[]>;
-  marketStats: CityMarketStats | null;
+  marketReport: CityMarketReport | null;
+  marketNarrative: string | null;
 }> {
-  const empty = { forSale: [], sold: [], forSalePhotos: {}, marketStats: null };
+  const empty = { forSale: [], sold: [], forSalePhotos: {}, marketReport: null, marketNarrative: null };
   if (!report) return empty;
   try {
     const est = report.estimatedValue;
@@ -51,7 +53,7 @@ async function loadIdxSections(
     const lng = report.longitude;
     const b = report.basics;
 
-    const [forSale, sold, marketStats] = await Promise.all([
+    const [forSale, sold, marketReport] = await Promise.all([
       est != null
         ? getSimilarHomes({
             latitude: lat,
@@ -71,14 +73,17 @@ async function loadIdxSections(
           })
         : Promise.resolve([]),
       getRecentSoldComps({ latitude: lat, longitude: lng, city: idxCity || null, withinDays: 90, limit: 6 }),
-      idxCity ? getCityMarketStats(idxCity) : Promise.resolve(null),
+      idxCity ? getCityMarketReport(idxCity) : Promise.resolve(null),
     ]);
 
     const photoMap = await getPhotosForListings(forSale.map((l) => l.listingKey));
     const forSalePhotos: Record<string, string[]> = {};
     for (const [k, v] of photoMap) forSalePhotos[k] = v;
 
-    return { forSale, sold, forSalePhotos, marketStats };
+    const marketNarrative =
+      marketReport && idxCity ? await getMarketNarrative(idxCity, marketReport).catch(() => null) : null;
+
+    return { forSale, sold, forSalePhotos, marketReport, marketNarrative };
   } catch (err) {
     // idx_listings may not be populated yet (or migrated) — degrade to nothing.
     console.error('[thank-you] IDX sections failed:', err);
@@ -183,7 +188,8 @@ export default async function ThankYouPage({
             idxForSale={idx.forSale}
             idxSold={idx.sold}
             idxForSalePhotos={idx.forSalePhotos}
-            idxMarketStats={idx.marketStats}
+            idxMarketReport={idx.marketReport}
+            idxMarketNarrative={idx.marketNarrative}
             idxCityName={idxCity}
           />
         </Suspense>

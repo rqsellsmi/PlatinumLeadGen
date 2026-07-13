@@ -953,6 +953,26 @@ export const propertyRecords = pgTable(
 export type PropertyRecordRow = typeof propertyRecords.$inferSelect;
 export type NewPropertyRecordRow = typeof propertyRecords.$inferInsert;
 
+/**
+ * Cached AI-written market-report narratives, keyed by lower(city). Regenerated
+ * only when the underlying stats change (tracked by `signature`), so the report
+ * isn't calling the model on every page render.
+ */
+export const marketNarratives = pgTable(
+  'market_narratives',
+  {
+    id: serial('id').primaryKey(),
+    cityKey: varchar('city_key', { length: 200 }).notNull(),
+    narrative: text('narrative'),
+    signature: varchar('signature', { length: 120 }),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    cityIdx: uniqueIndex('market_narratives_city_idx').on(t.cityKey),
+  }),
+);
+export type MarketNarrativeRow = typeof marketNarratives.$inferSelect;
+
 export type Closing = typeof closings.$inferSelect;
 export type NewClosing = typeof closings.$inferInsert;
 export type UploadBatch = typeof uploadBatches.$inferSelect;

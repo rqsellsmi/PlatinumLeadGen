@@ -9,7 +9,7 @@ import type { HomeRecentSale } from '@/lib/queries';
 import type { RevealedValuation } from '@/lib/valuationStore';
 import type { MarketTrends } from '@/lib/valuation';
 import type { MarketStat } from '@/drizzle/schema';
-import type { IdxCard, CityMarketStats } from '@/lib/idx';
+import type { IdxCard, CityMarketReport } from '@/lib/idx';
 import FullValuationIdxSections from '@/components/idx/FullValuationIdxSections';
 import AppointmentForm from './AppointmentForm';
 
@@ -47,7 +47,8 @@ export default function ThankYouClient({
   idxForSale = [],
   idxSold = [],
   idxForSalePhotos = {},
-  idxMarketStats = null,
+  idxMarketReport = null,
+  idxMarketNarrative = null,
   idxCityName = '',
 }: {
   report: RevealedValuation | null;
@@ -59,7 +60,8 @@ export default function ThankYouClient({
   idxForSale?: IdxCard[];
   idxSold?: IdxCard[];
   idxForSalePhotos?: Record<string, string[]>;
-  idxMarketStats?: CityMarketStats | null;
+  idxMarketReport?: CityMarketReport | null;
+  idxMarketNarrative?: string | null;
   idxCityName?: string;
 }) {
   const params = useSearchParams();
@@ -359,7 +361,8 @@ export default function ThankYouClient({
         forSale={idxForSale}
         sold={idxSold}
         forSalePhotos={idxForSalePhotos}
-        marketStats={idxMarketStats}
+        marketReport={idxMarketReport}
+        marketNarrative={idxMarketNarrative}
         cityName={idxCityName || cityName}
       />
 

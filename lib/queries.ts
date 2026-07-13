@@ -27,7 +27,8 @@ import {
 } from '../drizzle/schema';
 import { parseOfficeKeys } from './idxSync';
 import { cityTileImage } from './cityImages';
-import { getCityMarketStats, type CityMarketStats } from './idx';
+import { getCityMarketReport, type CityMarketReport } from './idx';
+import { getMarketNarrative } from './marketNarrative';
 
 export interface CityGoogleReview {
   id: number;
@@ -50,8 +51,10 @@ export interface CityPageData {
   /** Star rating for the hero/social-proof bar (linked office, else manual). */
   reviewRating: number | null;
   reviewCount: number | null;
-  /** IDX-derived market trend stats for this city's Market Report section. */
-  idxMarketStats: CityMarketStats | null;
+  /** IDX-derived market report for this city's Market Report section. */
+  idxMarketReport: CityMarketReport | null;
+  /** AI-written human summary for the Market Report (dash-free). */
+  idxMarketNarrative: string | null;
 }
 
 /** The mailing cities a location covers (falls back to its own short name). */
@@ -183,14 +186,15 @@ export async function getCityPageData(slug: string): Promise<CityPageData | null
   let tms: Testimonial[] = [];
   let links: NeighborhoodLink[] = [];
   let scripts: TrackingScript[] = [];
-  let idxMarketStats: CityMarketStats | null = null;
+  let idxMarketReport: CityMarketReport | null = null;
+  let idxMarketNarrative: string | null = null;
   let reviews: { reviews: CityGoogleReview[]; rating: number | null; count: number | null } = {
     reviews: [],
     rating: location.googleReviewRating ?? null,
     count: location.googleReviewCount ?? null,
   };
   try {
-    [stats, sales, tms, links, scripts, reviews, idxMarketStats] = await Promise.all([
+    [stats, sales, tms, links, scripts, reviews, idxMarketReport] = await Promise.all([
       getMarketStats(location.id),
       getCityRecentSales(locationMatchCities(location), 6),
       db
@@ -205,11 +209,17 @@ export async function getCityPageData(slug: string): Promise<CityPageData | null
         .orderBy(asc(neighborhoodLinks.displayOrder)),
       getTrackingScriptsForLocation(location.id),
       getLocationReviews(location),
-      // Market Report stats keyed on the primary mailing city this page covers.
-      getCityMarketStats(locationMatchCities(location)[0] ?? '').catch(() => null),
+      // Market Report keyed on the primary mailing city this page covers.
+      getCityMarketReport(locationMatchCities(location)[0] ?? '').catch(() => null),
     ]);
   } catch (err) {
     console.warn('[queries] getCityPageData secondary fetch failed:', err);
+  }
+
+  // AI-written summary (cached; regenerated only when the stats change).
+  if (idxMarketReport) {
+    const reportCity = locationMatchCities(location)[0] ?? location.name.split(',')[0].trim();
+    idxMarketNarrative = await getMarketNarrative(reportCity, idxMarketReport).catch(() => null);
   }
 
   const data: CityPageData = {
@@ -222,7 +232,8 @@ export async function getCityPageData(slug: string): Promise<CityPageData | null
     googleReviews: reviews.reviews,
     reviewRating: reviews.rating,
     reviewCount: reviews.count,
-    idxMarketStats,
+    idxMarketReport,
+    idxMarketNarrative,
   };
 
   return data;
