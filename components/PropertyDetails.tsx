@@ -9,18 +9,29 @@ import { formatCurrency } from '@/lib/utils';
  * there's no record. Owner data is public record (Michigan) and only appears on
  * these authenticated internal views.
  */
+/**
+ * Title-case ALL-CAPS provider values ("WOOD FRAME" -> "Wood Frame", "FORCED
+ * AIR" -> "Forced Air") so agents see readable words instead of raw codes.
+ * Leaves already mixed-case values and non-letters (e.g. "R-1", "$214") alone.
+ */
+function pretty(v: string | null | undefined): string | null {
+  if (!v) return v ?? null;
+  const s = v.trim();
+  if (!s) return null;
+  if (s === s.toUpperCase() && /[A-Za-z]/.test(s)) {
+    return s.toLowerCase().replace(/\b([a-z])/g, (_, c: string) => c.toUpperCase());
+  }
+  return s;
+}
+
 export default function PropertyDetails({
   record,
   fetchedAt,
   provider,
-  raw,
-  showRaw = false,
 }: {
   record: PropertyRecord | null;
   fetchedAt?: Date | null;
   provider?: string | null;
-  raw?: unknown;
-  showRaw?: boolean;
 }) {
   if (!record) return null;
 
@@ -39,8 +50,8 @@ export default function PropertyDetails({
         : null;
 
   const facts: [string, ReactNode][] = [
-    ['Property type', record.propertyType],
-    ['Land use', record.propertyUse !== record.propertyType ? record.propertyUse : null],
+    ['Property type', pretty(record.propertyType)],
+    ['Land use', record.propertyUse !== record.propertyType ? pretty(record.propertyUse) : null],
     ['Year built', record.yearBuilt != null ? String(record.yearBuilt) : null],
     ['Beds', record.beds != null ? String(record.beds) : null],
     ['Baths', baths],
@@ -49,18 +60,18 @@ export default function PropertyDetails({
     ['Stories', record.stories != null ? String(record.stories) : null],
     ['Rooms', record.rooms != null ? String(record.rooms) : null],
     ['Units', record.units != null ? String(record.units) : null],
-    ['Garage', [record.garageType, record.garageSpaces != null ? `${record.garageSpaces} spaces` : null].filter(Boolean).join(' · ') || null],
+    ['Garage', [pretty(record.garageType), record.garageSpaces != null ? `${record.garageSpaces} spaces` : null].filter(Boolean).join(' · ') || null],
     ['Pool', record.pool ? 'Yes' : null],
-    ['Heating', record.heating],
-    ['Cooling', record.cooling],
-    ['Construction', record.construction],
-    ['Roof', record.roof],
-    ['Condition', record.condition],
-    ['County', record.county],
-    ['Subdivision', record.subdivision],
+    ['Heating', pretty(record.heating)],
+    ['Cooling', pretty(record.cooling)],
+    ['Construction', pretty(record.construction)],
+    ['Roof', pretty(record.roof)],
+    ['Condition', pretty(record.condition)],
+    ['County', pretty(record.county)],
+    ['Subdivision', pretty(record.subdivision)],
     ['Zoning', record.zoning],
     ['APN / Parcel', record.apn],
-    ...record.extra.map((e) => [e.label, e.value] as [string, ReactNode]),
+    ...record.extra.map((e) => [e.label, pretty(e.value)] as [string, ReactNode]),
   ];
   const shownFacts = facts.filter(([, v]) => v != null && v !== '');
 
@@ -117,7 +128,7 @@ export default function PropertyDetails({
             </p>
             <dl className="grid grid-cols-1 gap-x-6 gap-y-4 text-sm sm:grid-cols-3">
               {record.owner.names.length ? (
-                <Row label="Owner(s)" value={record.owner.names.join(', ')} />
+                <Row label="Owner(s)" value={record.owner.names.map((n) => pretty(n) ?? n).join(', ')} />
               ) : null}
               {record.owner.ownerOccupied != null ? (
                 <Row label="Occupancy" value={record.owner.ownerOccupied ? 'Owner-occupied' : 'Absentee owner'} />
@@ -129,14 +140,6 @@ export default function PropertyDetails({
           </div>
         ) : null}
 
-        {showRaw && raw ? (
-          <details className="text-xs text-mute-light">
-            <summary className="cursor-pointer font-semibold text-platinum-blue">Raw provider data</summary>
-            <pre className="mt-2 max-h-96 overflow-auto rounded-md bg-cream p-3 text-[11px] leading-relaxed">
-              {JSON.stringify(raw, null, 2)}
-            </pre>
-          </details>
-        ) : null}
       </div>
     </div>
   );
