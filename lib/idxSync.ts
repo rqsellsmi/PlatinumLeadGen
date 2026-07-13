@@ -56,6 +56,24 @@ function enumEq(field: string, value: string): string {
   return `${field} eq '${value}'`;
 }
 
+/**
+ * The RESO StandardStatus values we sync + display. "Active Under Contract" is
+ * where the Realcomp local statuses "Active Backup Offers" and "Contingent
+ * Continue to Show" normalize to — they're still-active (not Expired/Withdrawn,
+ * which §18.3.9 bars), so we carry them. Expired/Withdrawn/Canceled/Coming Soon/
+ * Hold are intentionally excluded.
+ *
+ * NOTE: the exact literal ("Active Under Contract" vs. a token form) must match
+ * the live feed — if the first real sync shows these listings aren't coming
+ * through, adjust this one array (they'll be visible via the mlsStatus column).
+ */
+export const DISPLAYABLE_STANDARD_STATUSES = [
+  'Active',
+  'Active Under Contract',
+  'Pending',
+  'Closed',
+] as const;
+
 // ---------------------------------------------------------------------------
 // Office keys (IDX spec §2.4) — parsed from REALCOMP_OFFICE_KEYS at runtime
 // ---------------------------------------------------------------------------
@@ -329,13 +347,24 @@ export async function upsertRawListings(rawRecords: Raw[]): Promise<number> {
     const row = mapRealcompListing(raw);
     if (!row) continue;
     mapped.push(row);
+    // Store the full photo gallery ONLY for Active listings — §18.10 forbids
+    // showing more than the primary photo for pending/sold/under-contract, and
+    // the primary already lives on idx_listings.photoUrl. Registering a fetched
+    // non-Active listing with an EMPTY set means replacePhotos deletes any
+    // gallery it still has, so photos "follow" the status: a listing that goes
+    // Active→Pending loses its gallery on the next sync, and Pending→Active
+    // gets it back (Media is in every incremental fetch). Huge storage win —
+    // the Closed-dominated feed no longer writes millions of unusable rows.
     if (Array.isArray(raw.Media)) {
-      const photos = extractPhotos(raw).map((p) => ({
-        listingKey: row.listingKey,
-        mediaUrl: p.url,
-        sortOrder: p.order,
-        mediaCategory: p.category,
-      }));
+      const photos =
+        row.standardStatus === 'Active'
+          ? extractPhotos(raw).map((p) => ({
+              listingKey: row.listingKey,
+              mediaUrl: p.url,
+              sortOrder: p.order,
+              mediaCategory: p.category,
+            }))
+          : [];
       photosByListing.set(row.listingKey, photos);
     }
   }
@@ -363,9 +392,9 @@ function oneYearAgoIso(): string {
   return new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString();
 }
 
-/** Active + Pending + Closed status clause (IDX spec §2.4 Query 2). */
-function activePendingClosedClause(): string {
-  return `(${enumEq('StandardStatus', 'Active')} or ${enumEq('StandardStatus', 'Pending')} or ${enumEq('StandardStatus', 'Closed')})`;
+/** Displayable-status clause (Active / Active Under Contract / Pending / Closed). */
+function displayableStatusClause(): string {
+  return `(${DISPLAYABLE_STANDARD_STATUSES.map((s) => enumEq('StandardStatus', s)).join(' or ')})`;
 }
 
 type FetchFn = (path: string, params: Record<string, string>) => Promise<Raw[]>;
@@ -415,7 +444,7 @@ export async function runIdxSync(fetchFn: FetchFn): Promise<SyncResult> {
     }
 
     // Query 2 — all Active/Pending/Closed, feed-wide.
-    const raw2 = await runQuery(fetchFn, `${activePendingClosedClause()} and ${sinceClause}`);
+    const raw2 = await runQuery(fetchFn, `${displayableStatusClause()} and ${sinceClause}`);
     const q2Fetched = raw2.length;
     const q2Upserted = await upsertRawListings(raw2);
 
@@ -463,7 +492,7 @@ export function activeBackfillParams(): Record<string, string> {
   return {
     $select: SELECT_FIELDS,
     $expand: MEDIA_EXPAND,
-    $filter: `${activePendingClosedClause()} and ModificationTimestamp gt ${oneYearAgoIso()}`,
+    $filter: `${displayableStatusClause()} and ModificationTimestamp gt ${oneYearAgoIso()}`,
   };
 }
 

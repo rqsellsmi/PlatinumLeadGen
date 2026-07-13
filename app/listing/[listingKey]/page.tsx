@@ -38,6 +38,17 @@ function isActive(status: string): boolean {
   return status === 'Active';
 }
 
+/** Human-readable status badge. Prefers the raw Realcomp label for the
+ *  under-contract states ("Accepting Backup Offers" / "Contingent Continue to
+ *  Show") since it's more specific than the normalized "Active Under Contract". */
+function statusLabel(standardStatus: string, mlsStatus: string | null): string {
+  if (standardStatus === 'Active') return 'For Sale';
+  if (standardStatus === 'Active Under Contract') return mlsStatus?.trim() || 'Under Contract';
+  if (standardStatus === 'Pending') return 'Pending';
+  if (standardStatus === 'Closed') return 'Sold';
+  return standardStatus;
+}
+
 export default async function ListingDetailPage({
   params,
 }: {
@@ -47,8 +58,15 @@ export default async function ListingDetailPage({
   const listing = await getListingByKey(listingKey);
   if (!listing) notFound();
 
-  // §18.10: full gallery for Active; primary photo only for Pending/Closed.
-  const photos = await getListingPhotos(listing.listingKey, listing.standardStatus);
+  // §18.10: full gallery for Active only; primary photo for everything else
+  // (pending / sold / under-contract). Galleries are only stored for Active, so
+  // non-Active listings fall back to the primary photo column.
+  const showFullGallery = listing.standardStatus === 'Active';
+  const photos = showFullGallery
+    ? await getListingPhotos(listing.listingKey, listing.standardStatus)
+    : listing.photoUrl
+      ? [listing.photoUrl]
+      : [];
 
   const sold = listing.standardStatus === 'Closed';
   const price = sold ? listing.closePrice : listing.listPrice;
@@ -116,7 +134,9 @@ export default async function ListingDetailPage({
                 isActive(listing.standardStatus) ? 'bg-success' : 'bg-platinum-red'
               }`}
             >
-              {sold && listing.closeDate ? `Sold ${formatMonthYear(listing.closeDate)}` : listing.standardStatus}
+              {sold && listing.closeDate
+                ? `Sold ${formatMonthYear(listing.closeDate)}`
+                : statusLabel(listing.standardStatus, listing.mlsStatus)}
             </span>
           </div>
 
@@ -161,9 +181,10 @@ export default async function ListingDetailPage({
             </p>
           ) : null}
 
-          {!isActive(listing.standardStatus) ? (
+          {!showFullGallery ? (
             <p className="mt-4 text-xs italic text-mute-light">
-              Per MLS rules, only the primary photo is shown for pending and sold listings.
+              Per MLS rules, only the primary photo is shown for listings that are pending, sold, or
+              under contract.
             </p>
           ) : null}
         </div>
