@@ -29,6 +29,62 @@ export interface SaleHistoryEntry {
   price: number | null;
 }
 
+/** Property owner of record (public record; shown only on internal lead views). */
+export interface PropertyOwner {
+  names: string[];
+  ownerOccupied: boolean | null;
+  mailingAddress: string | null;
+}
+
+/**
+ * A full property record from the AVM provider — everything we can surface to an
+ * agent/admin about a home (characteristics, lot, tax/assessment, last sale,
+ * owner of record). Provider-agnostic; every field degrades to null. `extra`
+ * holds provider-specific label/value pairs for a generic "more detail" section.
+ */
+export interface PropertyRecord {
+  provider: ValuationProvider;
+  formattedAddress: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  propertyType: string | null;
+  propertyUse: string | null;
+  yearBuilt: number | null;
+  beds: number | null;
+  bathsFull: number | null;
+  bathsHalf: number | null;
+  bathsTotal: number | null;
+  sqft: number | null;
+  lotSizeSqft: number | null;
+  lotSizeAcres: number | null;
+  stories: number | null;
+  rooms: number | null;
+  units: number | null;
+  garageType: string | null;
+  garageSpaces: number | null;
+  pool: boolean | null;
+  heating: string | null;
+  cooling: string | null;
+  construction: string | null;
+  roof: string | null;
+  condition: string | null;
+  county: string | null;
+  subdivision: string | null;
+  zoning: string | null;
+  apn: string | null;
+  lastSaleDate: string | null; // ISO yyyy-mm-dd
+  lastSalePrice: number | null;
+  assessedValue: number | null;
+  marketValue: number | null;
+  assessedLand: number | null;
+  assessedImprovements: number | null;
+  taxAmount: number | null;
+  taxYear: number | null;
+  owner: PropertyOwner | null;
+  attomId: string | null;
+  extra: { label: string; value: string }[];
+}
+
 /** Area-level market trends (ATTOM sales-trend). Report "Local market" section. */
 export interface MarketTrends {
   medianSalePrice: number | null;

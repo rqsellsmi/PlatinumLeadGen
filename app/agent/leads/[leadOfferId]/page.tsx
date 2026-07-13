@@ -8,6 +8,8 @@ import { getCurrentAgent } from '@/lib/agentSession';
 import { Badge, statusTone } from '@/components/ui';
 import { formatCurrency } from '@/lib/utils';
 import LocalTime from '@/components/LocalTime';
+import PropertyDetails from '@/components/PropertyDetails';
+import { getPropertyRecord } from '@/lib/propertyRecords';
 import { StatusUpdateForm } from '@/components/agent/StatusUpdateForm';
 
 export const dynamic = 'force-dynamic';
@@ -53,6 +55,10 @@ export default async function AgentLeadDetailPage({
     .from(statusUpdates)
     .where(eq(statusUpdates.leadOfferId, leadOfferId))
     .orderBy(desc(statusUpdates.createdAt));
+
+  // Full property record from the AVM provider (cached) — everything we know
+  // about the home so the agent is fully briefed. Degrades to nothing on error.
+  const propertyRecord = address ? await getPropertyRecord(address).catch(() => null) : null;
 
   return (
     <div className="space-y-6">
@@ -110,6 +116,13 @@ export default async function AgentLeadDetailPage({
               />
             </dl>
           </div>
+
+          {/* Full property record from the AVM provider */}
+          <PropertyDetails
+            record={propertyRecord?.record ?? null}
+            fetchedAt={propertyRecord?.fetchedAt}
+            provider={propertyRecord?.provider}
+          />
 
           {/* Activity timeline */}
           <div className="rounded-card border border-line bg-white">

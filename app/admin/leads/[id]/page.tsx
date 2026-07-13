@@ -9,6 +9,8 @@ import { formatCurrency } from '@/lib/utils';
 import { requireAdmin } from '@/components/admin/requireAdmin';
 import OfferHistory, { type OfferHistoryItem, type AgentOption } from '@/components/admin/OfferHistory';
 import LocalTime from '@/components/LocalTime';
+import PropertyDetails from '@/components/PropertyDetails';
+import { getPropertyRecord } from '@/lib/propertyRecords';
 import { updateLeadStatus, softDeleteLead, reassignLeadAction } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -23,6 +25,13 @@ export default async function LeadDetailPage({ params }: { params: { id: string 
   const leadRows = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
   const lead = leadRows[0];
   if (!lead) notFound();
+
+  // Full AVM-provider property record (cached), incl. owner of record.
+  const leadAddress =
+    [lead.propertyAddress, lead.propertyCity, lead.propertyState, lead.propertyZip]
+      .filter(Boolean)
+      .join(', ') || null;
+  const propertyRecord = leadAddress ? await getPropertyRecord(leadAddress).catch(() => null) : null;
 
   // Offer history oldest-first for the timeline (Section 17.2).
   const offerRows = await db
@@ -185,6 +194,15 @@ export default async function LeadDetailPage({ params }: { params: { id: string 
           </CardBody>
         </Card>
       </div>
+
+      {/* Full property record from the AVM provider (owner is public record). */}
+      <PropertyDetails
+        record={propertyRecord?.record ?? null}
+        fetchedAt={propertyRecord?.fetchedAt}
+        provider={propertyRecord?.provider}
+        raw={propertyRecord?.raw}
+        showRaw
+      />
 
       <Card>
         <CardHeader>

@@ -931,6 +931,28 @@ export type HomePageMetrics = typeof homePageMetrics.$inferSelect;
 export type MsGraphToken = typeof msGraphTokens.$inferSelect;
 export type EmailSendLogRow = typeof emailSendLog.$inferSelect;
 export type RateLimitRow = typeof rateLimits.$inferSelect;
+/**
+ * Cached AVM-provider property records (owner, features, tax, sale history),
+ * keyed by normalized address so multiple leads at the same address and the
+ * admin lookup tool share one cached fetch instead of re-billing the provider.
+ */
+export const propertyRecords = pgTable(
+  'property_records',
+  {
+    id: serial('id').primaryKey(),
+    normalizedAddress: varchar('normalized_address', { length: 500 }).notNull(),
+    address: varchar('address', { length: 300 }),
+    provider: varchar('provider', { length: 20 }).notNull().default('rentcast'),
+    rawJson: text('raw_json'), // full provider response for this address
+    fetchedAt: timestamp('fetched_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    addrIdx: uniqueIndex('property_records_addr_idx').on(t.normalizedAddress),
+  }),
+);
+export type PropertyRecordRow = typeof propertyRecords.$inferSelect;
+export type NewPropertyRecordRow = typeof propertyRecords.$inferInsert;
+
 export type Closing = typeof closings.$inferSelect;
 export type NewClosing = typeof closings.$inferInsert;
 export type UploadBatch = typeof uploadBatches.$inferSelect;
