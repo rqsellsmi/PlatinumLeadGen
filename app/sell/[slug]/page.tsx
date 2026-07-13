@@ -16,6 +16,8 @@ import HeroSection from '@/components/city/HeroSection';
 import SocialProofBar from '@/components/city/SocialProofBar';
 import MarketStatsBar from '@/components/city/MarketStatsBar';
 import RecentSales from '@/components/city/RecentSales';
+import MarketReport from '@/components/idx/MarketReport';
+import IdxCompliance from '@/components/idx/IdxCompliance';
 import HowItWorks from '@/components/city/HowItWorks';
 import SellerGuideSection from '@/components/city/SellerGuideSection';
 import Testimonials from '@/components/city/Testimonials';
@@ -77,8 +79,16 @@ export default async function CityPage({ params }: { params: { slug: string } })
     googleReviews,
     reviewRating,
     reviewCount,
+    idxMarketStats,
   } = data;
   const cityName = shortCityName(location.name);
+
+  const hasMarketReport =
+    idxMarketStats != null &&
+    (idxMarketStats.medianDaysOnMarket != null ||
+      idxMarketStats.medianSalePrice != null ||
+      idxMarketStats.avgSaleToListRatio != null ||
+      idxMarketStats.activeListings > 0);
 
   const faq = fillFaqStats(parseFaqJson(location.faqJson), stats);
 
@@ -122,6 +132,14 @@ export default async function CityPage({ params }: { params: { slug: string } })
         />
         <MarketStatsBar stats={stats} cityName={cityName} homesSold={stats?.homesSold ?? 0} />
         <RecentSales sales={recentSales} cityName={cityName} />
+        {hasMarketReport ? (
+          <section className="bg-cream">
+            <div className="mx-auto max-w-6xl px-4 py-16 sm:py-24">
+              <MarketReport stats={idxMarketStats} cityName={cityName} />
+              <IdxCompliance variant="summary" firstOnPage />
+            </div>
+          </section>
+        ) : null}
         <HowItWorks />
         {location.guideUrl ? (
           <SellerGuideSection locationSlug={location.slug} guideUrl={location.guideUrl} />

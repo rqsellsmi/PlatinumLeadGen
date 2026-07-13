@@ -2,7 +2,7 @@
  * Server-side data loading for public pages (Section 4.2).
  * City page data is fetched at render time. Next.js ISR caches the rendered page.
  */
-import { eq, and, or, desc, asc, sql, inArray, isNotNull } from 'drizzle-orm';
+import { eq, and, or, desc, asc, sql, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { db } from './db';
 import {
   locations,
@@ -26,6 +26,8 @@ import {
   type Guide,
 } from '../drizzle/schema';
 import { parseOfficeKeys } from './idxSync';
+import { cityTileImage } from './cityImages';
+import { getCityMarketStats, type CityMarketStats } from './idx';
 
 export interface CityGoogleReview {
   id: number;
@@ -48,6 +50,8 @@ export interface CityPageData {
   /** Star rating for the hero/social-proof bar (linked office, else manual). */
   reviewRating: number | null;
   reviewCount: number | null;
+  /** IDX-derived market trend stats for this city's Market Report section. */
+  idxMarketStats: CityMarketStats | null;
 }
 
 /** The mailing cities a location covers (falls back to its own short name). */
@@ -179,13 +183,14 @@ export async function getCityPageData(slug: string): Promise<CityPageData | null
   let tms: Testimonial[] = [];
   let links: NeighborhoodLink[] = [];
   let scripts: TrackingScript[] = [];
+  let idxMarketStats: CityMarketStats | null = null;
   let reviews: { reviews: CityGoogleReview[]; rating: number | null; count: number | null } = {
     reviews: [],
     rating: location.googleReviewRating ?? null,
     count: location.googleReviewCount ?? null,
   };
   try {
-    [stats, sales, tms, links, scripts, reviews] = await Promise.all([
+    [stats, sales, tms, links, scripts, reviews, idxMarketStats] = await Promise.all([
       getMarketStats(location.id),
       getCityRecentSales(locationMatchCities(location), 6),
       db
@@ -200,6 +205,8 @@ export async function getCityPageData(slug: string): Promise<CityPageData | null
         .orderBy(asc(neighborhoodLinks.displayOrder)),
       getTrackingScriptsForLocation(location.id),
       getLocationReviews(location),
+      // Market Report stats keyed on the primary mailing city this page covers.
+      getCityMarketStats(locationMatchCities(location)[0] ?? '').catch(() => null),
     ]);
   } catch (err) {
     console.warn('[queries] getCityPageData secondary fetch failed:', err);
@@ -215,6 +222,7 @@ export async function getCityPageData(slug: string): Promise<CityPageData | null
     googleReviews: reviews.reviews,
     reviewRating: reviews.rating,
     reviewCount: reviews.count,
+    idxMarketStats,
   };
 
   return data;
@@ -305,6 +313,9 @@ export interface HomeRecentSale {
   closeDate: Date | null;
   photoUrl: string | null;
   cityName: string | null;
+  /** IDX listing key when this sale is an IDX listing (→ links to a detail
+   *  page); null for imported CSV closings, which have no detail page. */
+  listingKey: string | null;
 }
 
 const TILE_TYPES = ['RS', 'CO'];
@@ -318,6 +329,20 @@ const TILE_SELECT = {
   cityName: closings.city,
 } as const;
 
+/** Imported CSV closings have no IDX detail page, so their listingKey is null. */
+function withNullListingKey<T extends Record<string, unknown>>(rows: T[]): (T & { listingKey: null })[] {
+  return rows.map((r) => ({ ...r, listingKey: null }));
+}
+
+/** WHERE fragment: the closed listing is a sale, not a lease/rental. */
+const idxNotLease = or(
+  isNull(idxListings.propertyType),
+  and(
+    sql`lower(${idxListings.propertyType}) not like '%lease%'`,
+    sql`lower(${idxListings.propertyType}) not like '%rent%'`,
+  ),
+);
+
 /**
  * IDX-sourced recent sales — our own listing-side office deals (IDX spec intro:
  * recent sales now come from the MLS feed). Returns [] when the feed is not yet
@@ -327,9 +352,13 @@ async function idxOfficeRecentSales(cities: string[] | null, limit: number): Pro
   const keys = parseOfficeKeys();
   if (keys.length === 0) return [];
   try {
+    // Listing side only: a RE/MAX Platinum office is the list or co-list office
+    // (buyer-side deals are excluded from the "recently sold by us" showcase).
+    // Leases are excluded so a closed rental never shows as a sale.
     const conds = [
       eq(idxListings.standardStatus, 'Closed'),
       isNotNull(idxListings.photoUrl),
+      idxNotLease,
       or(inArray(idxListings.listOfficeKey, keys), inArray(idxListings.coListOfficeKey, keys)),
     ];
     if (cities && cities.length) {
@@ -344,6 +373,7 @@ async function idxOfficeRecentSales(cities: string[] | null, limit: number): Pro
         closeDate: idxListings.closeDate,
         photoUrl: idxListings.photoUrl,
         cityName: idxListings.city,
+        listingKey: idxListings.listingKey,
       })
       .from(idxListings)
       .where(and(...conds))
@@ -364,12 +394,13 @@ export async function getFeaturedRecentSales(limit = 6): Promise<HomeRecentSale[
   try {
     const idx = await idxOfficeRecentSales(null, limit);
     if (idx.length) return idx;
-    return await db
+    const rows = await db
       .select(TILE_SELECT)
       .from(closings)
       .where(and(eq(closings.agentRole, 'listing'), inArray(closings.propertyType, TILE_TYPES)))
       .orderBy(desc(closings.closeDate))
       .limit(limit);
+    return withNullListingKey(rows);
   } catch (err) {
     console.warn('[queries] getFeaturedRecentSales failed:', err);
     return [];
@@ -383,7 +414,7 @@ export async function getCityRecentSales(cities: string[], limit = 6): Promise<H
     const idx = await idxOfficeRecentSales(cities, limit);
     if (idx.length) return idx;
     const cityConds = cities.map((c) => sql`lower(${closings.city}) = ${c.toLowerCase()}`);
-    return await db
+    const rows = await db
       .select(TILE_SELECT)
       .from(closings)
       .where(
@@ -395,6 +426,7 @@ export async function getCityRecentSales(cities: string[], limit = 6): Promise<H
       )
       .orderBy(desc(closings.closeDate))
       .limit(limit);
+    return withNullListingKey(rows);
   } catch (err) {
     console.warn('[queries] getCityRecentSales failed:', err);
     return [];
@@ -425,9 +457,10 @@ export async function getCityTiles(): Promise<CityTile[]> {
           .where(eq(marketStats.locationId, l.id))
           .limit(1);
         const cities = locationMatchCities(l);
-        let photoUrl: string | null = null;
-        if (cities.length > 0) {
-          // Prefer an IDX office-listing photo; fall back to imported closings.
+        // 1) A configured blob asset for this city wins (admin-curated image);
+        // 2) else the most-recent office-sale photo; 3) else a closings photo.
+        let photoUrl: string | null = cityTileImage(l.slug);
+        if (!photoUrl && cities.length > 0) {
           const idxSale = await idxOfficeRecentSales(cities, 1);
           photoUrl = idxSale[0]?.photoUrl ?? null;
           if (!photoUrl) {

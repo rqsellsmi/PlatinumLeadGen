@@ -1,0 +1,65 @@
+name: Scheduled daily jobs
+
+# Daily/weekly cron endpoints that used to live in vercel.json. They were moved
+# here because (a) Vercel's Hobby plan caps a project at 2 cron jobs, so the
+# 6-entry vercel.json failed the production build, and (b) Vercel Cron does not
+# send the `x-cron-secret` header these routes require — GitHub Actions does.
+#
+# Each schedule triggers only its matching step (via github.event.schedule);
+# a manual "Run workflow" runs all three for testing.
+#
+# Required repository secrets:
+#   DEPLOY_URL   e.g. https://your-project.vercel.app  (trailing slash is trimmed)
+#   CRON_SECRET  the SAME value set as CRON_SECRET in your Vercel env vars
+
+on:
+  schedule:
+    - cron: '0 5 * * *' # cleanup-rate-limits (05:00 UTC daily)
+    - cron: '0 8 * * *' # score-maintenance (08:00 UTC daily)
+    - cron: '0 13 * * 4' # broker-digest (Thursday 13:00 UTC)
+  workflow_dispatch: {}
+
+concurrency:
+  group: scheduled-daily
+  cancel-in-progress: false
+
+jobs:
+  ping-daily:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate secrets
+        env:
+          DEPLOY_URL: ${{ secrets.DEPLOY_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$DEPLOY_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "::error::DEPLOY_URL and CRON_SECRET repository secrets must be set."
+            exit 1
+          fi
+
+      - name: Cleanup rate limits
+        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 5 * * *'
+        env:
+          DEPLOY_URL: ${{ secrets.DEPLOY_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          BASE="${DEPLOY_URL%/}"
+          curl -fsS --max-time 60 -H "x-cron-secret: $CRON_SECRET" "$BASE/api/cron/cleanup-rate-limits"
+
+      - name: Score maintenance
+        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 8 * * *'
+        env:
+          DEPLOY_URL: ${{ secrets.DEPLOY_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          BASE="${DEPLOY_URL%/}"
+          curl -fsS --max-time 60 -H "x-cron-secret: $CRON_SECRET" "$BASE/api/cron/score-maintenance"
+
+      - name: Broker digest
+        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 13 * * 4'
+        env:
+          DEPLOY_URL: ${{ secrets.DEPLOY_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          BASE="${DEPLOY_URL%/}"
+          curl -fsS --max-time 60 -H "x-cron-secret: $CRON_SECRET" "$BASE/api/cron/broker-digest"

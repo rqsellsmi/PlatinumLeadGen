@@ -460,6 +460,7 @@ export async function getAttomComps(attomId: string, limit = 6): Promise<HomeRec
         closeDate: close && !Number.isNaN(close.getTime()) ? close : null,
         photoUrl: null,
         cityName: null,
+        listingKey: null, // ATTOM comps have no IDX detail page
       });
     });
     return out;

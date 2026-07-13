@@ -49,6 +49,7 @@ async function loadIdxSections(
     const est = report.estimatedValue;
     const lat = report.latitude;
     const lng = report.longitude;
+    const b = report.basics;
 
     const [forSale, sold, marketStats] = await Promise.all([
       est != null
@@ -57,6 +58,15 @@ async function loadIdxSections(
             longitude: lng,
             priceRangeLow: est * 0.8,
             priceRangeHigh: est * 1.2,
+            // Subject attributes → rank comps by matching as many fields as
+            // possible (location, beds, baths, sqft, type, year, price).
+            estimatedValue: est,
+            city: idxCity || null,
+            beds: b?.beds ?? null,
+            baths: b?.baths ?? null,
+            sqft: b?.sqft ?? null,
+            yearBuilt: b?.yearBuilt ?? null,
+            propertyType: b?.propertyType ?? null,
             limit: 6,
           })
         : Promise.resolve([]),
