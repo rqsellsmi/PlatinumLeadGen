@@ -847,9 +847,9 @@ export const idxListings = pgTable(
     waterBodyName: text('water_body_name'),
     waterFrontageFeet: real('water_frontage_feet'),
     // Media / marketing.
-    photoUrl: varchar('photo_url', { length: 1000 }), // primary photo (lowest Order)
+    photoUrl: text('photo_url'), // primary photo (lowest Order); text — external URL, unbounded (0017)
     photosCount: integer('photos_count'),
-    virtualTourUrl: varchar('virtual_tour_url', { length: 1000 }), // unbranded only
+    virtualTourUrl: text('virtual_tour_url'), // unbranded only; text — external URL (0017)
     publicRemarks: text('public_remarks'),
     // IDX-required display credit.
     listingOfficeName: text('listing_office_name'),
@@ -884,7 +884,7 @@ export const idxListingPhotos = pgTable(
     listingKey: varchar('listing_key', { length: 100 })
       .notNull()
       .references(() => idxListings.listingKey, { onDelete: 'cascade' }),
-    mediaUrl: varchar('media_url', { length: 1000 }).notNull(),
+    mediaUrl: text('media_url').notNull(), // text — external Realcomp URL, unbounded (0017)
     sortOrder: integer('sort_order').notNull().default(0), // Realcomp Media "Order"
     mediaCategory: varchar('media_category', { length: 50 }),
   },

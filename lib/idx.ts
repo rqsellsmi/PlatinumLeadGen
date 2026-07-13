@@ -14,6 +14,7 @@
 import { and, or, eq, gte, lte, isNull, isNotNull, sql, asc, inArray } from 'drizzle-orm';
 import { db } from './db';
 import { idxListings, idxListingPhotos, type IdxListing } from '../drizzle/schema';
+import { DISPLAYABLE_STANDARD_STATUSES, showsFullGallery } from './idxSync';
 
 /** A listing prepared for public display: address already compliance-gated. */
 export type IdxCard = IdxListing;
@@ -238,7 +239,7 @@ export async function getRecentSoldComps(params: SoldCompsParams): Promise<IdxCa
 // Single listing — for the listing detail page (§18.3.3 detail view)
 // ---------------------------------------------------------------------------
 /** Statuses we are allowed to display (§18.3.9 bars expired/withdrawn). */
-const DISPLAYABLE_STATUSES = ['Active', 'Pending', 'Closed'];
+const DISPLAYABLE_STATUSES = new Set<string>(DISPLAYABLE_STANDARD_STATUSES);
 
 /**
  * Fetch one listing by its key for the detail page. Returns null when the
@@ -255,7 +256,7 @@ export async function getListingByKey(listingKey: string): Promise<IdxCard | nul
     .limit(1);
   const row = rows[0];
   if (!row) return null;
-  if (!DISPLAYABLE_STATUSES.includes(row.standardStatus)) return null;
+  if (!DISPLAYABLE_STATUSES.has(row.standardStatus)) return null;
   return gateAddress(row);
 }
 
@@ -263,9 +264,9 @@ export async function getListingByKey(listingKey: string): Promise<IdxCard | nul
 // Photos — all photos for a listing, gated by status (IDX Rules §18.10)
 // ---------------------------------------------------------------------------
 /**
- * Full photo set for Active listings; primary-only for Pending/Closed (Pending
- * and Sold may show ONLY the primary photo per §18.10). Returns media URLs in
- * display order.
+ * Full photo set for gallery-eligible statuses (Active + Active Under Contract);
+ * primary-only for Pending/Closed (only pending and sold are capped at the
+ * primary photo per §18.10). Returns media URLs in display order.
  */
 export async function getListingPhotos(
   listingKey: string,
@@ -277,7 +278,7 @@ export async function getListingPhotos(
     .where(eq(idxListingPhotos.listingKey, listingKey))
     .orderBy(asc(idxListingPhotos.sortOrder));
   const urls = rows.map((r) => r.url);
-  return standardStatus === 'Active' ? urls : urls.slice(0, 1);
+  return showsFullGallery(standardStatus) ? urls : urls.slice(0, 1);
 }
 
 /**

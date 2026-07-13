@@ -120,6 +120,13 @@
       "when": 1784300000000,
       "tag": "0016_idx_widen_text",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1784400000000,
+      "tag": "0017_idx_widen_urls",
+      "breakpoints": true
     }
   ]
 }
