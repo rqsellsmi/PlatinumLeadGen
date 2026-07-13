@@ -57,30 +57,32 @@ function enumEq(field: string, value: string): string {
 }
 
 /**
- * The RESO StandardStatus values we sync + display. "Active Under Contract" is
+ * The RESO StandardStatus values we sync + display. `ActiveUnderContract` is
  * where the Realcomp local statuses "Active Backup Offers" and "Contingent
  * Continue to Show" normalize to — they're still-active (not Expired/Withdrawn,
- * which §18.3.9 bars), so we carry them. Expired/Withdrawn/Canceled/Coming Soon/
+ * which §18.3.9 bars), so we carry them. Expired/Withdrawn/Canceled/ComingSoon/
  * Hold are intentionally excluded.
  *
- * NOTE: the exact literal ("Active Under Contract" vs. a token form) must match
- * the live feed — if the first real sync shows these listings aren't coming
- * through, adjust this one array (they'll be visible via the mlsStatus column).
+ * IMPORTANT: StandardStatus is an OData ENUMERATION, so filter constants must be
+ * the enum MEMBER NAME (space-less token) — `ActiveUnderContract`, NOT
+ * "Active Under Contract" (the feed rejects the spaced form as "not a valid
+ * enumeration type constant"). The feed also *returns* this token, so it's what
+ * we store in idx_listings.standard_status and compare against everywhere.
  */
 export const DISPLAYABLE_STANDARD_STATUSES = [
   'Active',
-  'Active Under Contract',
+  'ActiveUnderContract',
   'Pending',
   'Closed',
 ] as const;
 
 /**
  * Statuses that may show the FULL photo gallery. §18.10 restricts only *pending*
- * and *sold* to the primary photo; Active and Active Under Contract (backup /
+ * and *sold* to the primary photo; Active and ActiveUnderContract (backup /
  * contingent, still actively marketed) are neither, so both show all photos.
  * Pending and Closed fall through to primary-only.
  */
-export const FULL_GALLERY_STATUSES: readonly string[] = ['Active', 'Active Under Contract'];
+export const FULL_GALLERY_STATUSES: readonly string[] = ['Active', 'ActiveUnderContract'];
 export function showsFullGallery(standardStatus: string): boolean {
   return FULL_GALLERY_STATUSES.includes(standardStatus);
 }

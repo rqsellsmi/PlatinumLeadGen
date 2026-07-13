@@ -44,7 +44,7 @@ function isActive(status: string): boolean {
  *  Show") since it's more specific than the normalized "Active Under Contract". */
 function statusLabel(standardStatus: string, mlsStatus: string | null): string {
   if (standardStatus === 'Active') return 'For Sale';
-  if (standardStatus === 'Active Under Contract') return mlsStatus?.trim() || 'Under Contract';
+  if (standardStatus === 'ActiveUnderContract') return mlsStatus?.trim() || 'Under Contract';
   if (standardStatus === 'Pending') return 'Pending';
   if (standardStatus === 'Closed') return 'Sold';
   return standardStatus;
