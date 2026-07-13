@@ -41,24 +41,27 @@ jobs:
           DEPLOY_URL: ${{ secrets.DEPLOY_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
+          BASE="${DEPLOY_URL%/}"  # trim a trailing slash so we never hit //api/…
           curl -fsS --max-time 60 \
             -H "x-cron-secret: $CRON_SECRET" \
-            "$DEPLOY_URL/api/cron/dispatch-queued-offers"
+            "$BASE/api/cron/dispatch-queued-offers"
 
       - name: Expire offers
         env:
           DEPLOY_URL: ${{ secrets.DEPLOY_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
+          BASE="${DEPLOY_URL%/}"
           curl -fsS --max-time 60 \
             -H "x-cron-secret: $CRON_SECRET" \
-            "$DEPLOY_URL/api/cron/expire-offers"
+            "$BASE/api/cron/expire-offers"
 
       - name: Follow-up check
         env:
           DEPLOY_URL: ${{ secrets.DEPLOY_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
+          BASE="${DEPLOY_URL%/}"
           curl -fsS --max-time 60 \
             -H "x-cron-secret: $CRON_SECRET" \
-            "$DEPLOY_URL/api/cron/followup-check"
+            "$BASE/api/cron/followup-check"

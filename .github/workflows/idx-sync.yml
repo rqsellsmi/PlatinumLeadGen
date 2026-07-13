@@ -36,6 +36,7 @@ jobs:
           DEPLOY_URL: ${{ secrets.DEPLOY_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
+          BASE="${DEPLOY_URL%/}"  # trim a trailing slash so we never hit //api/…
           curl -fsS --max-time 120 \
             -H "x-cron-secret: $CRON_SECRET" \
-            "$DEPLOY_URL/api/cron/idx-sync"
+            "$BASE/api/cron/idx-sync"
