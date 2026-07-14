@@ -406,3 +406,51 @@ so full galleries were never needed for the bulk of the feed.)
   + unit tests on the pure logic (`serializeEnumList`, `geoKey`, the
   schools-excluded category guard). Live validation of the new field names and
   Nearby Search is the owner's first-connection step.
+
+## 15. "The DB row is perfect but the homepage won't show it" — recent-sales tiles
+
+Debugging why a just-closed MLS sale wasn't appearing on the homepage even
+though the hourly sync ran and the row looked correct in `idx_listings`.
+
+- **A runtime-env read can silently switch the whole data source.** The homepage
+  recent-sales tiles come from `getFeaturedRecentSales` → `idxOfficeRecentSales`
+  (`lib/queries.ts`), whose FIRST line is `const keys = parseOfficeKeys(); if
+  (keys.length === 0) return [];`. `parseOfficeKeys()` reads `REALCOMP_OFFICE_KEYS`
+  from `process.env` **at request time**. If that var is set where the SYNC runs
+  (GitHub Actions) but NOT in the APP runtime (Vercel), the sync happily
+  populates the DB while the app's tile query short-circuits to `[]` and
+  `getFeaturedRecentSales` silently falls back to the old CSV `closings` table.
+  Symptom: a flawless `idx_listings` row that never shows on the homepage, and
+  "recent sales" that are actually stale imports. **The same env var must be set
+  in BOTH the sync environment and the app environment** — a DB that's correct
+  proves the sync's env, not the app's. (Reinforces §11's cross-branch/env
+  hygiene: where a value is read matters as much as whether it's set.)
+- **Verify the exact filter/order before theorizing.** The tile query is only:
+  `standard_status='Closed'` AND `photo_url IS NOT NULL` AND not-lease AND
+  (`list_office_key` OR `co_list_office_key` ∈ keys), `ORDER BY close_date DESC
+  LIMIT 6`. There is **no date window**, so "the close date is today" is NOT a
+  cause — a today close sorts to the top. Grepping every `close_date` comparison
+  showed they all live in the *market-stats* paths (`lib/idx.ts`,
+  `lib/idxMetrics.ts`), not the tiles. Rule out a hypothesis by reading the
+  actual predicate, not by pattern-matching the symptom to a plausible cause.
+- **`ORDER BY col DESC` is NULLS FIRST in Postgres.** If office-closed rows have
+  a `photo_url` but a `NULL close_date`, they sort ABOVE every dated sale and can
+  fill all 6 tiles, hiding genuinely-recent sales. A date-adjacent cause that is
+  NOT "today". (`desc(col)` in Drizzle emits plain `DESC`, i.e. NULLS FIRST — add
+  `NULLS LAST` when nulls should sink.)
+- **`photo_url` can be wiped on close.** Every sync upserts `photo_url` from the
+  feed's expanded Media; a listing going Closed can return with empty Media, so
+  `photo_url` is overwritten with NULL — and the tile query's `photo_url IS NOT
+  NULL` then hides a sale that had a photo while Active. A hard NOT-NULL photo
+  filter turns "no photo yet" into "invisible sale."
+- **Build a zero-SQL discriminator into the UI when you can.** IDX sales render
+  as a `<Link href="/listing/[key]">` (they have a `listingKey`); CSV closings
+  render as a plain `<div>` (null key). So "are the homepage sold cards
+  clickable?" instantly tells you whether the app is on the IDX path or the CSV
+  fallback — no DB access needed. Cheap observable state that distinguishes two
+  code paths is worth more than another query.
+- **Don't hand someone runnable-looking code for the wrong console.** Quoting the
+  TS snippet `const keys = parseOfficeKeys(); …` to *explain* the logic led the
+  owner to paste it into the Neon SQL editor, which errored on `const`. When the
+  person is working in a SQL console, give SQL; clearly label illustrative app
+  code as code, not a command to run.
