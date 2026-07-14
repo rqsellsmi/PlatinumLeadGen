@@ -21,7 +21,7 @@
 import './loadEnv';
 import { realcompFetchPages, isRealcompConfigured } from '../lib/realcomp';
 import {
-  activeBackfillJob,
+  activeBackfillJobs,
   soldBackfillJobs,
   upsertRawListings,
   pageMaxModTimestamp,
@@ -49,8 +49,8 @@ async function main() {
 
   let jobs: BackfillJob[];
   if (query === 'active') {
-    jobs = [activeBackfillJob()];
-    console.log('[idx-initial-sync] active: all Active/Pending/Closed, last 12 months, feed-wide.');
+    jobs = activeBackfillJobs();
+    console.log('[idx-initial-sync] active: feed-wide primary-photo pass + Active/UC gallery pass.');
   } else {
     const start = arg('start');
     const end = arg('end');
@@ -70,7 +70,7 @@ async function main() {
 
     await realcompFetchPages('Property', job.buildParams(since), async (page) => {
       fetched += page.length;
-      upserted += await upsertRawListings(page);
+      upserted += await upsertRawListings(page, { galleries: job.galleries });
       // Checkpoint AFTER the page is upserted, so a crash never advances the
       // resume point past unsaved data.
       const maxTs = pageMaxModTimestamp(page);
