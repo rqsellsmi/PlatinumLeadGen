@@ -43,6 +43,19 @@ wrappers raised to `lg:max-w-[760px]` so the wider form has room.
   **Market Report** card (reused) and a seller CTA footer.
 - IDX compliance unchanged (Realcomp logo, office credit, disclaimers).
 
+### 4. Hero images now load from the "Hero Images" Vercel Blob folder
+`lib/heroImages.ts` gained `getHeroImages()` — lists the blob folder
+`Hero Images/` (override with `HERO_IMAGES_BLOB_PREFIX`) at request time,
+returns the public blob URLs (image extensions only, stable-sorted), cached
+in-process 5 min. The homepage (`app/page.tsx`) and city hero
+(`components/city/HeroSection.tsx`, now async) consume it; the ads hero has no
+photo so it's untouched. Falls back to the bundled `/public/assets` images when
+the blob token is missing, the folder is empty, or the list call fails — the
+hero always renders. Dropping a new photo into the blob folder adds it to the
+rotation with no code change (appears within the 5-min cache window; both hero
+pages are `force-dynamic`). Needs `BLOB_READ_WRITE_TOKEN` set (already required
+for the admin uploads). `next.config.js` already allows any `https` image host.
+
 ### Data + infra for the above
 - **Expanded IDX feed** (migration **0021**, `SELECT_FIELDS` + `mapRealcompListing`):
   ~35 buyer-relevant RESO fields — HOA fee/frequency/includes/amenities, taxes,

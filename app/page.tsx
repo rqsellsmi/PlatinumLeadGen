@@ -8,7 +8,7 @@ import {
   getHomeTestimonials,
 } from '@/lib/queries';
 import { formatNumber } from '@/lib/utils';
-import { HERO_IMAGES } from '@/lib/heroImages';
+import { getHeroImages } from '@/lib/heroImages';
 import SiteHeader from '@/components/SiteHeader';
 import SiteFooter from '@/components/SiteFooter';
 import HeroBackdrop from '@/components/HeroBackdrop';
@@ -33,13 +33,14 @@ export const metadata: Metadata = {
 };
 
 export default async function HomePage() {
-  const [stats, homeMetrics, recentSales, cityTiles, guides, testimonials] = await Promise.all([
+  const [stats, homeMetrics, recentSales, cityTiles, guides, testimonials, heroImages] = await Promise.all([
     getHomepageAggregateStats(),
     getHomePageMetrics(),
     getFeaturedRecentSales(6),
     getCityTiles(),
     getGuidesForPage('home'),
     getHomeTestimonials(3),
+    getHeroImages(),
   ]);
   const guide = guides[0] ?? null;
 
@@ -49,7 +50,7 @@ export default async function HomePage() {
       <main>
         {/* Hero */}
         <section className="relative isolate flex min-h-[560px] items-center px-5 py-20 sm:px-8 lg:px-12">
-          <HeroBackdrop images={HERO_IMAGES} alt="Michigan homes" />
+          <HeroBackdrop images={heroImages} alt="Michigan homes" />
           <div
             aria-hidden
             className="absolute inset-0 -z-10 bg-gradient-to-r from-[rgba(20,20,24,0.78)] via-[rgba(20,20,24,0.55)] to-[rgba(20,20,24,0.3)]"
