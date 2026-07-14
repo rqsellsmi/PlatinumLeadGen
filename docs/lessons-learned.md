@@ -4,6 +4,34 @@ Written by the AI agent after auditing the original Manus system and implementin
 
 ---
 
+## 0. RULE #1 — NEVER THEORIZE; CONFIRM BY READING THE CODE OR ASKING TO TEST
+
+The single most important habit, learned the hard way debugging a "recent sale
+missing from the homepage." Every step where progress was made came from a fact
+(a SQL result, the actual source line, a screenshot); every step that wasted the
+owner's time was a plausible-sounding theory offered as if it were the answer
+("it's probably the NULLS-first ordering", "it's probably a buyer-side deal",
+"it's probably a DB mismatch") — each one confidently reasoned, each one wrong,
+and each one only disproven when the owner ran a query I should have asked for
+first.
+
+- **Before asserting a cause, ground it.** Read the exact function that runs (not
+  your memory of it), or hand the owner a one-line query / a specific thing to
+  click, and wait for the result. "Let me confirm" beats "it's probably."
+- **A chain of eliminations is fine; a chain of *guesses* is not.** Narrow with
+  tests, not with prose. If you catch yourself writing "this is likely…", stop
+  and turn it into a query or a code read.
+- **The owner's data outranks your model of the system.** When they say "we were
+  the listing side and the DB shows it," believe it and go read why the code
+  disagrees — don't re-explain why your theory says otherwise.
+- **State confidence honestly.** If you haven't confirmed it, say "I don't know
+  yet — run this and we'll know," not a definitive-sounding diagnosis.
+
+Everything below is only trustworthy because it was confirmed against the code or
+the running system. Keep it that way.
+
+---
+
 ## 1. This repo's specific traps
 
 - **Migrations are hand-authored SQL, not generated.** `drizzle-kit generate` prompts interactively (and can't in CI) because the snapshot chain is intentionally incomplete — `meta/_journal.json` lists `0002` but there is no `0002_snapshot.json`. Running generate will try to "rename/recreate" already-applied tables (e.g. `rate_limits`) and produce a destructive diff. **Always** write a new `NNNN_*.sql` with `IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS` / `ADD VALUE IF NOT EXISTS`, add a journal entry, and update `schema.ts` to match. Model it on `0002_v15_additions.sql` and `0003_v16_addendum.sql`.
