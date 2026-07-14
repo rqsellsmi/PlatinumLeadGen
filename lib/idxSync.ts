@@ -48,12 +48,10 @@ export const SELECT_FIELDS = [
 ].join(',');
 
 // Media is a NavigationProperty — expand it to pull the photo set (IDX spec §2.5).
+// NB: a nested `$top=1`/`$orderby=Order` here to fetch only the primary photo is
+// SLOWER on Realcomp (the server sorts+limits media per listing), so we always
+// pull the full set and gate STORAGE by status instead (see upsertRawListings).
 export const MEDIA_EXPAND = 'Media($select=MediaURL,Order,MediaCategory)';
-// Primary-photo-only expand: for listings whose gallery we don't store (Closed/
-// Pending and the whole feed-wide primary pass), pull just the lowest-Order
-// photo instead of all 20-50. This is the big backfill speedup — the fetch, not
-// just the storage, is limited to what we actually display.
-export const MEDIA_EXPAND_PRIMARY = 'Media($select=MediaURL,Order,MediaCategory;$orderby=Order;$top=1)';
 
 // Enum values are sent as quoted strings in the filter. If the live $metadata
 // shows StandardStatus as a namespaced enum requiring a different form, change
@@ -530,11 +528,6 @@ export interface BackfillJob {
   params: Record<string, string>;
 }
 
-/** OData clause matching only the gallery-eligible statuses (Active + UC). */
-function galleryStatusClause(): string {
-  return `(${FULL_GALLERY_STATUSES.map((s) => enumEq('StandardStatus', s)).join(' or ')})`;
-}
-
 /** The last `count` UTC month windows (oldest → newest), as [startIso, endIso). */
 function monthWindows(count: number): { label: string; startIso: string; endIso: string }[] {
   const now = new Date();
@@ -548,39 +541,31 @@ function monthWindows(count: number): { label: string; startIso: string; endIso:
 }
 
 /**
- * The active/feed-wide backfill, as month-windowed jobs:
- *   - `active:YYYY-MM` (×12) — the whole feed for that month's ModificationTimestamp
- *     window, primary photo only (`$top=1` Media). Bounded query, no `$orderby`.
- *   - `active-galleries` — current Active + under-contract only, full Media (the
- *     small subset whose gallery we actually display).
- * Each job's completion is recorded so a re-run skips finished windows.
+ * The active/feed-wide backfill, as month-windowed jobs (`active:YYYY-MM`, ×12).
+ * Each is the whole feed for that month's ModificationTimestamp window, with the
+ * FULL Media expand (a nested `$top=1` on Media turned out to be SLOWER — the
+ * server sorts+limits media per listing — so we fetch all photos and just store
+ * the gallery for gallery-eligible statuses via the `galleries` flag). No
+ * `$orderby` (it forces a full sort and times the request out). Each job's
+ * completion is recorded so a re-run skips finished windows.
  */
 export function activeBackfillJobs(): BackfillJob[] {
-  const jobs: BackfillJob[] = monthWindows(12).map((w) => ({
+  return monthWindows(12).map((w) => ({
     key: `active:${w.label}`,
-    galleries: false,
-    params: {
-      $select: SELECT_FIELDS,
-      $expand: MEDIA_EXPAND_PRIMARY,
-      $filter: `${displayableStatusClause()} and ModificationTimestamp ge ${w.startIso} and ModificationTimestamp lt ${w.endIso}`,
-    },
-  }));
-  jobs.push({
-    key: 'active-galleries',
     galleries: true,
     params: {
       $select: SELECT_FIELDS,
       $expand: MEDIA_EXPAND,
-      $filter: `${galleryStatusClause()} and ModificationTimestamp gt ${oneYearAgoIso()}`,
+      $filter: `${displayableStatusClause()} and ModificationTimestamp ge ${w.startIso} and ModificationTimestamp lt ${w.endIso}`,
     },
-  });
-  return jobs;
+  }));
 }
 
 /**
  * The sold job(s): your offices' Closed sales over a CloseDate window. One job
  * per office-key field (URL-length safe). Closed listings only show the primary
- * photo (§18.10), so this uses the light primary-only Media expand.
+ * photo (§18.10), so `galleries: false` (no gallery storage; primary still lands
+ * on idx_listings.photoUrl).
  */
 export function soldBackfillJobs(startDate: string, endDate: string): BackfillJob[] {
   const clauses = officeFieldClauses();
@@ -593,7 +578,7 @@ export function soldBackfillJobs(startDate: string, endDate: string): BackfillJo
     galleries: false,
     params: {
       $select: SELECT_FIELDS,
-      $expand: MEDIA_EXPAND_PRIMARY,
+      $expand: MEDIA_EXPAND,
       $filter: `${clause} and ${dateClause}`,
     },
   }));

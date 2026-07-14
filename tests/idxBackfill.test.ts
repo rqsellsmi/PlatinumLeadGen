@@ -1,29 +1,25 @@
 import { describe, it, expect } from 'vitest';
 import { activeBackfillJobs } from '../lib/idxSync';
 
-describe('activeBackfillJobs (month-windowed, two-pass photos)', () => {
+describe('activeBackfillJobs (month-windowed)', () => {
   const jobs = activeBackfillJobs();
 
-  it('is 12 monthly feed-wide windows plus one gallery pass', () => {
-    const monthly = jobs.filter((j) => j.key.startsWith('active:'));
-    expect(monthly).toHaveLength(12);
-    expect(jobs[jobs.length - 1].key).toBe('active-galleries');
-    expect(monthly.every((j) => j.galleries === false)).toBe(true);
-    expect(jobs[jobs.length - 1].galleries).toBe(true);
+  it('is 12 monthly feed-wide windows', () => {
+    expect(jobs).toHaveLength(12);
+    expect(jobs.every((j) => j.key.startsWith('active:'))).toBe(true);
+    // galleries stored per status inside the same pass.
+    expect(jobs.every((j) => j.galleries === true)).toBe(true);
   });
 
   it('uses bounded month windows and NO $orderby (the sort that timed out)', () => {
-    const monthly = jobs[0];
-    expect(monthly.params.$orderby).toBeUndefined();
-    expect(monthly.params.$filter).toContain('ModificationTimestamp ge');
-    expect(monthly.params.$filter).toContain('ModificationTimestamp lt');
+    const j = jobs[0];
+    expect(j.params.$orderby).toBeUndefined();
+    expect(j.params.$filter).toContain('ModificationTimestamp ge');
+    expect(j.params.$filter).toContain('ModificationTimestamp lt');
   });
 
-  it('primary passes fetch only the top photo; the gallery pass fetches all', () => {
-    const monthly = jobs[0];
-    const gallery = jobs[jobs.length - 1];
-    expect(monthly.params.$expand).toContain('$top=1');
-    expect(gallery.params.$expand).not.toContain('$top=1');
-    expect(gallery.params.$filter).toContain('ActiveUnderContract');
+  it('fetches the full Media set (nested $top=1 was slower on Realcomp)', () => {
+    expect(jobs[0].params.$expand).not.toContain('$top');
+    expect(jobs[0].params.$expand).toContain('Media(');
   });
 });
