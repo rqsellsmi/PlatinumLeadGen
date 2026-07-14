@@ -45,6 +45,17 @@ export const SELECT_FIELDS = [
   'ElementarySchoolDistrict', 'HighSchoolDistrict', 'WaterfrontYN', 'WaterfrontFeatures',
   'WaterBodyName', 'WaterFrontageFeet', 'InternetAddressDisplayYN',
   'InternetEntireListingDisplayYN',
+  // Buyer-relevant "data sheet" fields (0021). Enum multi-values (Heating,
+  // Appliances, InteriorFeatures, …) come back as arrays and are serialized to
+  // comma lists; scalars map straight through.
+  'ArchitecturalStyle', 'Levels', 'StoriesTotal', 'RoomsTotal', 'Heating', 'Cooling',
+  'FireplacesTotal', 'FireplaceFeatures', 'LaundryFeatures', 'InteriorFeatures',
+  'ExteriorFeatures', 'Appliances', 'Flooring', 'ConstructionMaterials', 'Roof',
+  'FoundationDetails', 'ParkingFeatures', 'AttachedGarageYN', 'PoolPrivateYN',
+  'PoolFeatures', 'PatioAndPorchFeatures', 'LotFeatures', 'LotSizeDimensions', 'View',
+  'WaterSource', 'Sewer', 'Utilities', 'NewConstructionYN', 'Zoning', 'AssociationYN',
+  'AssociationFee', 'AssociationFeeFrequency', 'AssociationFeeIncludes', 'AssociationAmenities',
+  'TaxAnnualAmount', 'TaxYear',
 ].join(',');
 
 // Media is a NavigationProperty — expand it to pull the photo set (IDX spec §2.5).
@@ -168,15 +179,26 @@ function humanizeEnum(token: string): string {
     .trim();
 }
 
-/** WaterfrontFeatures is an Enum MultiValue — serialize to a comma list (§2.2). */
-export function serializeWaterfrontFeatures(v: unknown): string | null {
+/**
+ * Serialize a RESO Enum MultiValue (array of tokens) — or a single value — to a
+ * human-readable comma list ("ForcedAir","CentralAir" → "Forced Air, Central
+ * Air"). Deduplicates and drops blanks. Used for every multi-value descriptive
+ * field (Heating, Appliances, InteriorFeatures, …). §2.2.
+ */
+export function serializeEnumList(v: unknown): string | null {
   if (v == null) return null;
   const arr = Array.isArray(v) ? v : [v];
   const parts = arr
     .map((x) => (x == null ? '' : humanizeEnum(String(x))))
     .map((s) => s.trim())
     .filter(Boolean);
-  return parts.length ? parts.join(', ') : null;
+  const unique = [...new Set(parts)];
+  return unique.length ? unique.join(', ') : null;
+}
+
+/** WaterfrontFeatures is an Enum MultiValue — serialize to a comma list (§2.2). */
+export function serializeWaterfrontFeatures(v: unknown): string | null {
+  return serializeEnumList(v);
 }
 
 /** Concatenate street parts into a display address, falling back to UnparsedAddress. */
@@ -286,6 +308,43 @@ export function mapRealcompListing(raw: Raw): NewIdxListing | null {
     waterfrontFeatures: serializeWaterfrontFeatures(raw.WaterfrontFeatures),
     waterBodyName: str(raw.WaterBodyName),
     waterFrontageFeet: real(raw.WaterFrontageFeet),
+    // Buyer-relevant detail (0021).
+    architecturalStyle: serializeEnumList(raw.ArchitecturalStyle),
+    levels: serializeEnumList(raw.Levels),
+    storiesTotal: int(raw.StoriesTotal),
+    roomsTotal: int(raw.RoomsTotal),
+    heating: serializeEnumList(raw.Heating),
+    cooling: serializeEnumList(raw.Cooling),
+    fireplacesTotal: int(raw.FireplacesTotal),
+    fireplaceFeatures: serializeEnumList(raw.FireplaceFeatures),
+    laundryFeatures: serializeEnumList(raw.LaundryFeatures),
+    interiorFeatures: serializeEnumList(raw.InteriorFeatures),
+    exteriorFeatures: serializeEnumList(raw.ExteriorFeatures),
+    appliances: serializeEnumList(raw.Appliances),
+    flooring: serializeEnumList(raw.Flooring),
+    constructionMaterials: serializeEnumList(raw.ConstructionMaterials),
+    roof: serializeEnumList(raw.Roof),
+    foundationDetails: serializeEnumList(raw.FoundationDetails),
+    parkingFeatures: serializeEnumList(raw.ParkingFeatures),
+    attachedGarageYN: bool(raw.AttachedGarageYN),
+    poolPrivateYN: bool(raw.PoolPrivateYN),
+    poolFeatures: serializeEnumList(raw.PoolFeatures),
+    patioAndPorchFeatures: serializeEnumList(raw.PatioAndPorchFeatures),
+    lotFeatures: serializeEnumList(raw.LotFeatures),
+    lotSizeDimensions: str(raw.LotSizeDimensions),
+    view: serializeEnumList(raw.View),
+    waterSource: serializeEnumList(raw.WaterSource),
+    sewer: serializeEnumList(raw.Sewer),
+    utilities: serializeEnumList(raw.Utilities),
+    newConstructionYN: bool(raw.NewConstructionYN),
+    zoning: str(raw.Zoning),
+    associationYN: bool(raw.AssociationYN),
+    associationFee: real(raw.AssociationFee),
+    associationFeeFrequency: str(raw.AssociationFeeFrequency),
+    associationFeeIncludes: serializeEnumList(raw.AssociationFeeIncludes),
+    associationAmenities: serializeEnumList(raw.AssociationAmenities),
+    taxAnnualAmount: real(raw.TaxAnnualAmount),
+    taxYear: int(raw.TaxYear),
     photoUrl: primaryPhotoUrl(raw),
     photosCount: int(raw.PhotosCount),
     virtualTourUrl: str(raw.VirtualTourURLUnbranded),

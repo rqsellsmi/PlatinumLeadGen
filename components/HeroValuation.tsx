@@ -191,13 +191,18 @@ export default function HeroValuation({
     [sessionId, cityName, pageVariant, locationSlug],
   );
 
-  // Open from the sticky CTA / exit-intent overlay.
+  // Open from the sticky CTA / exit-intent overlay. The exit-intent overlay now
+  // runs its own Places autocomplete, so it can hand off coordinates too.
   React.useEffect(() => {
     function onOpen(e: Event) {
-      const detail = (e as CustomEvent<{ address?: string }>).detail;
+      const detail = (e as CustomEvent<{ address?: string; propertyLat?: number | null; propertyLng?: number | null }>).detail;
       const addr = detail?.address?.trim();
       if (addr) {
-        const data = { propertyAddress: addr, propertyLat: null, propertyLng: null };
+        const data = {
+          propertyAddress: addr,
+          propertyLat: detail?.propertyLat ?? null,
+          propertyLng: detail?.propertyLng ?? null,
+        };
         setAddress(addr);
         setPlace(data);
         setModalStep(2);
@@ -309,12 +314,13 @@ export default function HeroValuation({
         />
       ) : null}
 
-      {/* Hero address box */}
+      {/* Hero address box. Wider on desktop so the full address stays visible
+          (the button is wide, so a narrow form clipped long addresses). */}
       <form
         onSubmit={startFromAddress}
-        className="flex max-w-xl flex-wrap gap-2.5 rounded-2xl bg-white p-2.5 shadow-[0_18px_48px_rgba(20,20,24,0.3)]"
+        className="flex w-full max-w-xl flex-wrap gap-2.5 rounded-2xl bg-white p-2.5 shadow-[0_18px_48px_rgba(20,20,24,0.3)] sm:max-w-2xl lg:max-w-3xl"
       >
-        <div className="flex flex-1 basis-60 items-center gap-2.5 rounded-xl border-[1.5px] border-line px-4">
+        <div className="flex flex-1 basis-72 items-center gap-2.5 rounded-xl border-[1.5px] border-line px-4">
           <svg aria-hidden viewBox="0 0 24 24" className="h-5 w-5 shrink-0 text-platinum-red" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0Z" />
             <circle cx="12" cy="10" r="3" />

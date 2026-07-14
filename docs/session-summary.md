@@ -1,3 +1,97 @@
+# Session Summary — Texting & Refinement (round 1: refinements)
+
+Branch: `texting-and-refinement`. Migrations added: **0021–0022**. Full lessons
+in `docs/lessons-learned.md` §14. (Texting itself is deferred to a later round —
+this round is three refinements.)
+
+## What was done
+
+### 1. Exit-intent pop-up auto-populates like the other forms
+The exit-intent overlay's address field now runs the **same Google Places
+autocomplete** as the hero box and modal step-1 (it was a plain text input).
+Attaches on open once Maps JS is ready (loaded by HeroValuation on the same
+page; retries briefly), and hands off the resolved address **plus coordinates**
+through `OPEN_VALUATION_EVENT` so the valuation runs with lat/lng.
+(`components/cro/ExitIntentOverlay.tsx`, event consumer in `HeroValuation.tsx`.)
+
+### 2. Wider hero address field on desktop
+The hero "Enter your home address" box was clipping long addresses (form capped
+at `max-w-xl` behind a wide button). Form is now `max-w-xl sm:max-w-2xl
+lg:max-w-3xl`, the input basis widened (`basis-72`), and both hero content
+wrappers raised to `lg:max-w-[760px]` so the wider form has room.
+(`HeroValuation.tsx`, `app/page.tsx`, `components/city/HeroSection.tsx`.)
+
+### 3. Sold-listing detail page redesigned to a "data sheet" + neighborhood map
+`/listing/[listingKey]` rebuilt to match the owner's mockup:
+- **Photo hero with overlay** (`components/idx/ListingHero.tsx`): status badge
+  (green SOLD / red live), location eyebrow (subdivision · city), address, price
+  + "sold X% over/under asking". Sold shows the "one photo per MLS" note.
+- **Dark stat bar**: sold → Closed month, Days on market, List price, Sale-to-list;
+  live → Status, DOM, List price, $/sq ft. Then a beds/baths/sqft/year row.
+- **Feature chips** derived from the new structured fields (waterfront access,
+  1st-floor primary, gas fireplace, main-floor laundry, finished lower level,
+  pool, new construction, garage).
+- **Two-column detail** — Interior & systems / Lot, water & costs — built from
+  the expanded feed, empty values omitted. **School district kept** as a fact
+  (owner's call); schools are excluded only from the POI section below.
+- **Neighborhood highlights** (`components/idx/AreaHighlights.tsx`): an embedded
+  Google map + nearby restaurants, coffee, groceries, gas, fitness, pharmacy,
+  medical, parks, golf with nearest-name + distance + count. This is the
+  ListReports-style "area report" the owner asked for, **minus schools**.
+- **"How this home compared"** dark block (sold only): DOM / sale-to-list /
+  $-per-sqft vs the city medians, with an "outperformed" headline, plus the full
+  **Market Report** card (reused) and a seller CTA footer.
+- IDX compliance unchanged (Realcomp logo, office credit, disclaimers).
+
+### 4. Hero images now load from the "Hero Images" Vercel Blob folder
+`lib/heroImages.ts` gained `getHeroImages()` — lists the blob folder
+`Hero Images/` (override with `HERO_IMAGES_BLOB_PREFIX`) at request time,
+returns the public blob URLs (image extensions only, stable-sorted), cached
+in-process 5 min. The homepage (`app/page.tsx`) and city hero
+(`components/city/HeroSection.tsx`, now async) consume it; the ads hero has no
+photo so it's untouched. Falls back to the bundled `/public/assets` images when
+the blob token is missing, the folder is empty, or the list call fails — the
+hero always renders. Dropping a new photo into the blob folder adds it to the
+rotation with no code change (appears within the 5-min cache window; both hero
+pages are `force-dynamic`). Needs `BLOB_READ_WRITE_TOKEN` set (already required
+for the admin uploads). `next.config.js` already allows any `https` image host.
+
+### Data + infra for the above
+- **Expanded IDX feed** (migration **0021**, `SELECT_FIELDS` + `mapRealcompListing`):
+  ~35 buyer-relevant RESO fields — HOA fee/frequency/includes/amenities, taxes,
+  heating, cooling, fireplaces, laundry, interior/exterior features, appliances,
+  flooring, construction, roof, foundation, parking, pool, patio, lot features,
+  water source, sewer, utilities, style, levels/stories, rooms, view, zoning,
+  new-construction. Enum multi-values serialize via a new generic
+  `serializeEnumList` (dedupes; `serializeWaterfrontFeatures` now delegates to
+  it). All hide gracefully until the next sync/backfill populates them.
+- **Neighborhood POI cache** (migration **0022** `area_poi_cache`,
+  `lib/nearbyPlaces.ts`): server-side Google Places Nearby Search around the
+  listing, **cached by a coarse ~110 m grid cell** so nearby listings reuse one
+  lookup and repeat views cost $0; each POI stores its own coords so exact
+  per-home distances recompute from any home in the cell. Reuses the `haversine`
+  from `lib/routing`. Feature-flagged (`LISTING_AREA_POI=0` disables); degrades to
+  map-only (or nothing) without a key. Logs each call to `api_usage_logs`.
+
+## What still needs to be done (owner)
+- **Apply migrations 0021–0022** on every Neon branch the app + GitHub Actions use.
+- **Re-run the IDX backfill** (active + sold) so the new buyer fields populate —
+  incremental sync also backfills them over time as listings are re-touched, but
+  a backfill fills the existing rows immediately.
+- **Google Places**: ensure the server key (`GOOGLE_MAPS_API_KEY`) has the
+  **legacy Places API** enabled + billing on (Nearby Search is billed per call,
+  ~$32/1k, bounded by the cache). Set `LISTING_AREA_POI=0` to turn the section
+  off. The embedded map uses the public `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` (Maps
+  Embed API — free per load) and needs the **Maps Embed API** enabled.
+- **Verify live**: confirm the new RESO field names against `$metadata` (a few
+  may differ on this account, per the IDX drift lessons) and that Nearby Search
+  returns as expected. Both were built defensively (missing fields → NULL/hidden).
+
+## Lessons
+See `docs/lessons-learned.md` §14.
+
+---
+
 # Session Summary — Listing/Valuation Fixes + IDX Backfill Hardening
 
 Branch: `claude/listing-valuation-fixes-1yqjax`. Migrations added: **0017–0020**
