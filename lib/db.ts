@@ -26,7 +26,13 @@ function getDb(): NeonHttpDatabase<typeof schema> {
         'integration variable like POSTGRES_URL / STORAGE_URL).',
     );
   }
-  const sql = neon(url);
+  // `cache: 'no-store'` is load-bearing: the neon-http driver issues queries via
+  // fetch(), and Next.js's Data Cache will otherwise cache those responses during
+  // a Server Component render — serving STALE query results on pages even when the
+  // route is force-dynamic (the homepage "recent sales" froze on old data because
+  // of this; Route Handlers weren't affected, which is how we caught it). Forcing
+  // no-store makes every DB read hit the database.
+  const sql = neon(url, { fetchOptions: { cache: 'no-store' } });
   _db = drizzle(sql, { schema });
   return _db;
 }
