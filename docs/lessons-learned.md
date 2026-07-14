@@ -281,37 +281,43 @@ fixed.
   retryable (backoff) — a slow page becomes a retry, not a dead run. Add 5xx/429/
   408 to the retryable set too.
 
-### 13b. Making a long backfill resumable — order + checkpoint
-- **"Save the work so a retry is fast" = order by a monotonic cursor + checkpoint
-  after each committed page.** We order by `ModificationTimestamp` ascending and,
-  after each upserted page, store the page's max timestamp per job
-  (`idx_backfill_checkpoints`). On restart the query resumes `>= checkpoint`.
-  **Ascending order is the load-bearing part**: it guarantees everything below the
-  checkpoint is already saved (no gaps), which a naive "resume from max(saved)"
-  over an unordered pull does NOT — unordered, there are unsaved rows with
-  timestamps below the current max, and resuming past them loses data.
+### 13b. Making a long backfill resumable — bounded chunks beat an in-query cursor
+First attempt: order by `ModificationTimestamp` ascending + checkpoint the max
+timestamp per page, resume `>= checkpoint`. It was *correct* (ascending order
+means no gaps below the checkpoint) but **`$orderby=ModificationTimestamp` forced
+the RESO server to sort the entire result set before returning the first page**,
+so every request ran past the abort timeout and the run died. **Lesson: a
+server-side `$orderby` over a huge feed is a performance trap; don't rely on it.**
+- **Prefer bounded windows over an ordered cursor for resume.** The working design
+  splits the feed-wide pull into 12 **month windows**
+  (`ModificationTimestamp ge monthStart and lt monthEnd`, no `$orderby`). Each
+  window is a job; its completion is recorded in `idx_backfill_checkpoints`, and a
+  re-run skips finished windows. Bounded range scans are fast and need no sort; a
+  failed window is just re-fetched whole (idempotent upserts), which is cheap.
 - **Resume must be scoped per job, not global.** `max(ModificationTimestamp)`
-  across the whole table is wrong when multiple backfills (active feed-wide + sold
-  windows) write to it — a sold row with a recent modification would make the
-  active pass skip everything. A per-job checkpoint key avoids the cross-
-  contamination.
+  across the whole table is wrong when multiple backfills write to it — a per-job
+  key (month window / sold field-pass) avoids the cross-contamination.
 - **A resilience feature must degrade to a no-op if its table isn't migrated.**
-  The checkpoint WRITE has to be best-effort (try/catch) so a not-yet-applied
-  0020 can't turn "resumable" into a brand-new failure mode that kills the run.
+  The checkpoint write is best-effort (try/catch) so a not-yet-applied 0020 can't
+  turn "resumable" into a brand-new failure mode.
 
-### 13c. Storage-limiting is not fetch-limiting (measure where the time goes)
-The single most impactful speedup: we had already limited which listings' photo
-**galleries we WRITE** (Active + under-contract only), and *assumed that made the
-sync lean*. It didn't — the sync still **FETCHED** every photo of every listing
-(`$expand=Media`) and threw the Closed/Pending galleries away, transferring ~all
-photos for the whole ~300k feed. **When a job is slow, measure whether the cost
-is in the fetch or the write; don't assume a storage optimization touched the
-transfer.** The fix is a two-pass fetch: a feed-wide **primary-only** pass
-(`$expand=Media($orderby=Order;$top=1)`) plus a small **Active/UC-only**
-full-gallery pass. `upsertRawListings(records, { galleries })` makes pass 1 skip
-the photo table entirely. ~10× less photo transfer, galleries still correct.
-(§18.10 helped scope this: Pending/Closed can only ever show the primary photo,
-so full galleries were never needed for the bulk of the feed.)
+### 13c. Storage-limiting ≠ fetch-limiting — but measure before "optimizing" the fetch
+We had limited which listings' photo **galleries we WRITE** (Active + under-
+contract only) and assumed that made the sync lean. It didn't — the sync still
+**FETCHED** every photo of every listing (`$expand=Media`). Correct diagnosis:
+*when a job is slow, measure whether the cost is in the fetch or the write.* But
+the "obvious" fetch fix **backfired**: switching the feed-wide pass to
+primary-only via nested `$expand=Media($orderby=Order;$top=1)` made it **~5×
+SLOWER**, because Realcomp's server sorts+limits media *per listing* (a correlated
+subquery) — far more expensive than a plain join that returns all media. The
+full-media pull was actually ~24s/page; the `$top=1` pull was ~2min/page and
+timed out. **Lesson: `$expand` with nested `$orderby`/`$top` is not free — profile
+the actual per-page latency before adopting it; "fetch less" is not automatically
+"faster."** Final design: fetch the **full** Media set (fast) and gate STORAGE by
+status via `upsertRawListings(records, { galleries })` (galleries only for
+Active/UC; primary photo for everyone via `photoUrl`). The feed is simply large,
+so month-chunking + resume + a generous request timeout (300s) + retries is what
+carries it to completion, not a cleverer photo query.
 
 ### 13d. Vercel Hobby crons + the "connectable-host 404" signal
 - **Hobby caps a project at 2 cron jobs, daily-only; a `vercel.json` with more
