@@ -10,13 +10,12 @@
  * --query active : all Active/Pending/Closed feed-wide, 12-month window.
  * --query sold   : your offices' Closed sales within [--start, --end).
  *
- * RESUMABLE: each job orders by ModificationTimestamp ascending and checkpoints
- * the newest timestamp processed (idx_backfill_checkpoints). If the run fails
- * partway, the NEXT run resumes from that checkpoint instead of re-fetching
- * everything — so a retry is fast. A successful job clears its own checkpoint;
- * pass --restart to force a full pull. Streams page-by-page (upserting each
- * page) so memory stays flat; the fetch layer retries transient network/5xx
- * errors and re-mints the token on 401.
+ * RESUMABLE: the feed-wide pull is split into bounded MONTH windows (no
+ * server-side $orderby, which times out on a large RESO result set). Each
+ * window/pass records completion in idx_backfill_checkpoints, so a failed run
+ * re-runs only the windows not yet done. Pass --restart to force a full re-run.
+ * Streams page-by-page (upserting each page) so memory stays flat; the fetch
+ * layer retries transient network/5xx errors and re-mints the token on 401.
  */
 import './loadEnv';
 import { realcompFetchPages, isRealcompConfigured } from '../lib/realcomp';
@@ -24,7 +23,6 @@ import {
   activeBackfillJobs,
   soldBackfillJobs,
   upsertRawListings,
-  pageMaxModTimestamp,
   getBackfillCheckpoint,
   setBackfillCheckpoint,
   clearBackfillCheckpoint,
@@ -59,30 +57,34 @@ async function main() {
     console.log(`[idx-initial-sync] sold: your offices, Closed, ${start} .. ${end} (${jobs.length} passes).`);
   }
 
+  // --restart forces a full re-run by clearing every job's done-marker first.
+  if (restart) {
+    for (const job of jobs) await clearBackfillCheckpoint(job.key);
+  }
+
   let fetched = 0;
   let upserted = 0;
   let lastReport = 0;
 
   for (const job of jobs) {
-    if (restart) await clearBackfillCheckpoint(job.key);
-    const since = restart ? null : await getBackfillCheckpoint(job.key);
-    if (since) console.log(`[idx-initial-sync] resuming ${job.key} from ${since}`);
+    // Resume: a job with a done-marker is already complete — skip it.
+    if (await getBackfillCheckpoint(job.key)) {
+      console.log(`[idx-initial-sync] ${job.key} already done — skipping.`);
+      continue;
+    }
+    console.log(`[idx-initial-sync] ${job.key}…`);
 
-    await realcompFetchPages('Property', job.buildParams(since), async (page) => {
+    await realcompFetchPages('Property', job.params, async (page) => {
       fetched += page.length;
       upserted += await upsertRawListings(page, { galleries: job.galleries });
-      // Checkpoint AFTER the page is upserted, so a crash never advances the
-      // resume point past unsaved data.
-      const maxTs = pageMaxModTimestamp(page);
-      if (maxTs) await setBackfillCheckpoint(job.key, maxTs);
       if (fetched - lastReport >= 500) {
         lastReport = fetched;
         console.log(`[idx-initial-sync] ${fetched} fetched, ${upserted} upserted…`);
       }
     });
 
-    // Job finished cleanly — clear its checkpoint so a later run is a full pull.
-    await clearBackfillCheckpoint(job.key);
+    // Whole window/pass done — mark it so a re-run skips it.
+    await setBackfillCheckpoint(job.key, new Date().toISOString());
     console.log(`[idx-initial-sync] ${job.key} complete.`);
   }
 

@@ -512,28 +512,22 @@ export async function runIdxSync(fetchFn: FetchFn): Promise<SyncResult> {
 }
 
 // ---------------------------------------------------------------------------
-// Resumable backfill (IDX spec §2.8) — checkpointed by ModificationTimestamp
+// Resumable backfill (IDX spec §2.8) — CHUNKED by month, resume = per-job "done"
 // ---------------------------------------------------------------------------
 /**
- * A backfill unit of work. `buildParams(sinceIso)` returns the OData params for
- * this job, resuming from `sinceIso` (the newest ModificationTimestamp already
- * processed) when set. Every job orders by ModificationTimestamp ascending so a
- * partial run has NO gaps below its checkpoint — the next run resumes cleanly.
+ * A backfill unit of work with FIXED params (no server-side `$orderby` — ordering
+ * a huge RESO result set forces an expensive sort that times the request out).
+ * Instead the feed-wide pull is split into bounded MONTH windows; each window is
+ * a job whose completion is recorded in idx_backfill_checkpoints. A failed run
+ * re-runs only the windows not yet marked done, so progress is preserved without
+ * needing an in-query cursor.
  */
 export interface BackfillJob {
   key: string;
   /** Whether this pass stores full photo galleries (full Media) or just the
    *  primary photo (light Media). */
   galleries: boolean;
-  buildParams: (sinceIso: string | null) => Record<string, string>;
-}
-
-/** `ModificationTimestamp` clause: exclusive of the 12-month floor on a fresh
- *  run, inclusive of the checkpoint on resume (idempotent, so no boundary gap). */
-function modSinceClause(sinceIso: string | null): string {
-  const floor = oneYearAgoIso();
-  const cursor = sinceIso && sinceIso > floor ? sinceIso : floor;
-  return `ModificationTimestamp ${sinceIso ? 'ge' : 'gt'} ${cursor}`;
+  params: Record<string, string>;
 }
 
 /** OData clause matching only the gallery-eligible statuses (Active + UC). */
@@ -541,46 +535,52 @@ function galleryStatusClause(): string {
   return `(${FULL_GALLERY_STATUSES.map((s) => enumEq('StandardStatus', s)).join(' or ')})`;
 }
 
+/** The last `count` UTC month windows (oldest → newest), as [startIso, endIso). */
+function monthWindows(count: number): { label: string; startIso: string; endIso: string }[] {
+  const now = new Date();
+  const out: { label: string; startIso: string; endIso: string }[] = [];
+  for (let i = count - 1; i >= 0; i -= 1) {
+    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+    const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i + 1, 1));
+    out.push({ label: start.toISOString().slice(0, 7), startIso: start.toISOString(), endIso: end.toISOString() });
+  }
+  return out;
+}
+
 /**
- * The active/feed-wide backfill, as TWO passes:
- *   1. `active` — the whole feed (all displayable statuses), primary photo only
- *      (`$top=1` Media). This is the fast pass that loads every listing + its
- *      primary photo without transferring 20-50 photos per listing.
- *   2. `active-galleries` — Active + under-contract ONLY, full Media. This is the
- *      small subset whose gallery we actually display, so full photos are only
- *      fetched where needed. Runs after pass 1 and fills in the galleries.
- * Both are independently checkpointed/resumable.
+ * The active/feed-wide backfill, as month-windowed jobs:
+ *   - `active:YYYY-MM` (×12) — the whole feed for that month's ModificationTimestamp
+ *     window, primary photo only (`$top=1` Media). Bounded query, no `$orderby`.
+ *   - `active-galleries` — current Active + under-contract only, full Media (the
+ *     small subset whose gallery we actually display).
+ * Each job's completion is recorded so a re-run skips finished windows.
  */
 export function activeBackfillJobs(): BackfillJob[] {
-  return [
-    {
-      key: 'active',
-      galleries: false,
-      buildParams: (sinceIso) => ({
-        $select: SELECT_FIELDS,
-        $expand: MEDIA_EXPAND_PRIMARY,
-        $orderby: 'ModificationTimestamp',
-        $filter: `${displayableStatusClause()} and ${modSinceClause(sinceIso)}`,
-      }),
+  const jobs: BackfillJob[] = monthWindows(12).map((w) => ({
+    key: `active:${w.label}`,
+    galleries: false,
+    params: {
+      $select: SELECT_FIELDS,
+      $expand: MEDIA_EXPAND_PRIMARY,
+      $filter: `${displayableStatusClause()} and ModificationTimestamp ge ${w.startIso} and ModificationTimestamp lt ${w.endIso}`,
     },
-    {
-      key: 'active-galleries',
-      galleries: true,
-      buildParams: (sinceIso) => ({
-        $select: SELECT_FIELDS,
-        $expand: MEDIA_EXPAND,
-        $orderby: 'ModificationTimestamp',
-        $filter: `${galleryStatusClause()} and ${modSinceClause(sinceIso)}`,
-      }),
+  }));
+  jobs.push({
+    key: 'active-galleries',
+    galleries: true,
+    params: {
+      $select: SELECT_FIELDS,
+      $expand: MEDIA_EXPAND,
+      $filter: `${galleryStatusClause()} and ModificationTimestamp gt ${oneYearAgoIso()}`,
     },
-  ];
+  });
+  return jobs;
 }
 
 /**
  * The sold job(s): your offices' Closed sales over a CloseDate window. One job
- * per office-key field (URL-length safe), each independently checkpointed.
- * Closed listings only show the primary photo (§18.10), so this uses the light
- * primary-only Media expand and stores no galleries.
+ * per office-key field (URL-length safe). Closed listings only show the primary
+ * photo (§18.10), so this uses the light primary-only Media expand.
  */
 export function soldBackfillJobs(startDate: string, endDate: string): BackfillJob[] {
   const clauses = officeFieldClauses();
@@ -591,29 +591,15 @@ export function soldBackfillJobs(startDate: string, endDate: string): BackfillJo
   return clauses.map((clause, i) => ({
     key: `sold:${OFFICE_KEY_FIELDS[i]}:${startDate}:${endDate}`,
     galleries: false,
-    buildParams: (sinceIso) => ({
+    params: {
       $select: SELECT_FIELDS,
       $expand: MEDIA_EXPAND_PRIMARY,
-      $orderby: 'ModificationTimestamp',
-      $filter: `${clause} and ${dateClause}${sinceIso ? ` and ModificationTimestamp ge ${sinceIso}` : ''}`,
-    }),
+      $filter: `${clause} and ${dateClause}`,
+    },
   }));
 }
 
-/** Newest ModificationTimestamp in a raw page (ISO), or null. */
-export function pageMaxModTimestamp(page: Raw[]): string | null {
-  let max: number | null = null;
-  for (const r of page) {
-    const d = date(r.ModificationTimestamp);
-    if (d) {
-      const t = d.getTime();
-      if (max == null || t > max) max = t;
-    }
-  }
-  return max != null ? new Date(max).toISOString() : null;
-}
-
-/** Read a backfill checkpoint (resume point) for a job, or null. */
+/** Read a job's completion marker (non-null ⇒ that window/pass is already done). */
 export async function getBackfillCheckpoint(jobKey: string): Promise<string | null> {
   try {
     const [row] = await db
@@ -629,9 +615,9 @@ export async function getBackfillCheckpoint(jobKey: string): Promise<string | nu
 }
 
 /**
- * Persist the newest processed ModificationTimestamp for a job (resume point).
- * Best-effort: if the checkpoint table is missing (migration 0020 not applied),
- * this must NOT fail the backfill — it just runs without resume support.
+ * Mark a job (month window or the gallery pass) complete. Best-effort: if the
+ * checkpoint table is missing (migration 0020 not applied), this must NOT fail
+ * the backfill — it just runs every window each time (no resume).
  */
 export async function setBackfillCheckpoint(jobKey: string, iso: string): Promise<void> {
   try {

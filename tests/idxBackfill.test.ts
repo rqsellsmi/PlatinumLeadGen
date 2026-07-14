@@ -1,30 +1,29 @@
 import { describe, it, expect } from 'vitest';
 import { activeBackfillJobs } from '../lib/idxSync';
 
-describe('activeBackfillJobs (two-pass photo fetch)', () => {
+describe('activeBackfillJobs (month-windowed, two-pass photos)', () => {
   const jobs = activeBackfillJobs();
 
-  it('is a feed-wide primary pass then an Active/UC gallery pass', () => {
-    expect(jobs.map((j) => j.key)).toEqual(['active', 'active-galleries']);
-    expect(jobs[0].galleries).toBe(false);
-    expect(jobs[1].galleries).toBe(true);
+  it('is 12 monthly feed-wide windows plus one gallery pass', () => {
+    const monthly = jobs.filter((j) => j.key.startsWith('active:'));
+    expect(monthly).toHaveLength(12);
+    expect(jobs[jobs.length - 1].key).toBe('active-galleries');
+    expect(monthly.every((j) => j.galleries === false)).toBe(true);
+    expect(jobs[jobs.length - 1].galleries).toBe(true);
   });
 
-  it('primary pass fetches only the top photo; gallery pass fetches all', () => {
-    const primary = jobs[0].buildParams(null);
-    const gallery = jobs[1].buildParams(null);
-    expect(primary.$expand).toContain('$top=1');
-    expect(gallery.$expand).not.toContain('$top=1');
-    // The gallery pass only targets gallery-eligible statuses.
-    expect(gallery.$filter).toContain('ActiveUnderContract');
-    // Both order by ModificationTimestamp so a partial run resumes without gaps.
-    expect(primary.$orderby).toBe('ModificationTimestamp');
-    expect(gallery.$orderby).toBe('ModificationTimestamp');
+  it('uses bounded month windows and NO $orderby (the sort that timed out)', () => {
+    const monthly = jobs[0];
+    expect(monthly.params.$orderby).toBeUndefined();
+    expect(monthly.params.$filter).toContain('ModificationTimestamp ge');
+    expect(monthly.params.$filter).toContain('ModificationTimestamp lt');
   });
 
-  it('resumes inclusively from a checkpoint (ge), fresh run is exclusive (gt)', () => {
-    expect(jobs[0].buildParams(null).$filter).toContain('ModificationTimestamp gt');
-    const resumed = jobs[0].buildParams('2026-01-01T00:00:00.000Z').$filter;
-    expect(resumed).toContain('ModificationTimestamp ge 2026-01-01T00:00:00.000Z');
+  it('primary passes fetch only the top photo; the gallery pass fetches all', () => {
+    const monthly = jobs[0];
+    const gallery = jobs[jobs.length - 1];
+    expect(monthly.params.$expand).toContain('$top=1');
+    expect(gallery.params.$expand).not.toContain('$top=1');
+    expect(gallery.params.$filter).toContain('ActiveUnderContract');
   });
 });

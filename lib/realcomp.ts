@@ -25,7 +25,7 @@ const MAX_AUTH_RETRIES = 3;
 // those with backoff instead of failing the whole run; give each request its own
 // abort timeout so a hung connection becomes a retry, not a dead run.
 const MAX_NET_RETRIES = 5;
-const REQUEST_TIMEOUT_MS = 90_000;
+const REQUEST_TIMEOUT_MS = 180_000;
 const RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
