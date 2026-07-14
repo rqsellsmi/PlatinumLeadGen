@@ -3,11 +3,13 @@ import {
   parseOfficeKeys,
   officeFieldClauses,
   serializeWaterfrontFeatures,
+  serializeEnumList,
   buildAddress,
   computeBaths,
   extractPhotos,
   mapRealcompListing,
   cleanCity,
+  SELECT_FIELDS,
 } from '../lib/idxSync';
 
 describe('office keys', () => {
@@ -158,5 +160,65 @@ describe('mapRealcompListing', () => {
 
   it('returns null when ListingKey is missing', () => {
     expect(mapRealcompListing({ StandardStatus: 'Active' })).toBeNull();
+  });
+
+  it('maps the buyer-relevant detail fields (0021)', () => {
+    const row = mapRealcompListing({
+      ListingKey: 'RC3',
+      StandardStatus: 'Closed',
+      ModificationTimestamp: '2025-03-02T10:00:00Z',
+      Heating: ['ForcedAir'],
+      Cooling: ['CentralAir'],
+      FireplacesTotal: '1',
+      FireplaceFeatures: ['Gas'],
+      LaundryFeatures: ['MainLevel'],
+      AssociationFee: '260',
+      AssociationFeeFrequency: 'Monthly',
+      TaxAnnualAmount: '4510.5',
+      TaxYear: '2025',
+      WaterSource: ['Public'],
+      Sewer: ['PublicSewer'],
+      Appliances: ['Dishwasher', 'Microwave', 'Dishwasher'],
+      Levels: 'One',
+      StoriesTotal: '1',
+    })!;
+    expect(row.heating).toBe('Forced Air');
+    expect(row.cooling).toBe('Central Air');
+    expect(row.fireplacesTotal).toBe(1);
+    expect(row.fireplaceFeatures).toBe('Gas');
+    expect(row.laundryFeatures).toBe('Main Level');
+    expect(row.associationFee).toBe(260);
+    expect(row.associationFeeFrequency).toBe('Monthly');
+    expect(row.taxAnnualAmount).toBe(4510.5);
+    expect(row.taxYear).toBe(2025);
+    expect(row.waterSource).toBe('Public');
+    expect(row.sewer).toBe('Public Sewer');
+    // Deduplicated enum list.
+    expect(row.appliances).toBe('Dishwasher, Microwave');
+    expect(row.storiesTotal).toBe(1);
+  });
+});
+
+describe('serializeEnumList', () => {
+  it('spaces camelCase and joins with commas', () => {
+    expect(serializeEnumList(['ForcedAir', 'CentralAir'])).toBe('Forced Air, Central Air');
+  });
+  it('accepts a single scalar value', () => {
+    expect(serializeEnumList('Public')).toBe('Public');
+  });
+  it('dedupes and drops blanks', () => {
+    expect(serializeEnumList(['Gas', 'Gas', '', null])).toBe('Gas');
+  });
+  it('returns null for empty / nullish input', () => {
+    expect(serializeEnumList(null)).toBeNull();
+    expect(serializeEnumList([])).toBeNull();
+  });
+});
+
+describe('SELECT_FIELDS', () => {
+  it('requests the new buyer-relevant fields from the feed', () => {
+    for (const f of ['Heating', 'Cooling', 'AssociationFee', 'TaxAnnualAmount', 'LaundryFeatures']) {
+      expect(SELECT_FIELDS).toContain(f);
+    }
   });
 });

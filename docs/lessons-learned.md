@@ -353,3 +353,56 @@ so full galleries were never needed for the bulk of the feed.)
   build kept hitting is "the vendor's OData differs from the spec." It fails fast
   (a 400 on the first page, not a wasted hour) if unsupported, so it's cheap to
   try — but keep a fetch-a-few-and-pick-lowest-Order fallback in mind.
+
+## 14. Texting & refinement session (round 1 — refinements)
+
+- **"Auto-populate like the other ones" = wire the same behavior, don't invent a
+  new one.** The exit-intent overlay had a plain address input while the hero and
+  modal used Google Places autocomplete. The fix was to attach the *same*
+  autocomplete, not build a different suggestion mechanism. When a user asks for
+  parity with an existing surface, grep how that surface does it and reuse the
+  exact pattern (here: the `attach()` Places-autocomplete closure and the
+  `OPEN_VALUATION_EVENT` handoff, extended to carry lat/lng).
+- **A shared modal that a second surface feeds needs its handoff widened, not
+  forked.** The overlay hands off to `HeroValuation`'s modal via a `CustomEvent`.
+  Rather than give the overlay its own valuation flow, the event `detail` grew
+  `propertyLat/propertyLng` and the single consumer read them — one code path,
+  two entry points.
+- **The expand-the-feed path is clean *because* the upsert is column-derived.**
+  `UPDATE_ON_CONFLICT` is built from `getTableColumns(idxListings)`, so adding a
+  column to the schema + the `mapRealcompListing` return is all it takes — the
+  upsert picks it up automatically. Adding ~35 fields touched three spots
+  (schema, `SELECT_FIELDS`, the mapper) and needed no upsert changes. When you
+  design a generic conflict-set once, later widenings are cheap.
+- **Generalize the enum serializer the moment you need it twice.**
+  `serializeWaterfrontFeatures` was one-off; the moment a dozen more enum
+  multi-values (Heating, Appliances, InteriorFeatures…) needed the same
+  camelCase→spaced comma-list treatment, promoting it to `serializeEnumList`
+  (with de-dupe) and delegating the old name kept every call site consistent and
+  the tests green.
+- **Cache a paid per-coordinate lookup by a coarse GRID cell, and store each
+  result's own coordinates.** Google Places Nearby Search is billed per request.
+  Keying the cache by `lat/lng` rounded to 3 decimals (~110 m) lets every listing
+  on the same block reuse one lookup (repeat views cost $0), and storing each
+  POI's own lat/lng means the exact per-home distance is recomputed from any home
+  in the cell — accurate *and* cheap. Reused the existing `haversine` from
+  routing rather than adding a second distance function.
+- **Feature-flag anything that spends money, and degrade to nothing.**
+  `areaPoiEnabled()` is off without a key and honors `LISTING_AREA_POI=0`; the
+  section renders map-only (free Embed API) or is omitted entirely on any
+  failure. `Promise.allSettled` across categories means one failing category
+  (or a partial 400) doesn't sink the whole area report.
+- **A visual mockup is the intent, not every literal field.** The owner's sold-
+  listing mockup showed HOA/taxes/fireplace/heating/laundry/water-sewer that the
+  feed didn't carry yet. Reading it as "render this shape, and expand the feed to
+  fill it" (with graceful omission until backfilled) beat either faking the
+  fields or dropping them. The one deliberate deviation the owner asked for (the
+  POI map) and the one they vetoed (schools *in that section*, while keeping the
+  MLS School-district *fact*) were both honored precisely — confirm the scope
+  forks, then match them exactly.
+- **Still can't run the feed/Places from a code-only session** (no DB, no
+  Realcomp/Places creds — same as §12). Everything is defensive (missing RESO
+  fields → NULL → hidden; POI failures → null) and verified by typecheck + build
+  + unit tests on the pure logic (`serializeEnumList`, `geoKey`, the
+  schools-excluded category guard). Live validation of the new field names and
+  Nearby Search is the owner's first-connection step.

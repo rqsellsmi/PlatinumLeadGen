@@ -55,7 +55,7 @@ export default async function HomePage() {
             className="absolute inset-0 -z-10 bg-gradient-to-r from-[rgba(20,20,24,0.78)] via-[rgba(20,20,24,0.55)] to-[rgba(20,20,24,0.3)]"
           />
           <div className="mx-auto w-full max-w-6xl">
-            <div className="max-w-[680px]">
+            <div className="max-w-[680px] lg:max-w-[760px]">
               <h1 className="text-5xl font-black leading-[1.0] tracking-tight text-white sm:text-7xl">
                 Your home is here. So are we.
               </h1>

@@ -846,6 +846,47 @@ export const idxListings = pgTable(
     waterfrontFeatures: text('waterfront_features'), // serialized comma-list from enum multi-value
     waterBodyName: text('water_body_name'),
     waterFrontageFeet: real('water_frontage_feet'),
+    // Buyer-relevant detail (0021) — the "data sheet" fields buyers search on.
+    // All text columns are serialized comma-lists from RESO enum multi-values
+    // (Heating, Appliances, etc.); numeric/bool are scalar RESO fields. text
+    // (not varchar) per the external-feed rule — lengths aren't ours to bound.
+    architecturalStyle: text('architectural_style'),
+    levels: text('levels'), // "One", "Two", "Tri-Level" (RESO Levels enum)
+    storiesTotal: integer('stories_total'),
+    roomsTotal: integer('rooms_total'),
+    heating: text('heating'),
+    cooling: text('cooling'),
+    fireplacesTotal: integer('fireplaces_total'),
+    fireplaceFeatures: text('fireplace_features'),
+    laundryFeatures: text('laundry_features'),
+    interiorFeatures: text('interior_features'),
+    exteriorFeatures: text('exterior_features'),
+    appliances: text('appliances'),
+    flooring: text('flooring'),
+    constructionMaterials: text('construction_materials'),
+    roof: text('roof'),
+    foundationDetails: text('foundation_details'),
+    parkingFeatures: text('parking_features'),
+    attachedGarageYN: boolean('attached_garage_yn'),
+    poolPrivateYN: boolean('pool_private_yn'),
+    poolFeatures: text('pool_features'),
+    patioAndPorchFeatures: text('patio_and_porch_features'),
+    lotFeatures: text('lot_features'),
+    lotSizeDimensions: text('lot_size_dimensions'),
+    view: text('view'),
+    waterSource: text('water_source'),
+    sewer: text('sewer'),
+    utilities: text('utilities'),
+    newConstructionYN: boolean('new_construction_yn'),
+    zoning: text('zoning'),
+    // HOA / association + costs.
+    associationYN: boolean('association_yn'),
+    associationFee: real('association_fee'),
+    associationFeeFrequency: text('association_fee_frequency'), // "Monthly", "Annually"
+    associationFeeIncludes: text('association_fee_includes'),
+    associationAmenities: text('association_amenities'),
+    taxAnnualAmount: real('tax_annual_amount'),
+    taxYear: integer('tax_year'),
     // Media / marketing.
     photoUrl: text('photo_url'), // primary photo (lowest Order); text — external URL, unbounded (0017)
     photosCount: integer('photos_count'),
@@ -972,6 +1013,31 @@ export const marketNarratives = pgTable(
   }),
 );
 export type MarketNarrativeRow = typeof marketNarratives.$inferSelect;
+
+/**
+ * Cached "neighborhood highlights" (nearby restaurants, parks, coffee, groceries,
+ * golf, etc.) from Google Places Nearby Search, keyed by a coarse coordinate grid
+ * cell (~110 m) so listings in the same block reuse one lookup and repeat views
+ * never re-bill Google. `payloadJson` holds the POIs with their own coordinates,
+ * so exact per-home distances are recomputed at render from the actual listing
+ * lat/lng. School POIs are intentionally never fetched or stored.
+ */
+export const areaPoiCache = pgTable(
+  'area_poi_cache',
+  {
+    id: serial('id').primaryKey(),
+    geoKey: varchar('geo_key', { length: 40 }).notNull(), // "lat.toFixed(3),lng.toFixed(3)"
+    latitude: real('latitude'),
+    longitude: real('longitude'),
+    payloadJson: text('payload_json'), // JSON array of { category, name, lat, lng, vicinity }
+    error: text('error'),
+    fetchedAt: timestamp('fetched_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    geoIdx: uniqueIndex('area_poi_cache_geo_idx').on(t.geoKey),
+  }),
+);
+export type AreaPoiCacheRow = typeof areaPoiCache.$inferSelect;
 
 /**
  * Resumable-backfill checkpoints. Keyed by a job key (e.g. "active" or

@@ -42,7 +42,7 @@ export default function HeroSection({
         className="absolute inset-0 -z-10 bg-gradient-to-r from-[rgba(20,20,24,0.78)] via-[rgba(20,20,24,0.55)] to-[rgba(20,20,24,0.25)]"
       />
       <div className="mx-auto w-full max-w-6xl">
-        <div className="max-w-[680px]">
+        <div className="max-w-[680px] lg:max-w-[760px]">
           {eyebrow ? (
             <p className="mb-5 text-[13px] font-bold uppercase tracking-[0.14em] text-white/90">
               {eyebrow} · Free Home Valuation
