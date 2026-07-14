@@ -49,6 +49,11 @@ export const SELECT_FIELDS = [
 
 // Media is a NavigationProperty — expand it to pull the photo set (IDX spec §2.5).
 export const MEDIA_EXPAND = 'Media($select=MediaURL,Order,MediaCategory)';
+// Primary-photo-only expand: for listings whose gallery we don't store (Closed/
+// Pending and the whole feed-wide primary pass), pull just the lowest-Order
+// photo instead of all 20-50. This is the big backfill speedup — the fetch, not
+// just the storage, is limited to what we actually display.
+export const MEDIA_EXPAND_PRIMARY = 'Media($select=MediaURL,Order,MediaCategory;$orderby=Order;$top=1)';
 
 // Enum values are sent as quoted strings in the filter. If the live $metadata
 // shows StandardStatus as a namespaced enum requiring a different form, change
@@ -353,7 +358,15 @@ async function replacePhotos(byListing: Map<string, NewIdxListingPhoto[]>): Prom
  * written. Photos are only touched for listings that actually carry a Media set
  * (so a lean incremental record without $expand doesn't wipe existing photos).
  */
-export async function upsertRawListings(rawRecords: Raw[]): Promise<number> {
+export async function upsertRawListings(
+  rawRecords: Raw[],
+  opts: { galleries?: boolean } = {},
+): Promise<number> {
+  // When false (the feed-wide primary pass), don't touch idx_listing_photos at
+  // all — we only fetched the primary photo, so there's no gallery to store and
+  // we must not clobber galleries a later gallery pass writes. The primary photo
+  // still lands on idx_listings.photoUrl via mapRealcompListing either way.
+  const storeGalleries = opts.galleries ?? true;
   const mapped: NewIdxListing[] = [];
   const photosByListing = new Map<string, NewIdxListingPhoto[]>();
 
@@ -361,6 +374,7 @@ export async function upsertRawListings(rawRecords: Raw[]): Promise<number> {
     const row = mapRealcompListing(raw);
     if (!row) continue;
     mapped.push(row);
+    if (!storeGalleries) continue;
     // Store the full photo gallery only for gallery-eligible statuses (Active +
     // Active Under Contract). §18.10 restricts pending/sold to the primary
     // photo, which already lives on idx_listings.photoUrl, so we don't store
@@ -508,32 +522,65 @@ export async function runIdxSync(fetchFn: FetchFn): Promise<SyncResult> {
  */
 export interface BackfillJob {
   key: string;
+  /** Whether this pass stores full photo galleries (full Media) or just the
+   *  primary photo (light Media). */
+  galleries: boolean;
   buildParams: (sinceIso: string | null) => Record<string, string>;
 }
 
-/** The active/feed-wide job (all Active/Pending/Closed, 12-month window). */
-export function activeBackfillJob(): BackfillJob {
-  return {
-    key: 'active',
-    buildParams: (sinceIso) => {
-      const floor = oneYearAgoIso();
-      // Resume is inclusive (ge) so a record on the boundary timestamp is never
-      // skipped; upserts are idempotent so re-fetching it is harmless.
-      const cursor = sinceIso && sinceIso > floor ? sinceIso : floor;
-      const op = sinceIso ? 'ge' : 'gt';
-      return {
+/** `ModificationTimestamp` clause: exclusive of the 12-month floor on a fresh
+ *  run, inclusive of the checkpoint on resume (idempotent, so no boundary gap). */
+function modSinceClause(sinceIso: string | null): string {
+  const floor = oneYearAgoIso();
+  const cursor = sinceIso && sinceIso > floor ? sinceIso : floor;
+  return `ModificationTimestamp ${sinceIso ? 'ge' : 'gt'} ${cursor}`;
+}
+
+/** OData clause matching only the gallery-eligible statuses (Active + UC). */
+function galleryStatusClause(): string {
+  return `(${FULL_GALLERY_STATUSES.map((s) => enumEq('StandardStatus', s)).join(' or ')})`;
+}
+
+/**
+ * The active/feed-wide backfill, as TWO passes:
+ *   1. `active` — the whole feed (all displayable statuses), primary photo only
+ *      (`$top=1` Media). This is the fast pass that loads every listing + its
+ *      primary photo without transferring 20-50 photos per listing.
+ *   2. `active-galleries` — Active + under-contract ONLY, full Media. This is the
+ *      small subset whose gallery we actually display, so full photos are only
+ *      fetched where needed. Runs after pass 1 and fills in the galleries.
+ * Both are independently checkpointed/resumable.
+ */
+export function activeBackfillJobs(): BackfillJob[] {
+  return [
+    {
+      key: 'active',
+      galleries: false,
+      buildParams: (sinceIso) => ({
+        $select: SELECT_FIELDS,
+        $expand: MEDIA_EXPAND_PRIMARY,
+        $orderby: 'ModificationTimestamp',
+        $filter: `${displayableStatusClause()} and ${modSinceClause(sinceIso)}`,
+      }),
+    },
+    {
+      key: 'active-galleries',
+      galleries: true,
+      buildParams: (sinceIso) => ({
         $select: SELECT_FIELDS,
         $expand: MEDIA_EXPAND,
         $orderby: 'ModificationTimestamp',
-        $filter: `${displayableStatusClause()} and ModificationTimestamp ${op} ${cursor}`,
-      };
+        $filter: `${galleryStatusClause()} and ${modSinceClause(sinceIso)}`,
+      }),
     },
-  };
+  ];
 }
 
 /**
  * The sold job(s): your offices' Closed sales over a CloseDate window. One job
  * per office-key field (URL-length safe), each independently checkpointed.
+ * Closed listings only show the primary photo (§18.10), so this uses the light
+ * primary-only Media expand and stores no galleries.
  */
 export function soldBackfillJobs(startDate: string, endDate: string): BackfillJob[] {
   const clauses = officeFieldClauses();
@@ -543,9 +590,10 @@ export function soldBackfillJobs(startDate: string, endDate: string): BackfillJo
   const dateClause = `${enumEq('StandardStatus', 'Closed')} and CloseDate ge ${startDate} and CloseDate lt ${endDate}`;
   return clauses.map((clause, i) => ({
     key: `sold:${OFFICE_KEY_FIELDS[i]}:${startDate}:${endDate}`,
+    galleries: false,
     buildParams: (sinceIso) => ({
       $select: SELECT_FIELDS,
-      $expand: MEDIA_EXPAND,
+      $expand: MEDIA_EXPAND_PRIMARY,
       $orderby: 'ModificationTimestamp',
       $filter: `${clause} and ${dateClause}${sinceIso ? ` and ModificationTimestamp ge ${sinceIso}` : ''}`,
     }),

@@ -200,8 +200,6 @@ export default async function LeadDetailPage({ params }: { params: { id: string 
         record={propertyRecord?.record ?? null}
         fetchedAt={propertyRecord?.fetchedAt}
         provider={propertyRecord?.provider}
-        raw={propertyRecord?.raw}
-        showRaw
       />
 
       <Card>

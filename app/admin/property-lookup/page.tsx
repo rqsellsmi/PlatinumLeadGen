@@ -84,8 +84,6 @@ export default async function PropertyLookupPage({
             record={result.record}
             fetchedAt={result.fetchedAt}
             provider={result.provider}
-            raw={result.raw}
-            showRaw
           />
         </div>
       ) : null}
