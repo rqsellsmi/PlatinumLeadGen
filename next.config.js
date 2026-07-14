@@ -12,7 +12,8 @@ const ContentSecurityPolicy = [
   "img-src 'self' data: https: https://maps.gstatic.com https://maps.googleapis.com https://www.google-analytics.com https://www.googletagmanager.com",
   "font-src 'self' https://fonts.gstatic.com data:",
   "connect-src 'self' https://maps.googleapis.com https://api.rentcast.io https://www.google-analytics.com https://www.googletagmanager.com",
-  "frame-src 'self' https://www.googletagmanager.com",
+  // https://www.google.com/maps/embed serves the listing-page Neighborhood map iframe.
+  "frame-src 'self' https://www.googletagmanager.com https://www.google.com",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
