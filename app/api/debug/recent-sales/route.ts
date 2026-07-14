@@ -66,6 +66,8 @@ export async function GET() {
   }
 
   return NextResponse.json({
+    buildSha: process.env.VERCEL_GIT_COMMIT_SHA ?? 'nosha',
+    deploymentId: process.env.VERCEL_DEPLOYMENT_ID ?? 'none',
     dbHost,
     keysCount: keys.length,
     has_25248113: keys.includes('25248113'),
