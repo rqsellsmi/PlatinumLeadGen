@@ -1,3 +1,99 @@
+# Session Summary — Listing/Valuation Fixes + IDX Backfill Hardening
+
+Branch: `claude/listing-valuation-fixes-1yqjax`. Migrations added: **0017–0020**
+(0016 pre-existing). Full lessons in `docs/lessons-learned.md` §13.
+
+## What was done
+
+### Consumer-facing IDX + valuation
+- **Listing detail pages** (`/listing/[listingKey]`, new): every displayed IDX
+  listing (similar-homes cards + recent-sales tiles) links here. Full gallery for
+  Active + ActiveUnderContract; primary photo only for Pending/Closed (§18.10).
+  Office credit + Realcomp logo + copyright immediately after the property body
+  (§18.3.4), all disclaimers, unbranded virtual-tour link. **NOINDEX** by default
+  (`IDX_INDEX_LISTINGS=1` to flip). Cards/tiles made clickable; recent-sales
+  `HomeRecentSale` carries `listingKey` (null for CSV closings, which have no
+  detail page).
+- **Recent-sales tiles** (home + city): confirmed listing-side office only
+  (list/co-list `*OfficeMlsId` ∈ `REALCOMP_OFFICE_KEYS`); excluded closed leases.
+- **Similar Homes ranking**: replaced price-band + nearest-coords with a
+  multi-field similarity score (same-city + geo distance, beds, baths, sqft,
+  property family, year, price); subject attributes threaded from the report
+  `basics`. Leases excluded from Similar Homes For Sale, Recently Sold, and the
+  market stats.
+- **Explore Your Market** tiles: prefer a configured blob image
+  (`lib/cityImages.ts`, slug→URL) then the most-recent office-sale photo.
+- **Realcomp logo fix**: file was committed as `Realcomp Logo.png` while code
+  referenced `/assets/realcomp-logo.png` (404) — renamed + fixed the 115×55
+  aspect ratio (was forced square).
+- **Market Report redesign** (brokerage card): median + YoY pill, stat rail
+  (median $/sqft, avg DOM, list-to-sale, homes sold 90d, % above asking), a
+  trailing-12-month median bar chart, source footer (`getCityMarketReport()`).
+  Now on the valuation page AND every city page. Homepage below-hero metrics
+  switched to the same four metrics as the city pages (`MarketStatsBar`
+  refactored to shared normalized props, fed by `home_page_metrics`).
+- **AI market narrative** (`lib/marketNarrative.ts`): 2–3 sentence human summary
+  via the Anthropic API (Haiku 4.5; `ANTHROPIC_API_KEY`/`ANTHROPIC_MODEL`),
+  cached per city (regenerated only when the stats signature changes),
+  deterministic fallback with no key. Output guaranteed **free of em/en dashes**
+  (owner request; `stripDashes` + unit test).
+- **Footer address** reflects the page's office: linked office
+  (`locations.officeId`) → closest active office by coordinates → Brighton
+  default (`getFooterOffice()`; `SiteFooter` is now async).
+
+### Lead data + property records
+- **Unnamed-lead pricing**: `/api/valuation` backfills the estimate onto the
+  matching address-only partial lead (`email IS NULL`) so "Unnamed lead" rows
+  carry a price. Does NOT set `valuations.leadId` (that would open the
+  pre-contact reveal gate) — it only copies the numbers.
+- **Full property record** on agent + admin lead pages and a new
+  **`/admin/property-lookup`** tool. ATTOM `property/expandedprofile` (owner of
+  record — public record in MI — tax/assessment, full building detail); RentCast
+  `/properties` fallback. Cached by address (`property_records`, migration
+  **0018**). `getPropertyRecord()` = provider dispatch + cache + usage logging.
+  Display is agent-friendly: **no raw-JSON dump**, ATTOM's ALL-CAPS values
+  title-cased at render.
+
+### Ops: scheduled jobs + IDX backfill
+- **Scheduled-jobs 404 fix**: `vercel.json` declared **6** crons but Hobby allows
+  **2** (and Vercel Cron never sends the `x-cron-secret` these routes require), so
+  production wasn't deploying and every `/api/cron/*` 404'd. Emptied `vercel.json`
+  crons; moved the daily/weekly jobs (cleanup-rate-limits, score-maintenance,
+  broker-digest) to a new `scheduled-daily.yml` GitHub Actions workflow; trimmed a
+  trailing slash from `DEPLOY_URL` in every workflow. The live 404 itself was
+  `DEPLOY_URL` pointing at the wrong host → set it to the pre-launch URL
+  `https://platinum-lead-gen.vercel.app`.
+- **IDX backfill saga** (each failure unmasked the next — lessons §13):
+  varchar(100) overflow → migration **0016** applied + **0017** (widen URL
+  columns) · OData enum literal `'Active Under Contract'` → **`ActiveUnderContract`**
+  (enum member names have no spaces) · token expiry mid-run → re-mint on **every**
+  401 (was a one-shot latch) · transient `UND_ERR_HEADERS_TIMEOUT` → per-request
+  90s abort timeout + backoff retry on network/5xx · **resumable backfill**
+  (migration **0020** `idx_backfill_checkpoints`; order by ModificationTimestamp
+  asc, checkpoint per page, resume from it, `--restart` to force full) ·
+  **two-pass photo fetch** (feed-wide primary-only `$expand=Media(...;$top=1)` +
+  Active/UC-only full-gallery pass; ~10× less photo transfer) · job timeout
+  120 → 350 min. Photo policy: galleries for Active + ActiveUnderContract only;
+  primary-only for Pending/Closed; photos "follow" status across syncs.
+
+## What still needs to be done
+- Apply migrations **0017–0020** on every Neon branch the app + GitHub Actions
+  use (and 0016 if any branch still lacks it).
+- Cloud env: `ANTHROPIC_API_KEY` (+ optional `ANTHROPIC_MODEL`); confirm the ATTOM
+  plan includes `property/expandedprofile`; set `DEPLOY_URL` and `SITE_URL` to the
+  live URL (update at the `www.remax-platinumonline.com` switchover);
+  `IDX_INDEX_LISTINGS` only if listing pages should be indexed.
+- Run the `active` backfill to completion (two-pass, resumable). Verify the
+  `ActiveUnderContract` literal against the live feed (`standard_status`/
+  `mls_status`) and that `$expand=Media(...;$top=1)` is accepted.
+- Populate `lib/cityImages.ts` with real blob URLs; set office
+  coordinates/addresses so the footer's closest-office logic resolves.
+
+## Lessons
+See `docs/lessons-learned.md` §13.
+
+---
+
 # Session Summary — IDX Feed Integration (Realcomp RAPI v2.4)
 
 Branch: `claude/idx-feed-integration-plan-wqpm0b`. Migration added: **0015**.

@@ -247,3 +247,109 @@ a county-suffixed city/area enum — exceeded the column's 100-char cap. Lessons
   data is the real bug** — fix the column type, not the row. `ALTER COLUMN … TYPE
   text` is idempotent (no-op if already text), so the fix is safe to re-run per
   Neon branch.
+
+## 13. Listing/valuation fixes + IDX backfill hardening session
+
+### 13a. The IDX backfill "one fix unmasks the next" chain
+Getting the `active` backfill to complete took a sequence of fixes, each only
+visible after the previous one let the run get further. The meta-lesson: **for a
+long external-feed pull, expect a chain — instrument progress (row counts,
+per-page logs) so each failure surfaces at a specific point, and fix forward.**
+The chain: varchar(100) overflow at 50k (migration 0016 had to actually be
+applied to the DB the job writes to; 0017 widened the URL columns) → OData enum
+literal → token expiry at 56k → transient network timeout at ~1h40m → job
+timeout at 2h → photo-fetch volume. None were visible until the one before was
+fixed.
+
+- **OData enum members are space-less tokens; a spaced literal fails at query
+  validation, not silently.** `StandardStatus` is an `Edm.EnumType`, so the
+  filter constant is the member NAME: `ActiveUnderContract`, not
+  `'Active Under Contract'` (the feed returns `400 … 'Active Under Contract' is
+  not a valid enumeration type constant`). Single-word statuses (`Active`,
+  `Closed`) hid this because name == display. The feed also *returns* the
+  space-less token, so it's what you store and compare against. Centralize the
+  status list in ONE constant so the fix is a single edit (it was).
+- **A one-shot retry latch does not survive a long paginated pull.** The 401
+  self-heal used a boolean "retried once" flag for the WHOLE pagination loop; a
+  backfill outlives the token TTL and hits 401 repeatedly, so the second expiry
+  threw. Same shape for transient network errors. Fix: a per-URL retry COUNTER
+  that **resets on every success**, so each fresh failure gets its own budget and
+  only *consecutive* failures give up.
+- **Undici has its own headers/body timeouts that kill a hung request with no
+  retry.** `UND_ERR_HEADERS_TIMEOUT` ended a 1h40m run. Give each request an
+  explicit `AbortController` timeout and treat the abort/network throw as
+  retryable (backoff) — a slow page becomes a retry, not a dead run. Add 5xx/429/
+  408 to the retryable set too.
+
+### 13b. Making a long backfill resumable — order + checkpoint
+- **"Save the work so a retry is fast" = order by a monotonic cursor + checkpoint
+  after each committed page.** We order by `ModificationTimestamp` ascending and,
+  after each upserted page, store the page's max timestamp per job
+  (`idx_backfill_checkpoints`). On restart the query resumes `>= checkpoint`.
+  **Ascending order is the load-bearing part**: it guarantees everything below the
+  checkpoint is already saved (no gaps), which a naive "resume from max(saved)"
+  over an unordered pull does NOT — unordered, there are unsaved rows with
+  timestamps below the current max, and resuming past them loses data.
+- **Resume must be scoped per job, not global.** `max(ModificationTimestamp)`
+  across the whole table is wrong when multiple backfills (active feed-wide + sold
+  windows) write to it — a sold row with a recent modification would make the
+  active pass skip everything. A per-job checkpoint key avoids the cross-
+  contamination.
+- **A resilience feature must degrade to a no-op if its table isn't migrated.**
+  The checkpoint WRITE has to be best-effort (try/catch) so a not-yet-applied
+  0020 can't turn "resumable" into a brand-new failure mode that kills the run.
+
+### 13c. Storage-limiting is not fetch-limiting (measure where the time goes)
+The single most impactful speedup: we had already limited which listings' photo
+**galleries we WRITE** (Active + under-contract only), and *assumed that made the
+sync lean*. It didn't — the sync still **FETCHED** every photo of every listing
+(`$expand=Media`) and threw the Closed/Pending galleries away, transferring ~all
+photos for the whole ~300k feed. **When a job is slow, measure whether the cost
+is in the fetch or the write; don't assume a storage optimization touched the
+transfer.** The fix is a two-pass fetch: a feed-wide **primary-only** pass
+(`$expand=Media($orderby=Order;$top=1)`) plus a small **Active/UC-only**
+full-gallery pass. `upsertRawListings(records, { galleries })` makes pass 1 skip
+the photo table entirely. ~10× less photo transfer, galleries still correct.
+(§18.10 helped scope this: Pending/Closed can only ever show the primary photo,
+so full galleries were never needed for the bulk of the feed.)
+
+### 13d. Vercel Hobby crons + the "connectable-host 404" signal
+- **Hobby caps a project at 2 cron jobs, daily-only; a `vercel.json` with more
+  fails the deployment** — and a failed production deployment makes the WHOLE
+  domain 404, which is exactly what the GitHub-Actions cron ping hit. Also,
+  **Vercel Cron never sends a custom header**, so routes gated on
+  `x-cron-secret` can't be triggered by `vercel.json` anyway — GitHub Actions is
+  the real trigger. Removing the `vercel.json` crons fixed both.
+- **A 404 from a host that connects (vs a 401, or a connection error) means "no
+  app is served here," not "auth failed"** — wrong/stale `DEPLOY_URL` or a
+  never-deployed project. The decisive test the sandbox couldn't run (the agent
+  proxy blocks arbitrary egress; `ENOTFOUND`/`403 CONNECT tunnel failed` are proxy
+  artifacts, not the target's response): **open the URL logged-out in a browser** —
+  site loads (public, fine), a Vercel login wall (Deployment Protection), or a 404
+  (no deployment). We reasoned it to a wrong `DEPLOY_URL`, and the owner pointed it
+  at the real pre-launch `*.vercel.app`.
+
+### 13e. Product/compliance details worth keeping
+- **Don't set a key that opens a gate.** Copying the AVM estimate onto an unnamed
+  partial lead is fine; setting `valuations.leadId` would have bypassed the
+  pre-contact reveal gate. Copy the numbers, don't create the link.
+- **Provider raw data is not user-facing — and prettify at RENDER, not in the
+  cached parse.** ATTOM returns ALL-CAPS values and codes; title-casing them at
+  display time (a small `pretty()` in the component) means the 30-day-cached
+  `property_records` rows benefit immediately, with no re-fetch. Also: agents/
+  admins do not want a raw-JSON dump — a formatted "About this home" is the
+  deliverable.
+- **"No em dashes" (or any hard output constraint on LLM copy) needs belt AND
+  suspenders.** Instruct it in the prompt AND strip in code — models still emit
+  them. Unit-test both the stripper and the deterministic fallback (which must
+  also obey the rule).
+- **An async React Server Component can be a JSX child.** Making `SiteFooter`
+  `async` and letting it resolve its own context (the office to show) typechecks
+  and works in Next 14 here — cleaner than threading an `office` prop through
+  every page. Callers pass only lightweight context (`locationId`/coords) and the
+  component defaults to Brighton when given none.
+- **`$expand` nested options are a Realcomp-quirk risk to validate live.**
+  `$expand=Media($orderby=Order;$top=1)` is standard RESO, but the pattern this
+  build kept hitting is "the vendor's OData differs from the spec." It fails fast
+  (a 400 on the first page, not a wasted hour) if unsupported, so it's cheap to
+  try — but keep a fetch-a-few-and-pick-lowest-Order fallback in mind.
