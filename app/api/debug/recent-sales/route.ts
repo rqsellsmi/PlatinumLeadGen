@@ -3,12 +3,14 @@
  * Reports what the RUNNING deployment actually sees: which DB host it connects
  * to, whether its live REALCOMP_OFFICE_KEYS include the office in question, what
  * the homepage's own getFeaturedRecentSales() returns, and the Torrey row
- * straight from the DB. Secret-gated so it isn't public.
+ * straight from the DB. Guarded by the admin session — just sign in at /admin
+ * in the same browser, then open this URL.
  *
- *   GET /api/debug/recent-sales?secret=<CRON_SECRET>
+ *   GET /api/debug/recent-sales   (admin session required)
  */
 import { NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
+import { auth } from '@/auth';
 import { db } from '@/lib/db';
 import { idxListings } from '@/drizzle/schema';
 import { parseOfficeKeys } from '@/lib/idxSync';
@@ -18,10 +20,10 @@ import { resolveDatabaseUrl } from '@/lib/dbUrl';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-export async function GET(req: Request) {
-  const secret = new URL(req.url).searchParams.get('secret');
-  if (!secret || secret !== process.env.CRON_SECRET) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+export async function GET() {
+  const session = await auth();
+  if (!session?.user) {
+    return NextResponse.json({ error: 'unauthorized — sign in at /admin first' }, { status: 401 });
   }
 
   const dbUrl = resolveDatabaseUrl();
