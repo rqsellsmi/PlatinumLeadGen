@@ -1,7 +1,6 @@
 import { redirect } from 'next/navigation';
 import { getCurrentAgent, clearAgentSessionCookie } from '@/lib/agentSession';
 import Logo from '@/components/Logo';
-import AvailabilityToggle from '@/components/agent/AvailabilityToggle';
 import AgentNav from '@/components/agent/AgentNav';
 import MobileSidebar from '@/components/MobileSidebar';
 
@@ -40,7 +39,6 @@ export default async function AgentLayout({ children }: { children: React.ReactN
       </div>
       <AgentNav />
       <div className="space-y-4 px-4 py-4">
-        <AvailabilityToggle initial={agent.isAvailable} />
         <div className="flex items-center gap-3 border-t border-white/10 pt-4">
           <span className="flex h-9 w-9 items-center justify-center rounded-full bg-platinum-blue text-sm font-bold text-white">
             {initials}

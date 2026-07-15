@@ -11,6 +11,7 @@ import LocalTime from '@/components/LocalTime';
 import PropertyDetails from '@/components/PropertyDetails';
 import { getPropertyRecord } from '@/lib/propertyRecords';
 import { StatusUpdateForm } from '@/components/agent/StatusUpdateForm';
+import { canMarkLost, leadStatusLabel } from '@/lib/leadLifecycle';
 
 export const dynamic = 'force-dynamic';
 
@@ -60,6 +61,10 @@ export default async function AgentLeadDetailPage({
   // about the home so the agent is fully briefed. Degrades to nothing on error.
   const propertyRecord = address ? await getPropertyRecord(address).catch(() => null) : null;
 
+  // Lost unlocks once Contacted, or after enough genuine Attempted-Contact updates.
+  const attemptedContactCount = history.filter((u) => u.newStatus === 'attempted_contact').length;
+  const lostUnlocked = canMarkLost({ contactedAt: lead.contactedAt, attemptedContactCount });
+
   return (
     <div className="space-y-6">
       <div>
@@ -72,7 +77,7 @@ export default async function AgentLeadDetailPage({
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="mb-1.5 flex items-center gap-2">
-            <Badge tone={statusTone(lead.status)}>{lead.status}</Badge>
+            <Badge tone={statusTone(lead.status)}>{leadStatusLabel(lead.status)}</Badge>
           </div>
           <h1 className="text-2xl font-extrabold tracking-tight text-charcoal">{fullName}</h1>
           {address ? <p className="mt-1 text-sm text-mute-light">{address}</p> : null}
@@ -142,7 +147,7 @@ export default async function AgentLeadDetailPage({
                       </div>
                       <div className="pb-5">
                         <div className="flex items-center gap-2">
-                          <Badge tone={statusTone(u.newStatus)}>{u.newStatus}</Badge>
+                          <Badge tone={statusTone(u.newStatus)}>{leadStatusLabel(u.newStatus)}</Badge>
                           <span className="text-xs text-mute-lighter">
                             <LocalTime value={u.createdAt} fallback="" />
                           </span>
@@ -166,7 +171,7 @@ export default async function AgentLeadDetailPage({
             <StatusUpdateForm
               leadOfferId={offer.id}
               currentStatus={lead.status}
-              canMarkLost={lead.contactedAt != null}
+              canMarkLost={lostUnlocked}
             />
           </div>
         </div>

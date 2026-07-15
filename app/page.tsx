@@ -47,15 +47,6 @@ export default async function HomePage() {
   return (
     <>
       <SiteHeader />
-      {/* DEBUG marker — remove after debugging. Shows render-time recent-sales
-          data + the build SHA so we can compare against the debug endpoint. */}
-      <div
-        style={{ display: 'none' }}
-        data-debug-build={process.env.VERCEL_GIT_COMMIT_SHA ?? 'nosha'}
-        data-debug-recent={recentSales
-          .map((r) => `${r.address}@${r.closeDate ? new Date(r.closeDate).toISOString().slice(0, 10) : '?'}#${r.listingKey ?? 'csv'}`)
-          .join(' | ')}
-      />
       <main>
         {/* Hero */}
         <section className="relative isolate flex min-h-[560px] items-center px-5 py-20 sm:px-8 lg:px-12">

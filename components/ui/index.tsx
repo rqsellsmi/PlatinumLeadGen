@@ -139,7 +139,10 @@ export function statusTone(status: string): PillTone {
     case 'contacted':
     case 'offered':
     case 'pending':
+    case 'working':
       return 'warning';
+    case 'attempted_contact':
+      return 'info';
     case 'expired':
     case 'declined':
     case 'lost':

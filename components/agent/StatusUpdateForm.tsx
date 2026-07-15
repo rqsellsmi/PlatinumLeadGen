@@ -4,11 +4,19 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button, Select, Textarea, Label } from '@/components/ui';
 import type { LeadStatus } from '@/components/agent/LeadList';
-import { LOST_REASONS, lostReasonLabel } from '@/lib/leadLifecycle';
+import { LOST_REASONS, lostReasonLabel, leadStatusLabel } from '@/lib/leadLifecycle';
 
 // Statuses an agent can set. 'reopened' is set by intake, not here; a lead that
 // is currently 'reopened' can still be moved forward to the others.
-const SETTABLE: LeadStatus[] = ['new', 'contacted', 'qualified', 'closed', 'lost'];
+const SETTABLE: LeadStatus[] = [
+  'new',
+  'attempted_contact',
+  'contacted',
+  'qualified',
+  'working',
+  'closed',
+  'lost',
+];
 
 export function StatusUpdateForm({
   leadOfferId,
@@ -54,7 +62,7 @@ export function StatusUpdateForm({
         const data = (await res.json().catch(() => null)) as { error?: string } | null;
         setError(
           data?.error === 'must_contact_before_lost'
-            ? 'Log a Contacted update before marking this lead lost.'
+            ? 'Log a Contacted update (or 6 Attempted-contact updates) before marking this lead lost.'
             : 'Could not save the update. Please try again.',
         );
         return;
@@ -86,14 +94,15 @@ export function StatusUpdateForm({
           onChange={(e) => setNewStatus(e.target.value as LeadStatus)}
         >
           {statusOptions.map((s) => (
-            <option key={s} value={s} className="capitalize">
-              {s}
+            <option key={s} value={s}>
+              {leadStatusLabel(s)}
             </option>
           ))}
         </Select>
         {!canMarkLost ? (
           <p className="mt-1 text-xs text-mute-light">
-            &ldquo;Lost&rdquo; unlocks after you log a Contacted update.
+            &ldquo;Lost&rdquo; unlocks after you log a Contacted update, or 6 Attempted-contact
+            updates.
           </p>
         ) : null}
       </div>

@@ -4,8 +4,17 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Badge, statusTone } from '@/components/ui';
 import { cn } from '@/lib/utils';
+import { leadStatusLabel } from '@/lib/leadLifecycle';
 
-export type LeadStatus = 'new' | 'contacted' | 'qualified' | 'closed' | 'lost' | 'reopened';
+export type LeadStatus =
+  | 'new'
+  | 'attempted_contact'
+  | 'contacted'
+  | 'qualified'
+  | 'working'
+  | 'closed'
+  | 'lost'
+  | 'reopened';
 
 export interface AgentLeadItem {
   leadOfferId: number;
@@ -28,8 +37,10 @@ export interface AgentKpi {
 const TABS: { key: LeadStatus | 'all'; label: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'new', label: 'New' },
+  { key: 'attempted_contact', label: 'Attempted' },
   { key: 'contacted', label: 'Contacted' },
   { key: 'qualified', label: 'Qualified' },
+  { key: 'working', label: 'Working' },
   { key: 'closed', label: 'Closed' },
   { key: 'lost', label: 'Lost' },
 ];
@@ -145,7 +156,7 @@ export default function AgentDashboard({
                   href={`/agent/leads/${l.leadOfferId}`}
                   className="rounded-pill bg-platinum-red px-4 py-2 text-[13px] font-bold text-white hover:bg-platinum-redHover"
                 >
-                  Log call
+                  Provide update
                 </Link>
               </li>
             ))}
@@ -217,7 +228,7 @@ export default function AgentDashboard({
                   <span className="hidden truncate text-sm font-semibold text-mute sm:block">
                     {item.timeframe ?? ''}
                   </span>
-                  <Badge tone={statusTone(item.status)}>{item.status}</Badge>
+                  <Badge tone={statusTone(item.status)}>{leadStatusLabel(item.status)}</Badge>
                 </div>
               </li>
             );

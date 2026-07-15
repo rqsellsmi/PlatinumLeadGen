@@ -31,8 +31,10 @@ export const leadTypeEnum = pgEnum('lead_type', ['valuation', 'seller_guide', 'w
 
 export const leadStatusEnum = pgEnum('lead_status', [
   'new',
+  'attempted_contact', // reached out, no live conversation yet
   'contacted',
   'qualified',
+  'working', // actively working the deal (post-qualified, pre-close)
   'closed',
   'lost',
   'reopened', // spec v2 §4.4 — a Lost lead whose contact submitted again
@@ -54,6 +56,7 @@ export const scoreReasonEnum = pgEnum('score_reason', [
   'system_no_response', // -1.5 auto-expired
   'system_decline', // -3.0 declined (v1.6 §E.4 / §J)
   'system_closing', // +15.0 lead closed
+  'pipeline_attempted', // +1.0 reached Attempted Contact (spec v2 §2)
   'pipeline_contacted', // +2.0 reached Contacted
   'fast_contact_bonus', // +3.0 contacted within 24h of accept
   'pipeline_qualified', // +2.0 reached Qualified

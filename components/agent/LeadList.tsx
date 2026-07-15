@@ -4,8 +4,17 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Card, Badge } from '@/components/ui';
 import { cn } from '@/lib/utils';
+import { leadStatusLabel } from '@/lib/leadLifecycle';
 
-export type LeadStatus = 'new' | 'contacted' | 'qualified' | 'closed' | 'lost' | 'reopened';
+export type LeadStatus =
+  | 'new'
+  | 'attempted_contact'
+  | 'contacted'
+  | 'qualified'
+  | 'working'
+  | 'closed'
+  | 'lost'
+  | 'reopened';
 
 export interface LeadListItem {
   leadOfferId: number;
@@ -17,8 +26,10 @@ export interface LeadListItem {
 
 const statusStyles: Record<LeadStatus, string> = {
   new: 'bg-blue-100 text-blue-800',
+  attempted_contact: 'bg-sky-100 text-sky-800',
   contacted: 'bg-amber-100 text-amber-800',
   qualified: 'bg-emerald-100 text-emerald-800',
+  working: 'bg-teal-100 text-teal-800',
   closed: 'bg-slate-200 text-slate-700',
   lost: 'bg-red-100 text-brand-red',
   reopened: 'bg-purple-100 text-purple-800',
@@ -112,8 +123,8 @@ export function LeadList({ items }: { items: LeadListItem[] }) {
                     <p className="truncate text-sm text-slate-500">{item.address || '—'}</p>
                   </div>
                   <div className="flex items-center gap-3 sm:justify-end">
-                    <Badge className={cn('capitalize', statusStyles[item.status])}>
-                      {item.status}
+                    <Badge className={statusStyles[item.status]}>
+                      {leadStatusLabel(item.status)}
                     </Badge>
                     <span className="whitespace-nowrap text-xs text-slate-400">
                       {daysLabel(item.daysSinceAccepted)}

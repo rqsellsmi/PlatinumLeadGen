@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { offices, notificationSettings } from '@/drizzle/schema';
 import { getCurrentAgent } from '@/lib/agentSession';
 import { Card, CardHeader, CardBody, Button, Input, Label, Select } from '@/components/ui';
+import AvailabilityToggle from '@/components/agent/AvailabilityToggle';
 import { updateRoutingPreferences } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -28,10 +29,23 @@ export default async function AgentSettingsPage() {
       <div>
         <h1 className="text-2xl font-bold text-charcoal">Routing preferences</h1>
         <p className="text-sm text-mute">
-          Choose where your lead-acceptance distance is measured from, and how far you&rsquo;ll accept
-          leads.
+          Turn lead routing on or off, and choose where your lead-acceptance distance is measured
+          from and how far you&rsquo;ll accept leads.
         </p>
       </div>
+
+      <Card>
+        <CardHeader>
+          <h2 className="font-bold text-charcoal">Availability</h2>
+        </CardHeader>
+        <CardBody>
+          <p className="mb-3 text-sm text-mute">
+            When lead routing is on, you&rsquo;re in the round-robin rotation. Turn it off to pause
+            new lead offers.
+          </p>
+          <AvailabilityToggle initial={agent.isAvailable} />
+        </CardBody>
+      </Card>
 
       <Card>
         <CardHeader>

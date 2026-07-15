@@ -11,11 +11,20 @@ import OfferHistory, { type OfferHistoryItem, type AgentOption } from '@/compone
 import LocalTime from '@/components/LocalTime';
 import PropertyDetails from '@/components/PropertyDetails';
 import { getPropertyRecord } from '@/lib/propertyRecords';
+import { leadStatusLabel } from '@/lib/leadLifecycle';
 import { updateLeadStatus, softDeleteLead, reassignLeadAction } from './actions';
 
 export const dynamic = 'force-dynamic';
 
-const STATUSES = ['new', 'contacted', 'qualified', 'closed', 'lost'] as const;
+const STATUSES = [
+  'new',
+  'attempted_contact',
+  'contacted',
+  'qualified',
+  'working',
+  'closed',
+  'lost',
+] as const;
 
 export default async function LeadDetailPage({ params }: { params: { id: string } }) {
   await requireAdmin();
@@ -113,7 +122,7 @@ export default async function LeadDetailPage({ params }: { params: { id: string 
         <div className="flex items-center gap-2">
           <Badge tone="info">{lead.leadType}</Badge>
           {lead.pageVariant && <Badge tone="neutral">{lead.pageVariant}</Badge>}
-          <Badge tone={statusTone(lead.status)}>{lead.status}</Badge>
+          <Badge tone={statusTone(lead.status)}>{leadStatusLabel(lead.status)}</Badge>
           {lead.isDeleted && <Badge tone="danger">Deleted</Badge>}
         </div>
       </div>
@@ -162,8 +171,8 @@ export default async function LeadDetailPage({ params }: { params: { id: string 
               <Label htmlFor="status">Update status</Label>
               <Select id="status" name="status" defaultValue={lead.status}>
                 {STATUSES.map((s) => (
-                  <option key={s} value={s} className="capitalize">
-                    {s}
+                  <option key={s} value={s}>
+                    {leadStatusLabel(s)}
                   </option>
                 ))}
               </Select>

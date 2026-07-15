@@ -5,6 +5,7 @@ import SiteHeader from '@/components/SiteHeader';
 import SiteFooter from '@/components/SiteFooter';
 import ListingGallery from '@/components/idx/ListingGallery';
 import ListingHero from '@/components/idx/ListingHero';
+import ListingBackButton from '@/components/idx/ListingBackButton';
 import AreaHighlights from '@/components/idx/AreaHighlights';
 import MarketReport from '@/components/idx/MarketReport';
 import RealcompLogo from '@/components/idx/RealcompLogo';
@@ -271,9 +272,7 @@ export default async function ListingDetailPage({
     <>
       <SiteHeader />
       <main className="mx-auto max-w-5xl px-4 py-6 sm:py-10">
-        <Link href="/" className="text-sm font-semibold text-platinum-blue hover:underline">
-          ← Back
-        </Link>
+        <ListingBackButton />
 
         {/* ---- Listing body. No RE/MAX branding or agent contact inside this
              block per §18.3.12. ---- */}
@@ -287,11 +286,6 @@ export default async function ListingDetailPage({
             address={listing.address}
             cityLine={cityLine}
             price={formatCurrency(price)}
-            priceNote={
-              saleToList != null
-                ? `Sold ${saleToList >= 100 ? `${saleToList - 100}% over` : `${100 - saleToList}% under`} asking`
-                : null
-            }
             primaryOnlyNote={sold}
           />
 
@@ -313,6 +307,43 @@ export default async function ListingDetailPage({
               </div>
             ))}
           </dl>
+
+          {/* How this home compared — sold only, and shown ONLY when the home
+              outperformed or matched its local market (hidden if it lagged). */}
+          {compare && compare.outperformed ? (
+            <section className="mt-3 overflow-hidden rounded-card bg-charcoal p-6 text-white sm:p-7">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-white/60">
+                    How this home compared · {city} · {marketReport?.periodLabel}
+                  </p>
+                  <h2 className="mt-1 text-2xl font-black text-white">Outperformed the local market</h2>
+                </div>
+                {marketReport ? (
+                  <a
+                    href="#market-report"
+                    className="rounded-pill border border-white/25 px-4 py-2 text-sm font-bold text-white hover:bg-white/10"
+                  >
+                    Full market report →
+                  </a>
+                ) : null}
+              </div>
+              <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                {compare.tiles.map((t) => (
+                  <div key={t.label} className="rounded-card bg-white/5 p-4">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-white/60">{t.label}</p>
+                    <p className="mt-1 flex items-baseline gap-2">
+                      <span className="font-numeric text-3xl font-black text-white">{t.value}</span>
+                      <span className={`text-sm font-bold ${t.good ? 'text-success' : 'text-white/70'}`}>
+                        {t.delta}
+                      </span>
+                    </p>
+                    <p className="mt-1 text-xs text-white/55">{t.areaLine}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
 
           {/* Beds / baths / sqft / year */}
           <dl className="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-card border border-line bg-line sm:grid-cols-4">
@@ -433,44 +464,6 @@ export default async function ListingDetailPage({
             longitude={listing.longitude}
             locationLabel={city || null}
           />
-        ) : null}
-
-        {/* ---- How this home compared (sold only) ---- */}
-        {compare ? (
-          <section className="mt-10 overflow-hidden rounded-card bg-charcoal p-6 text-white sm:p-8">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-white/60">
-                  How this home compared · {city} · {marketReport?.periodLabel}
-                </p>
-                <h2 className="mt-1 text-2xl font-black text-white">
-                  {compare.outperformed ? 'Outperformed the local market' : 'How it stacked up locally'}
-                </h2>
-              </div>
-              {marketReport ? (
-                <a
-                  href="#market-report"
-                  className="rounded-pill border border-white/25 px-4 py-2 text-sm font-bold text-white hover:bg-white/10"
-                >
-                  Full market report →
-                </a>
-              ) : null}
-            </div>
-            <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
-              {compare.tiles.map((t) => (
-                <div key={t.label} className="rounded-card bg-white/5 p-4">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-white/60">{t.label}</p>
-                  <p className="mt-1 flex items-baseline gap-2">
-                    <span className="font-numeric text-3xl font-black text-white">{t.value}</span>
-                    <span className={`text-sm font-bold ${t.good ? 'text-success' : 'text-white/70'}`}>
-                      {t.delta}
-                    </span>
-                  </p>
-                  <p className="mt-1 text-xs text-white/55">{t.areaLine}</p>
-                </div>
-              ))}
-            </div>
-          </section>
         ) : null}
 
         {/* ---- Full market report card ---- */}

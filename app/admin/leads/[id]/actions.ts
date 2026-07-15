@@ -10,7 +10,15 @@ import { applyScore } from '@/lib/scoring';
 import { sendEmail, leadDeletedNotificationEmail } from '@/lib/email';
 import { requireAdmin } from '@/components/admin/requireAdmin';
 
-const STATUSES = ['new', 'contacted', 'qualified', 'closed', 'lost'] as const;
+const STATUSES = [
+  'new',
+  'attempted_contact',
+  'contacted',
+  'qualified',
+  'working',
+  'closed',
+  'lost',
+] as const;
 type LeadStatus = (typeof STATUSES)[number];
 
 export async function updateLeadStatus(formData: FormData) {

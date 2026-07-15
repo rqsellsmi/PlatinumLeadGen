@@ -1,6 +1,10 @@
 import type { MetadataRoute } from 'next';
 import { getActiveLocations } from '@/lib/queries';
 
+// Generated at request time — it reads the DB (locations), and the no-store Neon
+// driver would throw "Dynamic server usage" if this were prerendered at build.
+export const dynamic = 'force-dynamic';
+
 const SITE_URL = process.env.SITE_URL ?? 'https://remax-platinumonline.com';
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
