@@ -12,10 +12,11 @@
  */
 import { list } from '@vercel/blob';
 
-/** Fallback images (bundled in /public/assets) when the blob folder is unavailable. */
+/** Fallback image(s) (bundled in /public/assets) when the blob folder is
+ *  unavailable. Only list files that actually exist — a missing entry would 404
+ *  and defeat the fallback (hero-home-2.jpg was removed). */
 export const HERO_IMAGES: string[] = [
   '/assets/hero-home.jpg',
-  '/assets/hero-home-2.jpg',
 ];
 
 /** Blob "folder" the hero images live in. A trailing slash scopes the prefix. */
