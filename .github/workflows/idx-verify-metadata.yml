@@ -1,0 +1,40 @@
+name: IDX verify metadata
+
+# Manually-triggered check: validates our OData $select field list
+# (SELECT_FIELDS in lib/idxSync.ts) against Realcomp's live $metadata and prints
+# every requested field the feed does NOT declare. Run this after changing the
+# field list — a $select naming a non-existent field makes Realcomp reject the
+# whole query with a 400 ("Could not find a property named 'X'"), which breaks
+# the hourly sync. Uses the same Realcomp secrets as the initial-sync workflow.
+#
+# Required repository secrets: REALCOMP_CLIENT_ID, REALCOMP_CLIENT_SECRET,
+#   REALCOMP_BASE_URL, REALCOMP_AUTH_URL, REALCOMP_AUDIENCE
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  verify-metadata:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify $select against $metadata
+        env:
+          SKIP_ENV_VALIDATION: '1'
+          REALCOMP_CLIENT_ID: ${{ secrets.REALCOMP_CLIENT_ID }}
+          REALCOMP_CLIENT_SECRET: ${{ secrets.REALCOMP_CLIENT_SECRET }}
+          REALCOMP_BASE_URL: ${{ secrets.REALCOMP_BASE_URL }}
+          REALCOMP_AUTH_URL: ${{ secrets.REALCOMP_AUTH_URL }}
+          REALCOMP_AUDIENCE: ${{ secrets.REALCOMP_AUDIENCE }}
+        run: npm run idx:verify
