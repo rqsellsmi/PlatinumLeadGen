@@ -11,6 +11,7 @@
  */
 import { eq } from 'drizzle-orm';
 import { db } from './db';
+import { resolveDatabaseUrl } from './dbUrl';
 import { realcompTokens } from '../drizzle/schema';
 
 const TOKEN_PROVIDER = 'realcomp';
@@ -80,29 +81,16 @@ interface TokenResponse {
   token_type?: string;
 }
 
-// ---------------------------------------------------------------------------
-// Token management — persisted to Neon (IDX spec §1.3)
-// ---------------------------------------------------------------------------
-export async function getValidRealcompToken(forceRefresh = false): Promise<string> {
-  if (!isRealcompConfigured()) {
-    throw new Error('Realcomp is not configured (REALCOMP_CLIENT_ID / REALCOMP_CLIENT_SECRET).');
-  }
+interface MintedToken {
+  accessToken: string;
+  expiresAt: Date;
+}
 
-  // Reuse the cached token unless a forced refresh is requested (e.g. after a
-  // 401 — a persisted token minted with a bad audience must not wedge the sync).
-  if (!forceRefresh) {
-    const rows = await db
-      .select()
-      .from(realcompTokens)
-      .where(eq(realcompTokens.provider, TOKEN_PROVIDER))
-      .limit(1);
-    const fiveMinFromNow = new Date(Date.now() + 5 * 60 * 1000);
-    if (rows[0] && rows[0].expiresAt > fiveMinFromNow) {
-      return rows[0].accessToken;
-    }
-  }
-
-  // Fetch a fresh token via client-credentials. JSON body, exactly three fields.
+/**
+ * Mint a fresh access token via client-credentials. Pure HTTP — no database.
+ * JSON body, exactly three fields.
+ */
+async function mintRealcompToken(): Promise<MintedToken> {
   const res = await fetch(authUrl(), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -119,22 +107,58 @@ export async function getValidRealcompToken(forceRefresh = false): Promise<strin
   const data = (await res.json()) as TokenResponse;
   if (!data.access_token) throw new Error('Realcomp token response missing access_token.');
 
-  const expiresAt = new Date(Date.now() + (data.expires_in ?? 3600) * 1000);
+  return {
+    accessToken: data.access_token,
+    expiresAt: new Date(Date.now() + (data.expires_in ?? 3600) * 1000),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Token management — persisted to Neon (IDX spec §1.3)
+// ---------------------------------------------------------------------------
+export async function getValidRealcompToken(forceRefresh = false): Promise<string> {
+  if (!isRealcompConfigured()) {
+    throw new Error('Realcomp is not configured (REALCOMP_CLIENT_ID / REALCOMP_CLIENT_SECRET).');
+  }
+
+  // No database configured (e.g. the idx:verify CI script, which only needs a
+  // token to fetch $metadata): skip the persistence layer entirely and mint a
+  // fresh token per call. Token caching is purely an optimization to share one
+  // token across serverless invocations — the app is fully correct without it.
+  if (!resolveDatabaseUrl()) {
+    return (await mintRealcompToken()).accessToken;
+  }
+
+  // Reuse the cached token unless a forced refresh is requested (e.g. after a
+  // 401 — a persisted token minted with a bad audience must not wedge the sync).
+  if (!forceRefresh) {
+    const rows = await db
+      .select()
+      .from(realcompTokens)
+      .where(eq(realcompTokens.provider, TOKEN_PROVIDER))
+      .limit(1);
+    const fiveMinFromNow = new Date(Date.now() + 5 * 60 * 1000);
+    if (rows[0] && rows[0].expiresAt > fiveMinFromNow) {
+      return rows[0].accessToken;
+    }
+  }
+
+  const { accessToken, expiresAt } = await mintRealcompToken();
   // Upsert — only ever one row per provider.
   await db
     .insert(realcompTokens)
     .values({
       provider: TOKEN_PROVIDER,
-      accessToken: data.access_token,
+      accessToken,
       expiresAt,
       updatedAt: new Date(),
     })
     .onConflictDoUpdate({
       target: realcompTokens.provider,
-      set: { accessToken: data.access_token, expiresAt, updatedAt: new Date() },
+      set: { accessToken, expiresAt, updatedAt: new Date() },
     });
 
-  return data.access_token;
+  return accessToken;
 }
 
 // ---------------------------------------------------------------------------
