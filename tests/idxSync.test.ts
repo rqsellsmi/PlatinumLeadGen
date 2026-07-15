@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   parseOfficeKeys,
   officeFieldClauses,
+  officeFilterBatches,
   serializeWaterfrontFeatures,
   serializeEnumList,
   buildAddress,
@@ -10,6 +11,7 @@ import {
   mapRealcompListing,
   cleanCity,
   SELECT_FIELDS,
+  MEDIA_EXPAND,
 } from '../lib/idxSync';
 
 describe('office keys', () => {
@@ -34,6 +36,57 @@ describe('office keys', () => {
   it('returns [] when unset', () => {
     process.env.REALCOMP_OFFICE_KEYS = '';
     expect(officeFieldClauses()).toEqual([]);
+  });
+});
+
+describe('officeFilterBatches (IIS query-string cap)', () => {
+  // A realistic 24-key set that overflows IIS's ~2KB query-string limit when
+  // sent as a single in(...) filter alongside the large $select (the bug that
+  // returned a generic 404 and broke the hourly sync).
+  const KEYS = [
+    '630843964049', '814805080452', '814703158334', '541626279814', '78000000071272',
+    '78000000071191', '78000000071147', '650009158943', '652727561280', '711501692202',
+    '427145', '630901930647', '53097788100072', '358528', '252481', '650001531862',
+    '554910202124', '554306701635', '55000000030042', '25248113', '542631744247',
+    '554853033599', '341375', '386455',
+  ];
+  const SINCE = 'ModificationTimestamp gt 2026-07-15T09:00:00.000Z';
+
+  const qsLen = (filter: string): number => {
+    const u = new URL('https://host/Property');
+    u.searchParams.set('$select', SELECT_FIELDS);
+    u.searchParams.set('$expand', MEDIA_EXPAND);
+    u.searchParams.set('$filter', filter);
+    return u.search.length - 1;
+  };
+
+  beforeEach(() => {
+    process.env.REALCOMP_OFFICE_KEYS = KEYS.join(',');
+  });
+
+  it('keeps every batched request under the 2048-byte IIS cap', () => {
+    const filters = officeFilterBatches(SINCE, MEDIA_EXPAND);
+    expect(filters.length).toBeGreaterThan(0);
+    for (const f of filters) expect(qsLen(f)).toBeLessThan(2048);
+  });
+
+  it('covers every key for every office field exactly once', () => {
+    const filters = officeFilterBatches(SINCE, MEDIA_EXPAND);
+    for (const field of [
+      'ListOfficeMlsId',
+      'BuyerOfficeMlsId',
+      'CoListOfficeMlsId',
+      'CoBuyerOfficeMlsId',
+    ]) {
+      const forField = filters.filter((f) => f.startsWith(`${field} in (`));
+      const seen = forField.flatMap((f) => KEYS.filter((k) => f.includes(`'${k}'`)));
+      expect(seen.slice().sort()).toEqual(KEYS.slice().sort());
+    }
+  });
+
+  it('returns [] when keys are unset', () => {
+    process.env.REALCOMP_OFFICE_KEYS = '';
+    expect(officeFilterBatches(SINCE, MEDIA_EXPAND)).toEqual([]);
   });
 });
 

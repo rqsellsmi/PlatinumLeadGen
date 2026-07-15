@@ -135,6 +135,67 @@ export function officeFieldClauses(): string[] {
   return OFFICE_KEY_FIELDS.map((f) => `${f} in (${list})`);
 }
 
+// ---------------------------------------------------------------------------
+// URL-length-safe office filter batching (IDX spec §2.4)
+// ---------------------------------------------------------------------------
+// Realcomp runs on IIS, whose default query-string cap is ~2048 bytes
+// (maxQueryStringLength). Exceed it and IIS returns a GENERIC 404 HTML page —
+// which surfaces here as "Realcomp API error: 404" and silently breaks the
+// sync. The $select list alone is ~1.6KB once URL-encoded, so listing every
+// office key in a single `in (...)` filter blows past the cap (measured: 24
+// keys → ~2.26KB). We pack the keys into as-large-as-fits batches by MEASURING
+// the exact query string realcompFetch will send, so this stays correct as the
+// field list or key set grows (batches shrink automatically, to one key each).
+//
+// NOTE: even a single-key office request is already ~1.8KB because $select is so
+// large, and the feed-wide Query 2 (no office keys) sits at ~1.9KB — there is
+// little headroom left. If the select list grows much further, move these reads
+// to an OData POST `$query` (filter/select in the body) to drop the URL-length
+// constraint entirely.
+const QUERY_STRING_BUDGET = 1950; // stay comfortably under IIS's 2048 default
+
+/** Length of the query string realcompFetch sends for a given $filter/$expand. */
+function queryStringLength(filter: string, expand: string): number {
+  const u = new URL('https://host/Property');
+  u.searchParams.set('$select', SELECT_FIELDS);
+  u.searchParams.set('$expand', expand);
+  u.searchParams.set('$filter', filter);
+  return u.search.length - 1; // drop the leading '?'
+}
+
+/**
+ * Fully-formed $filter strings for the office pass — one or more per office-key
+ * field — each guaranteed to keep the request query string under the IIS limit.
+ * `extraClause` is AND-ed onto every batch (the sync's ModificationTimestamp
+ * cursor, or the sold backfill's CloseDate window); `expand` is the Media expand
+ * that request will use (its length counts toward the query string). The first
+ * key in a batch is always accepted even if it alone would exceed the soft
+ * budget (still well under the hard 2048 cap). Returns [] when the keys are
+ * unset. Results union naturally via the listingKey upsert.
+ */
+export function officeFilterBatches(extraClause: string, expand: string): string[] {
+  const keys = parseOfficeKeys();
+  if (keys.length === 0) return [];
+  const clause = (field: string, ks: string[]) =>
+    `${field} in (${ks.map((k) => `'${k}'`).join(',')}) and ${extraClause}`;
+
+  const filters: string[] = [];
+  for (const field of OFFICE_KEY_FIELDS) {
+    let batch: string[] = [];
+    for (const key of keys) {
+      const trial = [...batch, key];
+      if (batch.length > 0 && queryStringLength(clause(field, trial), expand) > QUERY_STRING_BUDGET) {
+        filters.push(clause(field, batch));
+        batch = [key];
+      } else {
+        batch = trial;
+      }
+    }
+    if (batch.length > 0) filters.push(clause(field, batch));
+  }
+  return filters;
+}
+
 const officeKeySet = () => new Set(parseOfficeKeys());
 
 // ---------------------------------------------------------------------------
@@ -519,11 +580,12 @@ export async function runIdxSync(fetchFn: FetchFn): Promise<SyncResult> {
     const sinceClause = cursor ? `ModificationTimestamp gt ${cursor}` : `ModificationTimestamp gt ${oneYearAgoIso()}`;
 
     // Query 1 — your offices, no geographic filter (all statuses that changed).
-    // One request per office-key field (URL-length safe); union via upsert.
+    // Office keys are split into URL-length-safe batches (IIS's ~2KB query-string
+    // cap) across the four office-key fields; results union via the upsert.
     let q1Fetched = 0;
     let q1Upserted = 0;
-    for (const clause of officeFieldClauses()) {
-      const raw1 = await runQuery(fetchFn, `${clause} and ${sinceClause}`);
+    for (const filter of officeFilterBatches(sinceClause, MEDIA_EXPAND)) {
+      const raw1 = await runQuery(fetchFn, filter);
       q1Fetched += raw1.length;
       q1Upserted += await upsertRawListings(raw1);
     }
@@ -627,18 +689,18 @@ export function activeBackfillJobs(): BackfillJob[] {
  * on idx_listings.photoUrl).
  */
 export function soldBackfillJobs(startDate: string, endDate: string): BackfillJob[] {
-  const clauses = officeFieldClauses();
-  if (clauses.length === 0) {
+  if (parseOfficeKeys().length === 0) {
     throw new Error('REALCOMP_OFFICE_KEYS is not set — cannot run the sold backfill.');
   }
   const dateClause = `${enumEq('StandardStatus', 'Closed')} and CloseDate ge ${startDate} and CloseDate lt ${endDate}`;
-  return clauses.map((clause, i) => ({
-    key: `sold:${OFFICE_KEY_FIELDS[i]}:${startDate}:${endDate}`,
+  // Batch office keys so each request stays under IIS's ~2KB query-string cap.
+  return officeFilterBatches(dateClause, MEDIA_EXPAND).map((filter, i) => ({
+    key: `sold:${startDate}:${endDate}:${i}`,
     galleries: false,
     params: {
       $select: SELECT_FIELDS,
       $expand: MEDIA_EXPAND,
-      $filter: `${clause} and ${dateClause}`,
+      $filter: filter,
     },
   }));
 }
