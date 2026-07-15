@@ -38,18 +38,18 @@ export default function FullValuationIdxSections({
   return (
     <div>
       <IdxListingGrid
+        eyebrow="Recently sold nearby"
+        title="Similar Homes Recently Sold"
+        listings={sold}
+        variant="sold"
+        firstOnPage
+      />
+      <IdxListingGrid
         eyebrow="Currently on the market"
         title="Similar Homes For Sale"
         listings={forSale}
         variant="sale"
         photosByListing={photoMap}
-        firstOnPage
-      />
-      <IdxListingGrid
-        eyebrow="Recently sold nearby"
-        title="Similar Homes Recently Sold"
-        listings={sold}
-        variant="sold"
       />
       <div className="mt-10">
         <MarketReport report={marketReport} cityName={cityName} narrative={marketNarrative} />

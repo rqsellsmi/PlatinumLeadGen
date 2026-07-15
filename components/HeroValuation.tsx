@@ -14,6 +14,10 @@ import { getLeadAttribution } from '@/lib/attribution';
 
 /** Fired by the sticky CTA / exit-intent overlay to open this flow. */
 export const OPEN_VALUATION_EVENT = 'open-valuation';
+/** Fired by the site header's "Free Home Value" button — a SEPARATE event so the
+ *  global header modal (mounted on every page) and a page's own inline hero
+ *  never both open at once on the homepage. */
+export const OPEN_VALUATION_HEADER = 'open-valuation-header';
 
 interface PlaceData {
   propertyAddress: string;
@@ -54,11 +58,19 @@ export default function HeroValuation({
   cityName = '',
   pageVariant = 'seo',
   buttonLabel = "What's My Home Worth? →",
+  modalOnly = false,
+  openEvent = OPEN_VALUATION_EVENT,
 }: {
   locationSlug?: string;
   cityName?: string;
   pageVariant?: 'seo' | 'ads';
   buttonLabel?: string;
+  /** Render only the modal (no inline address box) — used by the global header
+   *  trigger so "Free Home Value" opens the flow from any page. */
+  modalOnly?: boolean;
+  /** Which window event opens the modal. Header uses OPEN_VALUATION_HEADER so it
+   *  doesn't collide with a page's own inline hero on OPEN_VALUATION_EVENT. */
+  openEvent?: string;
 }) {
   const [sessionId] = React.useState(() => crypto.randomUUID());
   const [address, setAddress] = React.useState('');
@@ -213,9 +225,9 @@ export default function HeroValuation({
         setOpen(true);
       }
     }
-    window.addEventListener(OPEN_VALUATION_EVENT, onOpen);
-    return () => window.removeEventListener(OPEN_VALUATION_EVENT, onOpen);
-  }, [runValuation]);
+    window.addEventListener(openEvent, onOpen);
+    return () => window.removeEventListener(openEvent, onOpen);
+  }, [runValuation, openEvent]);
 
   function startFromAddress(e: React.FormEvent) {
     e.preventDefault();
@@ -314,8 +326,10 @@ export default function HeroValuation({
         />
       ) : null}
 
-      {/* Hero address box. Wider on desktop so the full address stays visible
-          (the button is wide, so a narrow form clipped long addresses). */}
+      {/* Hero address box. Hidden in modalOnly mode (global header trigger), which
+          renders just the modal. Wider on desktop so the full address stays
+          visible (the button is wide, so a narrow form clipped long addresses). */}
+      {modalOnly ? null : (
       <form
         onSubmit={startFromAddress}
         className="flex w-full max-w-xl flex-wrap gap-2.5 rounded-2xl bg-white p-2.5 shadow-[0_18px_48px_rgba(20,20,24,0.3)] sm:max-w-2xl lg:max-w-3xl"
@@ -345,6 +359,7 @@ export default function HeroValuation({
           {buttonLabel}
         </button>
       </form>
+      )}
 
       {/* Modal — portaled to <body> so it escapes the hero's `isolate`
           stacking context and covers the sticky header + floating CTA bar. */}

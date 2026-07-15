@@ -253,41 +253,19 @@ export default function ThankYouClient({
             ) : null}
           </div>
 
-          {/* Comps */}
-          {topComps.length > 0 ? (
-            <div className="mt-5 rounded-card border border-line bg-white p-5">
-              <p className="font-bold text-charcoal">
-                {compsSource === 'area' ? 'Comparable nearby sales' : 'How we calculated this'}
-              </p>
-              <p className="text-sm text-mute-light">
-                {compsSource === 'area'
-                  ? `Recent comparable sales near ${cityName || 'your home'}.`
-                  : `Built from recent ${cityName || 'local'} sales by RE/MAX Platinum.`}
-              </p>
-              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
-                {topComps.map((c) => (
-                  <div key={c.id} className="overflow-hidden rounded-lg border border-line">
-                    <div className="relative h-24 bg-line-hair">
-                      {c.photoUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={c.photoUrl} alt={c.address} className="h-full w-full object-cover" />
-                      ) : null}
-                    </div>
-                    <div className="p-3">
-                      <p className="font-numeric text-lg font-bold text-charcoal">
-                        {formatCurrency(c.soldPrice)}
-                      </p>
-                      <p className="truncate text-xs text-mute-light">{c.address}</p>
-                      <p className="mt-1 text-[11px] font-semibold text-success">
-                        {c.daysOnMarket != null ? `Sold ${c.daysOnMarket} days` : 'Sold'}
-                        {c.closeDate ? ` · ${formatMonthYear(c.closeDate)}` : ''}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
+          {/* Recently Sold + Similar For Sale + Market Report — moved up to here
+              (replaced the old "how we calculated this" comps block). Renders
+              nothing until the IDX feed is populated. */}
+          <div className="mt-5">
+            <FullValuationIdxSections
+              forSale={idxForSale}
+              sold={idxSold}
+              forSalePhotos={idxForSalePhotos}
+              marketReport={idxMarketReport}
+              marketNarrative={idxMarketNarrative}
+              cityName={idxCityName || cityName}
+            />
+          </div>
 
           {/* Market snapshot */}
           {snapshot ? (
@@ -354,17 +332,6 @@ export default function ThankYouClient({
           </p>
         </div>
       )}
-
-      {/* IDX: Similar Homes For Sale + Recently Sold + Market Report (§4–§5).
-          Renders nothing until the IDX feed is populated. */}
-      <FullValuationIdxSections
-        forSale={idxForSale}
-        sold={idxSold}
-        forSalePhotos={idxForSalePhotos}
-        marketReport={idxMarketReport}
-        marketNarrative={idxMarketNarrative}
-        cityName={idxCityName || cityName}
-      />
 
       <div className="mt-12">
         <h2 className="text-center text-xl font-bold text-charcoal">What happens next</h2>

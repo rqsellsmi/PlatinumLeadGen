@@ -6,7 +6,6 @@ import { getCurrentAgent } from '@/lib/agentSession';
 import { getActiveRoutingAgents } from '@/lib/autoOffer';
 import { getRoutingQueue } from '@/lib/queue';
 import ScorePanel from '@/components/agent/ScorePanel';
-import AvailabilityToggle from '@/components/agent/AvailabilityToggle';
 
 export const dynamic = 'force-dynamic';
 
@@ -154,8 +153,18 @@ export default async function AgentPerformancePage() {
                   {agent.isAvailable ? 'You are in the rotation' : 'Paused — you will be skipped'}
                 </p>
               </div>
-              <AvailabilityToggle initial={agent.isAvailable} />
+              <span
+                className={`inline-flex items-center gap-2 rounded-pill px-3 py-1 text-xs font-bold ${
+                  agent.isAvailable ? 'bg-white/20 text-white' : 'bg-white/10 text-[#A3D4F2]'
+                }`}
+              >
+                <span className={`h-2 w-2 rounded-full ${agent.isAvailable ? 'bg-success' : 'bg-mute-lighter'}`} />
+                {agent.isAvailable ? 'Active' : 'Inactive'}
+              </span>
             </div>
+            <p className="mt-3 text-xs text-[#A3D4F2]">
+              Turn lead routing on or off in <span className="font-semibold text-white">Settings</span>.
+            </p>
           </div>
         </div>
       </div>

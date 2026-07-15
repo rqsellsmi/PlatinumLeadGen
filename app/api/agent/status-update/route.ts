@@ -2,19 +2,27 @@
  * POST /api/agent/status-update — agent submits a pipeline status update. (Section 9)
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { leadOffers, leads, statusUpdates } from '@/drizzle/schema';
 import { getCurrentAgent } from '@/lib/agentSession';
 import { applyScore } from '@/lib/scoring';
 import { logLeadEvent } from '@/lib/leadEvents';
-import { isLostReason } from '@/lib/leadLifecycle';
+import { isLostReason, canMarkLost } from '@/lib/leadLifecycle';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// Agents move a lead forward through these; 'reopened' is set by intake, never here.
-const VALID_STATUSES = ['new', 'contacted', 'qualified', 'closed', 'lost'] as const;
+// Agents move a lead through these; 'reopened' is set by intake, never here.
+const VALID_STATUSES = [
+  'new',
+  'attempted_contact',
+  'contacted',
+  'qualified',
+  'working',
+  'closed',
+  'lost',
+] as const;
 type LeadStatus = (typeof VALID_STATUSES)[number];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -57,9 +65,23 @@ export async function POST(req: NextRequest) {
     const leadRow = leadRows[0];
 
     // Lost precondition (spec v2 §4.2): a lead can only be marked Lost after it
-    // has been Contacted at least once, and requires a reason from the fixed set.
+    // has been Contacted, OR after enough genuine Attempted-Contact updates
+    // (agent tried repeatedly but never reached the seller). Requires a reason.
     if (newStatus === 'lost') {
+      let attemptedCount = 0;
       if (!leadRow?.contactedAt) {
+        const attemptedRows = await db
+          .select({ n: sql<number>`count(*)::int` })
+          .from(statusUpdates)
+          .where(
+            and(
+              eq(statusUpdates.leadId, offer.leadId),
+              eq(statusUpdates.newStatus, 'attempted_contact'),
+            ),
+          );
+        attemptedCount = Number(attemptedRows[0]?.n ?? 0);
+      }
+      if (!canMarkLost({ contactedAt: leadRow?.contactedAt, attemptedContactCount: attemptedCount })) {
         return NextResponse.json({ error: 'must_contact_before_lost' }, { status: 400 });
       }
       if (!isLostReason(body.lostReason)) {
@@ -114,7 +136,14 @@ export async function POST(req: NextRequest) {
     const acceptedAt = leadRow?.acceptedAt ?? offer.acceptedAt ?? null;
 
     try {
-      if (newStatus === 'contacted') {
+      if (newStatus === 'attempted_contact') {
+        await applyScore({
+          agentId: agent.id,
+          reason: 'pipeline_attempted',
+          leadId: offer.leadId,
+          leadOfferId: offer.id,
+        });
+      } else if (newStatus === 'contacted') {
         await applyScore({
           agentId: agent.id,
           reason: 'pipeline_contacted',

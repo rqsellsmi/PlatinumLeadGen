@@ -24,6 +24,7 @@ export type ScoreReason =
   | 'system_no_response'
   | 'system_decline'
   | 'system_closing'
+  | 'pipeline_attempted'
   | 'pipeline_contacted'
   | 'fast_contact_bonus'
   | 'pipeline_qualified'
@@ -51,6 +52,7 @@ export const SCORE_DELTAS: Record<
   system_no_response: -4.0, // offer expired (worse than decline — ties the lead up 3h)
   system_decline: -3.0,
   system_closing: 25.0, // closing should dominate the score
+  pipeline_attempted: 1.0, // +1.0 reached Attempted Contact (spec v2 §2)
   pipeline_contacted: 2.0,
   fast_contact_bonus: 3.0,
   pipeline_qualified: 2.0,

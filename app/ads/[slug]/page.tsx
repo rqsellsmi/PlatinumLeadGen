@@ -13,7 +13,12 @@ import StickyCtaBar from '@/components/cro/StickyCtaBar';
 import ExitIntentOverlay from '@/components/cro/ExitIntentOverlay';
 import TrackingScripts from '@/components/city/TrackingScripts';
 
-export const revalidate = 3600; // ISR (Section 20.4)
+// Render at request time. ISR (revalidate) statically prerenders these pages,
+// which throws "Dynamic server usage: no-store fetch" when the market-report
+// narrative (Anthropic) — and the no-store Neon DB reads — run during build.
+// Force-dynamic renders per request, so those calls are valid and the page
+// always reflects live data.
+export const dynamic = 'force-dynamic';
 
 const DEFAULT_PHONE = '(810) 224-7900';
 

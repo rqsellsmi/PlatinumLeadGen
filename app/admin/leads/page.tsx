@@ -6,11 +6,20 @@ import { Card, CardBody, Button, Input, Select, Label, Badge, statusTone } from 
 import { requireAdmin } from '@/components/admin/requireAdmin';
 import LocalTime from '@/components/LocalTime';
 import { formatPriceRange, relativeTime } from '@/lib/utils';
+import { leadStatusLabel } from '@/lib/leadLifecycle';
 
 export const dynamic = 'force-dynamic';
 
 const PAGE_SIZE = 25;
-const STATUSES = ['new', 'contacted', 'qualified', 'closed', 'lost'] as const;
+const STATUSES = [
+  'new',
+  'attempted_contact',
+  'contacted',
+  'qualified',
+  'working',
+  'closed',
+  'lost',
+] as const;
 const TYPES = ['valuation', 'seller_guide', 'webhook'] as const;
 
 function isStatus(v: string | undefined): v is (typeof STATUSES)[number] {
@@ -119,8 +128,8 @@ export default async function LeadsPage({
               <Select id="status" name="status" defaultValue={status ?? ''}>
                 <option value="">All</option>
                 {STATUSES.map((s) => (
-                  <option key={s} value={s} className="capitalize">
-                    {s}
+                  <option key={s} value={s}>
+                    {leadStatusLabel(s)}
                   </option>
                 ))}
               </Select>
@@ -198,7 +207,7 @@ export default async function LeadsPage({
                     <Badge tone="info">{lead.leadType}</Badge>
                   </td>
                   <td className="px-5 py-3.5">
-                    <Badge tone={statusTone(lead.status)}>{lead.status}</Badge>
+                    <Badge tone={statusTone(lead.status)}>{leadStatusLabel(lead.status)}</Badge>
                   </td>
                   <td className="px-5 py-3.5 text-mute-light">
                     {lead.createdAt ? <LocalTime value={lead.createdAt} dateOnly /> : '—'}
