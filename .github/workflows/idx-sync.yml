@@ -10,7 +10,11 @@ name: IDX hourly sync
 
 on:
   schedule:
-    - cron: '0 * * * *' # top of every hour
+    # Run at :17 past every hour, NOT on the hour. GitHub Actions delays (and
+    # under load, drops) scheduled runs, and the top of the hour is its peak
+    # load window, so an off-the-hour minute is far more reliable. Cadence is
+    # still best-effort — GHA never guarantees exact hourly timing.
+    - cron: '17 * * * *'
   workflow_dispatch: {} # allow manual runs for testing
 
 concurrency:
