@@ -6,6 +6,9 @@ import { getIdxSyncStatus } from '@/lib/idxAdmin';
 import RunSyncButton from './RunSyncButton';
 
 export const dynamic = 'force-dynamic';
+// The manual "Run now" server action runs the full sync; give it the same 60s
+// budget as the cron route so it isn't cut short by a lower default.
+export const maxDuration = 60;
 
 function duration(a: Date | null, b: Date | null): string {
   if (!a || !b) return '—';

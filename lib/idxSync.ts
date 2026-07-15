@@ -160,11 +160,10 @@ export function officeFieldClauses(): string[] {
 const QUERY_STRING_BUDGET = 1950; // stay comfortably under IIS's 2048 default
 
 /** Length of the query string realcompFetch sends for a given $filter/$expand. */
-function queryStringLength(filter: string, expand: string, orderby = ''): number {
+function queryStringLength(filter: string, expand: string): number {
   const u = new URL('https://host/Property');
   u.searchParams.set('$select', SELECT_FIELDS);
   u.searchParams.set('$expand', expand);
-  if (orderby) u.searchParams.set('$orderby', orderby);
   u.searchParams.set('$filter', filter);
   return u.search.length - 1; // drop the leading '?'
 }
@@ -179,7 +178,7 @@ function queryStringLength(filter: string, expand: string, orderby = ''): number
  * budget (still well under the hard 2048 cap). Returns [] when the keys are
  * unset. Results union naturally via the listingKey upsert.
  */
-export function officeFilterBatches(extraClause: string, expand: string, orderby = ''): string[] {
+export function officeFilterBatches(extraClause: string, expand: string): string[] {
   const keys = parseOfficeKeys();
   if (keys.length === 0) return [];
   const clause = (field: string, ks: string[]) =>
@@ -190,7 +189,7 @@ export function officeFilterBatches(extraClause: string, expand: string, orderby
     let batch: string[] = [];
     for (const key of keys) {
       const trial = [...batch, key];
-      if (batch.length > 0 && queryStringLength(clause(field, trial), expand, orderby) > QUERY_STRING_BUDGET) {
+      if (batch.length > 0 && queryStringLength(clause(field, trial), expand) > QUERY_STRING_BUDGET) {
         filters.push(clause(field, batch));
         batch = [key];
       } else {
@@ -563,10 +562,9 @@ type FetchPagesFn = (
 // ~60s (route maxDuration). Stop FETCHING new pages once this soft budget is
 // spent so the log write + metrics recompute still run before the platform hard-
 // kills the function. A run stopped here has already upserted every page it
-// pulled, and because the incremental query is ordered by ModificationTimestamp
-// ascending the cursor has advanced with no gaps — the next hourly run resumes
-// from there. This is what lets a large backlog self-heal over several runs
-// instead of every run timing out and saving nothing.
+// pulled, so the work isn't lost; the next run continues from the advanced
+// cursor. This is what lets a backlog make progress across runs instead of every
+// run timing out and saving nothing.
 const SYNC_FETCH_BUDGET_MS = 45_000;
 
 // Thrown from an onPage callback to stop pagination once the budget is spent.
@@ -574,20 +572,19 @@ const SYNC_FETCH_BUDGET_MS = 45_000;
 class SyncBudgetReached extends Error {}
 
 /**
- * Incremental query params. `$orderby=ModificationTimestamp` (ascending) is what
- * makes the page-by-page upsert safely resumable: every record with a smaller
- * timestamp is persisted before any larger one, so getSyncCursor() (the max
- * timestamp held) can never skip an unfetched record when a run is cut short.
- * It's cheap here because the `$filter` is a bounded delta — unlike the
- * multi-year backfill (§2.8), which omits `$orderby` precisely because sorting
- * the whole feed times the request out.
+ * Incremental query params. Deliberately NO `$orderby`: sorting server-side times
+ * the request out on a large delta (the exact footgun §2.8 avoids for the
+ * backfill), and it would exceed the serverless budget before the first page
+ * even returns. Pages arrive in the feed's default order and are upserted as they
+ * land; the max-timestamp cursor advances toward "now" across runs. A run cut
+ * short by the budget may re-fetch some already-seen records next time (an
+ * idempotent upsert — harmless); a very large backlog is cleared with the
+ * dedicated IDX Initial Sync workflow, while this keeps current data fresh.
  */
-const INCREMENTAL_ORDERBY = 'ModificationTimestamp';
 function incrementalParams(filter: string): Record<string, string> {
   return {
     $select: SELECT_FIELDS,
     $expand: MEDIA_EXPAND,
-    $orderby: INCREMENTAL_ORDERBY,
     $filter: filter,
   };
 }
@@ -607,9 +604,10 @@ export interface SyncResult {
 /**
  * Hourly incremental sync (IDX spec §2.6). Runs Query 2 (all Active/Pending/
  * Closed, feed-wide) then Query 1 (your offices, all statuses), both filtered by
- * ModificationTimestamp since the last cursor and ordered ascending, upserting
- * page-by-page under a wall-clock budget so a backlog too big for one serverless
- * invocation drains across successive runs. Logs a idx_sync_log row.
+ * ModificationTimestamp since the last cursor, upserting page-by-page under a
+ * wall-clock budget so a backlog too big for one serverless invocation makes
+ * progress across successive runs instead of timing out and saving nothing.
+ * Logs a idx_sync_log row.
  */
 export async function runIdxSync(fetchPages: FetchPagesFn): Promise<SyncResult> {
   const [logRow] = await db
@@ -645,10 +643,9 @@ export async function runIdxSync(fetchPages: FetchPagesFn): Promise<SyncResult> 
     };
 
     // Query 2 FIRST — the feed-wide pull is the big one and the reason a run can
-    // exceed the budget. Draining it before Query 1 keeps the resume cursor tied
-    // to Query 2's ascending progress: Query 1 could otherwise upsert a very
-    // recent office record and push the cursor past Query 2's unfetched middle,
-    // which the next run's `gt cursor` would then skip.
+    // exceed the budget. Draining it before Query 1 spends the whole budget on
+    // the query most likely to need it; Query 1 (a tiny office-only set) runs
+    // only once Query 2 has fully caught up this run.
     truncated = !(await streamQuery(`${displayableStatusClause()} and ${sinceClause}`, (f, u) => {
       q2Fetched += f;
       q2Upserted += u;
@@ -658,7 +655,7 @@ export async function runIdxSync(fetchPages: FetchPagesFn): Promise<SyncResult> 
     // fully caught up this run). Office keys are split into URL-length-safe
     // batches (IIS's ~2KB query-string cap) across the four office-key fields.
     if (!truncated) {
-      for (const filter of officeFilterBatches(sinceClause, MEDIA_EXPAND, INCREMENTAL_ORDERBY)) {
+      for (const filter of officeFilterBatches(sinceClause, MEDIA_EXPAND)) {
         const done = await streamQuery(filter, (f, u) => {
           q1Fetched += f;
           q1Upserted += u;
