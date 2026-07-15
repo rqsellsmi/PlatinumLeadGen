@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { requireAdmin } from '@/components/admin/requireAdmin';
 import { runIdxSync } from '@/lib/idxSync';
-import { realcompFetch, isRealcompConfigured } from '@/lib/realcomp';
+import { realcompFetchPages, isRealcompConfigured } from '@/lib/realcomp';
 
 export interface RunSyncResult {
   ok: boolean;
@@ -20,11 +20,14 @@ export async function runSyncNow(): Promise<RunSyncResult> {
     return { ok: false, message: 'Realcomp is not configured (REALCOMP_CLIENT_ID / SECRET).' };
   }
   try {
-    const r = await runIdxSync((path, params) => realcompFetch(path, params));
+    const r = await runIdxSync((path, params, onPage) => realcompFetchPages(path, params, onPage));
     revalidatePath('/admin/idx-sync');
+    const head = r.truncated
+      ? 'Sync progressed (time budget hit — run again to continue the backlog)'
+      : 'Sync complete';
     return {
       ok: true,
-      message: `Sync complete — Q1: ${r.query1Upserted}/${r.query1Fetched}, Q2: ${r.query2Upserted}/${r.query2Fetched} upserted.`,
+      message: `${head} — Q1: ${r.query1Upserted}/${r.query1Fetched}, Q2: ${r.query2Upserted}/${r.query2Fetched} upserted.`,
     };
   } catch (err) {
     return { ok: false, message: err instanceof Error ? err.message : 'Sync failed.' };

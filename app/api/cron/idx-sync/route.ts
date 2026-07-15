@@ -7,7 +7,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { runIdxSync } from '@/lib/idxSync';
-import { realcompFetch, isRealcompConfigured } from '@/lib/realcomp';
+import { realcompFetchPages, isRealcompConfigured } from '@/lib/realcomp';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const result = await runIdxSync((path, params) => realcompFetch(path, params));
+    const result = await runIdxSync((path, params, onPage) => realcompFetchPages(path, params, onPage));
     return NextResponse.json({ success: true, ...result });
   } catch (err) {
     console.error('[cron/idx-sync] failed:', err);

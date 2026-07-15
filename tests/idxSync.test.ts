@@ -52,10 +52,11 @@ describe('officeFilterBatches (IIS query-string cap)', () => {
   ];
   const SINCE = 'ModificationTimestamp gt 2026-07-15T09:00:00.000Z';
 
-  const qsLen = (filter: string): number => {
+  const qsLen = (filter: string, orderby = ''): number => {
     const u = new URL('https://host/Property');
     u.searchParams.set('$select', SELECT_FIELDS);
     u.searchParams.set('$expand', MEDIA_EXPAND);
+    if (orderby) u.searchParams.set('$orderby', orderby);
     u.searchParams.set('$filter', filter);
     return u.search.length - 1;
   };
@@ -87,6 +88,27 @@ describe('officeFilterBatches (IIS query-string cap)', () => {
   it('returns [] when keys are unset', () => {
     process.env.REALCOMP_OFFICE_KEYS = '';
     expect(officeFilterBatches(SINCE, MEDIA_EXPAND)).toEqual([]);
+  });
+
+  it('accounts for $orderby so the real request stays under the cap', () => {
+    // The incremental sync appends $orderby=ModificationTimestamp; the batcher
+    // must measure it too, or a batch sized against select+expand+filter alone
+    // could overflow once the ordering clause is added to the live URL.
+    const orderby = 'ModificationTimestamp';
+    const filters = officeFilterBatches(SINCE, MEDIA_EXPAND, orderby);
+    expect(filters.length).toBeGreaterThan(0);
+    for (const f of filters) expect(qsLen(f, orderby)).toBeLessThan(2048);
+    // Still covers every key for every field.
+    for (const field of [
+      'ListOfficeMlsId',
+      'BuyerOfficeMlsId',
+      'CoListOfficeMlsId',
+      'CoBuyerOfficeMlsId',
+    ]) {
+      const forField = filters.filter((f) => f.startsWith(`${field} in (`));
+      const seen = forField.flatMap((f) => KEYS.filter((k) => f.includes(`'${k}'`)));
+      expect(seen.slice().sort()).toEqual(KEYS.slice().sort());
+    }
   });
 });
 

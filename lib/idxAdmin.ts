@@ -41,7 +41,9 @@ export async function getIdxSyncStatus(): Promise<IdxSyncStatus> {
 
   return {
     recent,
-    lastSuccess: recent.find((r) => r.status === 'success') ?? null,
+    // 'partial' = a budget-truncated run that still advanced the cursor; count it
+    // as a (non-failing) success so the dashboard shows progress, not "Never".
+    lastSuccess: recent.find((r) => r.status === 'success' || r.status === 'partial') ?? null,
     lastFailure: recent.find((r) => r.status === 'failed') ?? null,
     byStatus,
     officeCount,
