@@ -23,6 +23,15 @@ const HERO_BLOB_PREFIX = (process.env.HERO_IMAGES_BLOB_PREFIX || 'Hero Images/')
 const IMAGE_RE = /\.(jpe?g|png|webp|avif|gif)$/i;
 const TTL_MS = 5 * 60 * 1000;
 
+// Read-write token for the store holding the hero images. Vercel names this
+// <PREFIX>_READ_WRITE_TOKEN; the hero images live in a dedicated PUBLIC store
+// connected with the BLOB_PUB prefix (public access is required — the browser
+// fetches these URLs unauthenticated), so prefer BLOB_PUB_READ_WRITE_TOKEN and
+// fall back to the default name. Passed explicitly to list() because the SDK
+// only auto-reads BLOB_READ_WRITE_TOKEN.
+const HERO_BLOB_TOKEN =
+  process.env.BLOB_PUB_READ_WRITE_TOKEN || process.env.BLOB_READ_WRITE_TOKEN;
+
 let cached: { at: number; urls: string[] } | null = null;
 
 /**
@@ -34,14 +43,14 @@ export async function getHeroImages(): Promise<string[]> {
   if (cached && Date.now() - cached.at < TTL_MS) return cached.urls;
 
   // list() needs a read/write token; without it, use the bundled assets.
-  if (!process.env.BLOB_READ_WRITE_TOKEN) return HERO_IMAGES;
+  if (!HERO_BLOB_TOKEN) return HERO_IMAGES;
 
   try {
     const urls: string[] = [];
     let cursor: string | undefined;
     // Page through the folder (list() caps at 1000 per call).
     do {
-      const res = await list({ prefix: HERO_BLOB_PREFIX, cursor, limit: 1000 });
+      const res = await list({ prefix: HERO_BLOB_PREFIX, cursor, limit: 1000, token: HERO_BLOB_TOKEN });
       for (const b of res.blobs) {
         if (IMAGE_RE.test(b.pathname)) urls.push(b.url);
       }
