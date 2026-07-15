@@ -55,7 +55,12 @@ export const SELECT_FIELDS = [
   'PoolFeatures', 'PatioAndPorchFeatures', 'LotFeatures', 'LotSizeDimensions', 'View',
   'WaterSource', 'Sewer', 'Utilities', 'NewConstructionYN', 'Zoning', 'AssociationYN',
   'AssociationFee', 'AssociationFeeFrequency', 'AssociationFeeIncludes', 'AssociationAmenities',
-  'TaxAnnualAmount', 'TaxYear',
+  // Realcomp's live $metadata declares TaxAnnualAmount but NOT TaxYear (verified
+  // via scripts/idx-verify-metadata.ts). Selecting a field the feed doesn't
+  // declare makes Realcomp 400 the whole query, so TaxYear is omitted here. The
+  // taxYear column + mapping stay (harmless null; picks it up automatically if
+  // Realcomp ever adds the field) and the listing page hides the year when null.
+  'TaxAnnualAmount',
 ].join(',');
 
 // Media is a NavigationProperty — expand it to pull the photo set (IDX spec §2.5).
