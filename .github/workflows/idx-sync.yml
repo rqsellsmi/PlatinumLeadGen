@@ -1,12 +1,21 @@
 name: IDX hourly sync
 
-# Hourly incremental IDX sync (IDX spec §2.6). Vercel's Hobby plan only allows
-# daily crons, so — like the every-10-min jobs in cron.yml — this pings the
-# sync endpoint on a schedule instead of using vercel.json.
+# Hourly incremental IDX sync (IDX spec §2.6). Runs the sync DIRECTLY on the
+# GitHub runner (npm run idx:sync:incremental) — NOT by pinging Vercel.
 #
-# Required repository secrets (Settings -> Secrets and variables -> Actions):
-#   DEPLOY_URL   e.g. https://your-project.vercel.app  (no trailing slash)
-#   CRON_SECRET  the SAME value set as CRON_SECRET in your Vercel env vars
+# Why not ping /api/cron/idx-sync like before? That endpoint runs as a Vercel
+# serverless function hard-capped at 60s. A feed-wide delta with full Media
+# expand does not finish in 60s, so Vercel returned 504, the function saved
+# nothing, the cursor never advanced, and every hour retried the same doomed
+# pull (a permanent 504 loop). The runner has a multi-hour timeout, so the sync
+# actually completes here — same code path (runIdxSync), just somewhere it can
+# run long enough. Vercel's Hobby plan also only allows daily crons, which is why
+# this was a GitHub Action in the first place.
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions) —
+# the SAME set the initial-sync workflow uses:
+#   DATABASE_URL, REALCOMP_CLIENT_ID, REALCOMP_CLIENT_SECRET,
+#   REALCOMP_BASE_URL, REALCOMP_AUTH_URL, REALCOMP_AUDIENCE, REALCOMP_OFFICE_KEYS
 
 on:
   schedule:
@@ -22,25 +31,35 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  ping-idx-sync:
+  idx-sync:
     runs-on: ubuntu-latest
+    # An incremental delta is normally minutes; cap well short of the 6h runner
+    # limit so a wedged run fails loudly instead of burning Actions minutes. A
+    # large catch-up still fits, and the sync is cursor-resumable across runs.
+    timeout-minutes: 60
     steps:
-      - name: Validate secrets
-        env:
-          DEPLOY_URL: ${{ secrets.DEPLOY_URL }}
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
-        run: |
-          if [ -z "$DEPLOY_URL" ] || [ -z "$CRON_SECRET" ]; then
-            echo "::error::DEPLOY_URL and CRON_SECRET repository secrets must be set."
-            exit 1
-          fi
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
 
       - name: Run IDX sync
         env:
-          DEPLOY_URL: ${{ secrets.DEPLOY_URL }}
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
-        run: |
-          BASE="${DEPLOY_URL%/}"  # trim a trailing slash so we never hit //api/…
-          curl -fsS --max-time 120 \
-            -H "x-cron-secret: $CRON_SECRET" \
-            "$BASE/api/cron/idx-sync"
+          # The sync needs the DB + Realcomp creds; skip the app's full env
+          # validation (which also wants NextAuth/admin vars).
+          SKIP_ENV_VALIDATION: '1'
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          REALCOMP_CLIENT_ID: ${{ secrets.REALCOMP_CLIENT_ID }}
+          REALCOMP_CLIENT_SECRET: ${{ secrets.REALCOMP_CLIENT_SECRET }}
+          REALCOMP_BASE_URL: ${{ secrets.REALCOMP_BASE_URL }}
+          REALCOMP_AUTH_URL: ${{ secrets.REALCOMP_AUTH_URL }}
+          REALCOMP_AUDIENCE: ${{ secrets.REALCOMP_AUDIENCE }}
+          REALCOMP_OFFICE_KEYS: ${{ secrets.REALCOMP_OFFICE_KEYS }}
+        run: npm run idx:sync:incremental

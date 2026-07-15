@@ -17,6 +17,7 @@
     "seed": "tsx scripts/seed.ts",
     "hash-password": "tsx scripts/hash-password.ts",
     "idx:sync": "tsx scripts/idx-initial-sync.ts",
+    "idx:sync:incremental": "tsx scripts/idx-incremental-sync.ts",
     "idx:verify": "tsx scripts/idx-verify-metadata.ts",
     "test": "vitest run"
   },

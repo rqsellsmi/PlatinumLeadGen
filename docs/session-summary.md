@@ -351,3 +351,48 @@ arrives (`docs/idx-integration.md`).
 See `docs/lessons-learned.md` §11 (server API keys vs referrer restrictions,
 migration hygiene across Neon branches, "only-some-pages-error" heuristic,
 percentile-tier midrank, rolling-window bootstrap).
+
+---
+
+# Session Summary — IDX sync reliability (hourly 504 fix)
+
+Branch: work done on `main` (owner directed). No migrations. Full lessons in
+`docs/lessons-learned.md` §16.
+
+## Problem
+The hourly IDX sync never succeeded ("Last successful sync: Never"). Four causes
+in sequence, each unmasking the next:
+1. `idx:verify` CI: `getValidRealcompToken` required a DB (token cache) the verify
+   job doesn't have.
+2. verify then 400'd — `TaxYear` isn't in Realcomp's live `$metadata`.
+3. hourly sync 504'd; a first pass added page-by-page + a 45s budget but also
+   `$orderby` (the §13b server-sort timeout) which made it worse.
+4. still 504 — every run frozen at `RUNNING`, no counts: a hard kill at the wall.
+
+## Root cause
+`idx-sync.yml` only `curl`ed `/api/cron/idx-sync`, a **Vercel function capped at
+60s**. A feed-wide delta with full Media can't finish in 60s → 504, nothing
+saved, cursor never advances, retries forever. The backfill takes ~2h fine
+because it runs **on the runner** (350-min cap), not on Vercel.
+
+## What changed (all on `main`)
+- `lib/realcomp.ts`: `getValidRealcompToken` mints a token DB-free when no
+  `DATABASE_URL` (via `mintRealcompToken`).
+- `lib/idxSync.ts`: dropped `TaxYear` from `SELECT_FIELDS` (kept column + mapping);
+  `runIdxSync` now streams page-by-page (Query 2 first), takes an optional
+  `budgetMs` (default 45s for the serverless callers), marks a cut-short run
+  `partial`; no `$orderby`.
+- `scripts/idx-incremental-sync.ts` + `idx:sync:incremental` npm script: run the
+  sync on the runner with `budgetMs: Infinity` (drains the whole delta), logging
+  per-page progress.
+- `.github/workflows/idx-sync.yml`: rewritten to run that script on the runner
+  (DB + Realcomp secrets, `timeout-minutes: 60`) instead of pinging Vercel.
+- `lib/idxAdmin.ts`: `partial` counts as a non-failing success on the dashboard;
+  admin **Run Now** page gets `maxDuration = 60`.
+
+## Operational (must do before it works)
+- The `IDX hourly sync` workflow now needs `DATABASE_URL` + the `REALCOMP_*`
+  Actions secrets (same set the initial-sync workflow already uses) — the old
+  `DEPLOY_URL`/`CRON_SECRET` are no longer used by it.
+- Trigger `IDX hourly sync` (Actions → Run workflow) to confirm green; the admin
+  IDX Sync banner should clear and "Last successful sync" should populate.

@@ -558,13 +558,16 @@ type FetchPagesFn = (
   onPage: (page: Raw[]) => Promise<void>,
 ) => Promise<number>;
 
-// Serverless invocations (the hourly cron + the admin "Run now") are capped at
-// ~60s (route maxDuration). Stop FETCHING new pages once this soft budget is
-// spent so the log write + metrics recompute still run before the platform hard-
-// kills the function. A run stopped here has already upserted every page it
-// pulled, so the work isn't lost; the next run continues from the advanced
-// cursor. This is what lets a backlog make progress across runs instead of every
-// run timing out and saving nothing.
+// Default soft budget for the SERVERLESS path (the admin "Run now" server action
+// + the /api/cron endpoint), which Vercel hard-kills at ~60s. Stop FETCHING new
+// pages once it's spent so the log write + metrics recompute still run before the
+// kill. A run stopped here has already upserted every page it pulled, so the work
+// isn't lost; the next run continues from the advanced cursor.
+//
+// The GitHub-runner path (scripts/idx-incremental-sync.ts) passes budgetMs:
+// Infinity — it has the runner's multi-hour timeout, so it drains the whole delta
+// in one run and never reports 'partial'. Running the sync on the runner instead
+// of pinging the 60s Vercel function is why the hourly job stopped 504-ing.
 const SYNC_FETCH_BUDGET_MS = 45_000;
 
 // Thrown from an onPage callback to stop pagination once the budget is spent.
@@ -607,9 +610,13 @@ export interface SyncResult {
  * ModificationTimestamp since the last cursor, upserting page-by-page under a
  * wall-clock budget so a backlog too big for one serverless invocation makes
  * progress across successive runs instead of timing out and saving nothing.
- * Logs a idx_sync_log row.
+ * Pass `budgetMs: Infinity` (the GitHub-runner path) to drain the whole delta in
+ * one run. Logs a idx_sync_log row.
  */
-export async function runIdxSync(fetchPages: FetchPagesFn): Promise<SyncResult> {
+export async function runIdxSync(
+  fetchPages: FetchPagesFn,
+  opts: { budgetMs?: number } = {},
+): Promise<SyncResult> {
   const [logRow] = await db
     .insert(idxSyncLog)
     .values({ syncStartedAt: new Date(), status: 'running' })
@@ -619,7 +626,7 @@ export async function runIdxSync(fetchPages: FetchPagesFn): Promise<SyncResult> 
   try {
     const cursor = await getSyncCursor();
     const sinceClause = cursor ? `ModificationTimestamp gt ${cursor}` : `ModificationTimestamp gt ${oneYearAgoIso()}`;
-    const deadline = Date.now() + SYNC_FETCH_BUDGET_MS;
+    const deadline = Date.now() + (opts.budgetMs ?? SYNC_FETCH_BUDGET_MS);
 
     let q1Fetched = 0;
     let q1Upserted = 0;

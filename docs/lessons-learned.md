@@ -488,3 +488,54 @@ though the hourly sync ran and the row looked correct in `idx_listings`.
   owner to paste it into the Neon SQL editor, which errored on `const`. When the
   person is working in a SQL console, give SQL; clearly label illustrative app
   code as code, not a command to run.
+
+## 16. Hourly IDX sync 504 — the fix was moving where it runs, not how
+
+The hourly sync failed for four *distinct* reasons in sequence; each fix unmasked
+the next (same "one fix reveals the next" pattern as §13a). Worth recording the
+whole chain because most of the wasted time was theorizing past the real cause.
+
+- **The chain:** (1) `idx:verify` CI failed — `getValidRealcompToken` hit the DB
+  for token caching, but the verify job has no `DATABASE_URL`; fixed by minting a
+  token DB-free when no connection string is set. (2) verify then 400'd on
+  `TaxYear` — Realcomp's live `$metadata` declares `TaxAnnualAmount` but **not**
+  `TaxYear`; dropped it from `SELECT_FIELDS` (kept the column + response mapping).
+  (3) The hourly sync 504'd; I added page-by-page upsert + a 45s budget +
+  `$orderby=ModificationTimestamp` for gap-free resume — but `$orderby` is the
+  exact server-side-sort timeout §2.8/§13b avoids, so it made the *first page*
+  never return; removed it. (4) Still 504. The admin "Recent sync runs" table
+  showed **every run frozen at `RUNNING`, no counts, no error** — the tell that
+  the function is hard-killed before it can write ANY status.
+- **The actual root cause:** the hourly workflow (`idx-sync.yml`) only `curl`ed
+  the Vercel endpoint `/api/cron/idx-sync`. The sync ran **on Vercel**, hard-capped
+  at `maxDuration=60`. A feed-wide delta with full Media does not fit in 60s, so
+  Vercel returned 504 through the curl; the GitHub job showing the 504 was just
+  the messenger. The initial backfill takes ~2h fine because it runs `npm run
+  idx:sync` **on the runner** (350-min limit) — same code, somewhere it can run
+  long. The owner's "the hourly sync is in GitHub Actions" was right about *where
+  they saw it* and the correction is what surfaced the real fix.
+- **The fix:** stop pinging the 60s function. Run the sync **on the runner** too
+  (`scripts/idx-incremental-sync.ts`, `npm run idx:sync:incremental`, wired into
+  `idx-sync.yml` with the DB + Realcomp secrets), passing `budgetMs: Infinity` so
+  it drains the whole delta in one run. `runIdxSync` took an optional `budgetMs`
+  (default 45s for the Vercel endpoint / admin "Run now", which stay 60s-bounded).
+- **Lessons:**
+  - **A GitHub Action that `curl`s your app is not "running in GitHub Actions."**
+    A 504 in the Actions log can originate entirely from the pinged serverless
+    function's timeout. Check what the step actually *executes* (a curl vs a node
+    script) before reasoning about where the time goes.
+  - **`status='running'` that never flips = hard kill.** Because the log row is
+    only updated at the end (success/failed/partial), a platform timeout leaves it
+    frozen with null counts. A row stuck `running` is positive evidence of a
+    kill-at-the-wall, not an in-progress run — and told us the 60s cap, not any
+    query error, was the wall.
+  - **Match the runtime to the work.** A job that can exceed 60s does not belong
+    behind a 60s serverless function on Hobby. The ping-Vercel indirection was a
+    workaround for Hobby's daily-cron limit and silently inherited the 60s cap;
+    running the compute on the runner (already done for the backfill) removes it.
+  - **`$orderby` on a large RESO set is a timeout, every time** (now bitten in the
+    backfill §13b *and* here). Don't add it to any query whose result set isn't
+    already bounded small.
+  - **Confirm before theorizing (Rule #1), and build the confirmation IN.** The
+    diagnosis only landed once the admin "Recent sync runs" table exposed
+    per-run status/counts. Cheap observable state beats another round of guessing.
