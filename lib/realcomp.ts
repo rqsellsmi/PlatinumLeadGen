@@ -422,6 +422,43 @@ export async function realcompProbeBody(label: string, params: Record<string, st
   }
 }
 
+/**
+ * Like realcompProbeBody but RETURNS the record count (or -1 on error) so a
+ * caller can branch on it (e.g. a $select bisection). Still logs to stderr.
+ */
+export async function realcompProbeCount(label: string, params: Record<string, string>, ms: number): Promise<number> {
+  const token = await getValidRealcompToken();
+  const url = new URL(`${baseUrl()}/Property`);
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  const t = Date.now();
+  try {
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    const body = await res.text();
+    let count = -1;
+    let extra = body.slice(0, 200);
+    try {
+      const j = JSON.parse(body) as { value?: unknown[]; '@odata.nextLink'?: string };
+      count = j.value?.length ?? 0;
+      extra = `nextLink=${j['@odata.nextLink'] ? 'yes' : 'no'}`;
+    } catch {
+      /* keep raw slice */
+    }
+    console.error(`[qbisect] ${label}: HTTP ${res.status} in ${Date.now() - t}ms :: count=${count} ${extra}`);
+    return res.ok ? count : -1;
+  } catch (err) {
+    console.error(`[qbisect] ${label}: FAILED in ${Date.now() - t}ms: ${err instanceof Error ? err.message : String(err)}`);
+    return -1;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Fetch the raw $metadata document (used by scripts/idx-verify-metadata.ts). */
 export async function fetchMetadata(): Promise<string> {
   const token = await getValidRealcompToken();

@@ -17,7 +17,7 @@
  */
 import './loadEnv';
 import { realcompFetchPages, isRealcompConfigured, realcompPreflight } from '../lib/realcomp';
-import { runIdxSync, probeMediaDiagnostics } from '../lib/idxSync';
+import { runIdxSync, probeSelectBisect } from '../lib/idxSync';
 
 // Realcomp's feed-wide query stalls in ~20-minute stretches, then recovers (a
 // reliability probe measured 8/8 fast, but 12 min later the same query hung 4x).
@@ -62,10 +62,10 @@ async function main() {
   // Preflight health check (token + a no-media/with-media probe); never throws.
   await realcompPreflight();
 
-  // DIAGNOSTIC BUILD: isolate which element (media / full select / narrow window)
-  // zeroes the windowed query, then exit.
-  await probeMediaDiagnostics();
-  console.error('[idx-sync] media/window diagnostics complete — exiting.');
+  // DIAGNOSTIC BUILD: the full $select zeroes the query — bisect SELECT_FIELDS to
+  // pinpoint the offending field (or prove a cumulative length limit), then exit.
+  await probeSelectBisect();
+  console.error('[idx-sync] $select bisection complete — exiting.');
   process.exit(0);
   // eslint-disable-next-line no-unreachable
 

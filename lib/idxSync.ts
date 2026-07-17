@@ -18,7 +18,7 @@
  */
 import { sql, getTableColumns, inArray, eq, max } from 'drizzle-orm';
 import { db } from './db';
-import { realcompProbe, realcompProbeBody, realcompFetchPages } from './realcomp';
+import { realcompProbe, realcompProbeBody, realcompProbeCount, realcompFetchPages } from './realcomp';
 import {
   idxListings,
   idxListingPhotos,
@@ -31,7 +31,7 @@ import {
 // ---------------------------------------------------------------------------
 // OData field selection (IDX spec §2.4, Township removed — no such field)
 // ---------------------------------------------------------------------------
-export const SELECT_FIELDS = [
+export const SELECT_FIELDS_ARR = [
   'ListingKey', 'ListingId', 'ListOfficeMlsId', 'BuyerOfficeMlsId',
   'CoListOfficeMlsId', 'CoBuyerOfficeMlsId', 'MlsStatus', 'StandardStatus', 'ListPrice', 'ClosePrice',
   'CloseDate', 'DaysOnMarket', 'CumulativeDaysOnMarket', 'OriginalListPrice',
@@ -62,7 +62,9 @@ export const SELECT_FIELDS = [
   // taxYear column + mapping stay (harmless null; picks it up automatically if
   // Realcomp ever adds the field) and the listing page hides the year when null.
   'TaxAnnualAmount',
-].join(',');
+] as const;
+
+export const SELECT_FIELDS = SELECT_FIELDS_ARR.join(',');
 
 // Media is a NavigationProperty — expand it to pull the photo set (IDX spec §2.5).
 // NB: a nested `$top=1`/`$orderby=Order` here to fetch only the primary photo is
@@ -657,6 +659,58 @@ export async function probeMediaDiagnostics(): Promise<void> {
   await realcompProbeBody('D narrow, small select, WITH media', { $select: sel, $expand: MEDIA_EXPAND, $filter: narrowF, $top: '5' }, 20_000);
   await realcompProbeBody('E open, FULL select, WITH media', { $select: SELECT_FIELDS, $expand: MEDIA_EXPAND, $filter: openF, $top: '5' }, 20_000);
   await realcompProbeBody('F narrow, FULL select, WITH media (== sync req)', { $select: SELECT_FIELDS, $expand: MEDIA_EXPAND, $filter: narrowF, $top: '5' }, 20_000);
+}
+
+/**
+ * DIAGNOSTIC: the full $select zeroes the query (probeMediaDiagnostics E/F = 0
+ * while the 3-field select returns 5). Pinpoint WHY by bisecting SELECT_FIELDS_ARR:
+ *   1. anchors-only (control, expect >0)
+ *   2. full select (reproduce, expect 0)
+ *   3. binary-search the smallest PREFIX of candidate fields that flips >0 → 0
+ *   4. test that boundary field ALONE with the anchors:
+ *        - alone also 0  → that single field breaks the query (drop it)
+ *        - alone still >0 → the failure is CUMULATIVE (query length / field count),
+ *          so the offending prefix length is the real limit.
+ * Uses an open, media-expanded, $top=5 query so only the $select varies.
+ */
+export async function probeSelectBisect(): Promise<void> {
+  const disp = displayableStatusClause();
+  const filter = `${disp} and ModificationTimestamp gt 2026-07-10T00:00:00.000Z`;
+  const ANCHORS = ['ListingKey', 'ModificationTimestamp', 'StandardStatus'];
+  const candidates = SELECT_FIELDS_ARR.filter((f) => !ANCHORS.includes(f));
+
+  const probe = (label: string, fields: string[]) =>
+    realcompProbeCount(label, { $select: fields.join(','), $expand: MEDIA_EXPAND, $filter: filter, $top: '5' }, 20_000);
+
+  console.error(`[qbisect] ${candidates.length} candidate fields beyond anchors`);
+  const anchorCount = await probe('anchors-only', ANCHORS);
+  const fullCount = await probe(`full select (${SELECT_FIELDS_ARR.length} fields)`, [...SELECT_FIELDS_ARR]);
+  if (anchorCount <= 0 || fullCount > 0) {
+    console.error(`[qbisect] non-reproducing (anchors=${anchorCount}, full=${fullCount}) — aborting bisection.`);
+    return;
+  }
+
+  // Smallest k in [1..candidates.length] where ANCHORS + candidates[0..k) => 0.
+  let lo = 1;
+  let hi = candidates.length;
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const c = await probe(`prefix ${mid} (anchors + first ${mid})`, [...ANCHORS, ...candidates.slice(0, mid)]);
+    if (c > 0) lo = mid + 1;
+    else hi = mid;
+  }
+  const boundary = candidates[lo - 1];
+  console.error(`[qbisect] boundary at prefix ${lo}: field "${boundary}"`);
+
+  const aloneCount = await probe(`boundary "${boundary}" alone`, [...ANCHORS, boundary]);
+  if (aloneCount <= 0) {
+    console.error(`[qbisect] VERDICT: field "${boundary}" breaks the query on its own — drop it from SELECT_FIELDS.`);
+  } else {
+    console.error(
+      `[qbisect] VERDICT: "${boundary}" is fine alone (count=${aloneCount}); failure is CUMULATIVE at ${lo} candidate fields ` +
+        `(≈${[...ANCHORS, ...candidates.slice(0, lo)].join(',').length} chars of $select). Likely a query-length/field-count limit.`,
+    );
+  }
 }
 
 /**
