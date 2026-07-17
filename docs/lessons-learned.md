@@ -591,3 +591,14 @@ whole chain because most of the wasted time was theorizing past the real cause.
     query → exact query + real upsert → the real fetch wrapper. Each probe ruled a
     layer in or out against the actual production endpoint/data, on the actual
     runner. Reading the *real* logs beats reasoning about what "should" happen.
+  - **CONFIRMED intermittent by a reliability probe: it's Realcomp, not us.** A
+    build that fired the exact feed-wide query 8× returned **8/8 HTTP 200** in
+    0.4–4.4s. But 45 min earlier the identical query had aborted 4× in a row. The
+    timeline (200 at 16:12 → hung 16:20–16:32 → 200×8 at 17:19) shows Realcomp's
+    data API has **~20-minute degraded windows** where it stalls these queries,
+    then recovers. No code change fixes their server; the design that survives it
+    is already in place — a short (30s) per-request timeout so a stalled request
+    aborts and retries, plus the per-window checkpoint so a run that dies inside a
+    bad window resumes from where it stopped on the next hourly run. When a symptom
+    is time-correlated and not code-correlated, stop editing code and measure the
+    dependency's reliability directly.

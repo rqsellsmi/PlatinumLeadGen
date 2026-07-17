@@ -418,6 +418,12 @@ because it runs **on the runner** (350-min cap), not on Vercel.
   `fetchWithTimeout`; the incremental sync uses 30s (runner) / 20s (serverless),
   so a stalled request aborts fast and the existing retry re-issues it. Real sync
   re-enabled in `scripts/idx-incremental-sync.ts`.
+- **CONFIRMED it's Realcomp, not our code.** A reliability probe fired the exact
+  feed-wide query 8× → **8/8 HTTP 200** (0.4–4.4s), yet 45 min earlier the same
+  query aborted 4×. Realcomp's data API has **~20-minute degraded windows** that
+  stall these queries then recover. The short-timeout + per-window-checkpoint
+  design rides this out (a run that dies in a bad window resumes next hour). Real
+  sync re-enabled; expect it to work whenever Realcomp is healthy.
 - `lib/idxAdmin.ts`: `partial` counts as a non-failing success on the dashboard;
   admin **Run Now** page gets `maxDuration = 60`.
 
