@@ -539,3 +539,18 @@ whole chain because most of the wasted time was theorizing past the real cause.
   - **Confirm before theorizing (Rule #1), and build the confirmation IN.** The
     diagnosis only landed once the admin "Recent sync runs" table exposed
     per-run status/counts. Cheap observable state beats another round of guessing.
+  - **"Nothing logged after N seconds" locates the hang precisely.** Once on the
+    runner, the job logged *nothing* for 1m39s. Since the script logs per page,
+    that meant the FIRST Realcomp request hadn't returned — the hang is the
+    request itself, not the DB or our loop. (`REQUEST_TIMEOUT_MS` is 5 min, so a
+    single materialize-the-whole-result request can hang that long before it even
+    aborts.)
+  - **An open-ended `gt cursor` feed-wide delta doesn't scale; window it.** With
+    the backfill days old, the cursor was days behind, so Query 2 asked Realcomp
+    for *every displayable listing modified in days, with full Media*. Realcomp
+    appears to materialize the whole filtered+expanded result before returning
+    page 1, so the first page never came. Fix = the backfill's own pattern:
+    **bounded time windows** (1-hour) with a checkpoint that advances only after a
+    window fully drains — small result sets, fast first page, gap-free resume, no
+    `$orderby`. The incremental sync should never issue an unbounded feed-wide
+    query, even "since the cursor."

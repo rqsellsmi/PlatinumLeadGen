@@ -389,10 +389,17 @@ because it runs **on the runner** (350-min cap), not on Vercel.
   (DB + Realcomp secrets, `timeout-minutes: 60`) instead of pinging Vercel.
 - `runIdxSync` now **flushes running Q1/Q2 counts to `idx_sync_log` every ~10s**
   as pages land, so a killed/aborted run leaves counts in the admin "Recent sync
-  runs" table instead of a frozen `running` with `—/—` (added to diagnose why a
-  run was executing ~58 min — the cursor/`modificationTimestamp` IS stored, so a
-  long run implies either a run started with an empty table or a heavier-than-
-  expected feed pull; the live counts + runner stdout will show which).
+  runs" table instead of a frozen `running` with `—/—`.
+- **Bounded-window rewrite (the actual fix for the runner hang):** on the runner
+  the job logged *nothing* for 1m39s → the first Realcomp request itself was
+  hanging. Root cause: the backfill was days old, so the cursor was days behind,
+  and Query 2's open-ended `gt cursor` feed-wide+full-Media pull made Realcomp
+  materialize the whole multi-day result before page 1 (past the 5-min request
+  timeout). `runIdxSync` now walks **1-hour `ModificationTimestamp` windows** from
+  an `incremental` checkpoint (reusing `idx_backfill_checkpoints`), draining each
+  window's Query 2 before advancing the checkpoint — small result sets, fast first
+  page, gap-free resume, no `$orderby`. Query 1 (offices, tiny) runs once over the
+  range advanced. Per-window progress logs to the runner's Actions output.
 - `lib/idxAdmin.ts`: `partial` counts as a non-failing success on the dashboard;
   admin **Run Now** page gets `maxDuration = 60`.
 

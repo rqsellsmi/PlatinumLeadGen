@@ -570,19 +570,24 @@ type FetchPagesFn = (
 // of pinging the 60s Vercel function is why the hourly job stopped 504-ing.
 const SYNC_FETCH_BUDGET_MS = 45_000;
 
-// Thrown from an onPage callback to stop pagination once the budget is spent.
-// Caught in runIdxSync and treated as a clean partial run (not a failure).
-class SyncBudgetReached extends Error {}
+// The incremental sync walks forward in bounded time WINDOWS (like the backfill's
+// month-windows, §2.8) rather than one open-ended `ModificationTimestamp gt
+// cursor` pull. Realcomp appears to materialize the whole filtered+expanded
+// result before returning page 1, so an open-ended feed-wide delta (days of the
+// entire feed with full Media) made the FIRST request hang past the 5-min request
+// timeout — nothing ever streamed. A small window keeps each result set, and its
+// first page, small and fast. The checkpoint (idx_backfill_checkpoints, keyed
+// below) advances ONLY after a window fully drains, so page-by-page upserts are
+// gap-free with no `$orderby`, and a run cut short resumes at the last completed
+// window.
+const INCREMENTAL_STEP_MS = 60 * 60 * 1000; // 1-hour windows
+const INCREMENTAL_CHECKPOINT_KEY = 'incremental';
 
 /**
- * Incremental query params. Deliberately NO `$orderby`: sorting server-side times
- * the request out on a large delta (the exact footgun §2.8 avoids for the
- * backfill), and it would exceed the serverless budget before the first page
- * even returns. Pages arrive in the feed's default order and are upserted as they
- * land; the max-timestamp cursor advances toward "now" across runs. A run cut
- * short by the budget may re-fetch some already-seen records next time (an
- * idempotent upsert — harmless); a very large backlog is cleared with the
- * dedicated IDX Initial Sync workflow, while this keeps current data fresh.
+ * Incremental query params. Deliberately NO `$orderby` (server-side sort times out
+ * on a large set — §2.8/§13b); gap-free resume comes from the bounded windows +
+ * checkpoint instead. Pages arrive in the feed's default order and are upserted as
+ * they land.
  */
 function incrementalParams(filter: string): Record<string, string> {
   return {
@@ -624,9 +629,9 @@ export async function runIdxSync(
   const logId = logRow.id;
 
   try {
-    const cursor = await getSyncCursor();
-    const sinceClause = cursor ? `ModificationTimestamp gt ${cursor}` : `ModificationTimestamp gt ${oneYearAgoIso()}`;
-    const deadline = Date.now() + (opts.budgetMs ?? SYNC_FETCH_BUDGET_MS);
+    const budgetMs = opts.budgetMs ?? SYNC_FETCH_BUDGET_MS;
+    const deadline = Date.now() + budgetMs;
+    const nowMs = Date.now();
 
     let q1Fetched = 0;
     let q1Upserted = 0;
@@ -658,44 +663,66 @@ export async function runIdxSync(
       }
     };
 
-    // A single query, streamed: upsert each page as it lands and stop once the
-    // budget is spent. Returns false when the budget cut it short.
-    const streamQuery = async (filter: string, onCount: (fetched: number, upserted: number) => void): Promise<boolean> => {
-      try {
-        await fetchPages('Property', incrementalParams(filter), async (page) => {
-          onCount(page.length, await upsertRawListings(page));
-          await flushProgress();
-          if (Date.now() >= deadline) throw new SyncBudgetReached();
-        });
-        return true;
-      } catch (err) {
-        if (err instanceof SyncBudgetReached) return false;
-        throw err;
-      }
+    // Fetch a filter to exhaustion, upserting each page. Windows keep the result
+    // set small, so this returns quickly.
+    const drainQuery = async (filter: string, onCount: (fetched: number, upserted: number) => void): Promise<void> => {
+      await fetchPages('Property', incrementalParams(filter), async (page) => {
+        onCount(page.length, await upsertRawListings(page));
+        await flushProgress();
+      });
     };
 
-    // Query 2 FIRST — the feed-wide pull is the big one and the reason a run can
-    // exceed the budget. Draining it before Query 1 spends the whole budget on
-    // the query most likely to need it; Query 1 (a tiny office-only set) runs
-    // only once Query 2 has fully caught up this run.
-    truncated = !(await streamQuery(`${displayableStatusClause()} and ${sinceClause}`, (f, u) => {
-      q2Fetched += f;
-      q2Upserted += u;
-    }));
+    // Resume point: the explicit incremental checkpoint (advanced only after a
+    // window fully drains), else the newest ModificationTimestamp we already hold
+    // (from the backfill), else a year ago.
+    let startIso = await getBackfillCheckpoint(INCREMENTAL_CHECKPOINT_KEY);
+    if (!startIso) startIso = (await getSyncCursor()) ?? oneYearAgoIso();
+    let windowStartMs = Date.parse(startIso);
+    if (Number.isNaN(windowStartMs)) windowStartMs = Date.parse(oneYearAgoIso());
+    const rangeStartMs = windowStartMs;
 
-    // Query 1 — your offices, all statuses that changed (only once Query 2 has
-    // fully caught up this run). Office keys are split into URL-length-safe
+    // Walk forward in bounded windows. Query 2 (feed-wide) per window keeps each
+    // request's result — and its first page — small; the checkpoint advances only
+    // after a window fully drains, so a run cut short resumes cleanly (no gaps, no
+    // $orderby). The runner passes budgetMs: Infinity and drains to `now`; the
+    // serverless path stops between windows once its 45s budget is spent.
+    while (windowStartMs < nowMs) {
+      if (Date.now() >= deadline) {
+        truncated = true;
+        break;
+      }
+      const windowEndMs = Math.min(windowStartMs + INCREMENTAL_STEP_MS, nowMs);
+      const winClause =
+        `ModificationTimestamp gt ${new Date(windowStartMs).toISOString()} ` +
+        `and ModificationTimestamp le ${new Date(windowEndMs).toISOString()}`;
+
+      await drainQuery(`${displayableStatusClause()} and ${winClause}`, (f, u) => {
+        q2Fetched += f;
+        q2Upserted += u;
+      });
+
+      // Whole window drained — record it so the next run resumes here.
+      await setBackfillCheckpoint(INCREMENTAL_CHECKPOINT_KEY, new Date(windowEndMs).toISOString());
+      windowStartMs = windowEndMs;
+      // Per-window liveness (visible in the runner's Actions log), so a catch-up
+      // through many hours shows steady progress rather than going quiet.
+      console.log(`[idxSync] window ≤ ${new Date(windowEndMs).toISOString()} — Q2 ${q2Fetched} fetched / ${q2Upserted} upserted (cum)`);
+    }
+
+    // Query 1 — your offices, ALL statuses (Query 2 only covers displayable ones,
+    // so this catches office listings that changed to Expired/Withdrawn/etc., for
+    // metrics). Offices are a tiny set, so one pull over the whole range advanced
+    // this run is small and fast — no windowing needed. Split into URL-length-safe
     // batches (IIS's ~2KB query-string cap) across the four office-key fields.
-    if (!truncated) {
-      for (const filter of officeFilterBatches(sinceClause, MEDIA_EXPAND)) {
-        const done = await streamQuery(filter, (f, u) => {
+    if (windowStartMs > rangeStartMs) {
+      const q1Clause =
+        `ModificationTimestamp gt ${new Date(rangeStartMs).toISOString()} ` +
+        `and ModificationTimestamp le ${new Date(windowStartMs).toISOString()}`;
+      for (const filter of officeFilterBatches(q1Clause, MEDIA_EXPAND)) {
+        await drainQuery(filter, (f, u) => {
           q1Fetched += f;
           q1Upserted += u;
         });
-        if (!done) {
-          truncated = true;
-          break;
-        }
       }
     }
 
