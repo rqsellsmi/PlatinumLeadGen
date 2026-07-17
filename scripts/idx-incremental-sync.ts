@@ -17,7 +17,7 @@
  */
 import './loadEnv';
 import { realcompFetchPages, isRealcompConfigured, realcompPreflight } from '../lib/realcomp';
-import { runIdxSync } from '../lib/idxSync';
+import { runIdxSync, probeQueryReliability } from '../lib/idxSync';
 
 // Realcomp intermittently hangs on a feed-wide request; with the default 5-min
 // per-request timeout that freezes the whole sync. A short timeout aborts a
@@ -35,6 +35,13 @@ async function main() {
 
   // Preflight health check (token + a no-media/with-media probe); never throws.
   await realcompPreflight();
+
+  // DIAGNOSTIC BUILD: measure how reliably Realcomp serves the feed-wide window
+  // query (8 single requests), then exit — so we can read a clear pass/fail rate.
+  await probeQueryReliability(8);
+  console.error('[idx-sync] reliability probe complete — exiting (diagnostic build).');
+  process.exit(0);
+  // eslint-disable-next-line no-unreachable
 
   let pages = 0;
   let fetched = 0;

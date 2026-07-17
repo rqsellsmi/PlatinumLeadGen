@@ -619,6 +619,29 @@ export async function probeIncrementalFirstQuery(): Promise<void> {
 }
 
 /**
+ * DIAGNOSTIC: fire the feed-wide first-window query N times (single request each,
+ * no internal retry, 15s timeout) to MEASURE how reliably Realcomp serves it —
+ * a mix of 200s and aborts = intermittent Realcomp; all aborts = sustained
+ * throttle/hang; all 200s = it's reliable now and the earlier failures were
+ * transient. Isolates "Realcomp flaky" from "our code".
+ */
+export async function probeQueryReliability(attempts = 8): Promise<void> {
+  const startIso =
+    (await getBackfillCheckpoint(INCREMENTAL_CHECKPOINT_KEY)) ?? (await getSyncCursor()) ?? oneYearAgoIso();
+  let startMs = Date.parse(startIso);
+  if (Number.isNaN(startMs)) startMs = Date.parse(oneYearAgoIso());
+  const endMs = Math.min(startMs + INCREMENTAL_STEP_MS, Date.now());
+  const filter =
+    `${displayableStatusClause()} and ModificationTimestamp gt ${new Date(startMs).toISOString()} ` +
+    `and ModificationTimestamp le ${new Date(endMs).toISOString()}`;
+  console.error(`[rel] firing the feed-wide window query ${attempts}x (single request, 15s timeout each)…`);
+  for (let i = 1; i <= attempts; i += 1) {
+    await realcompProbe(`rel-${i}`, incrementalParams(filter), 15_000);
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+}
+
+/**
  * DIAGNOSTIC: run the first window's fetch AND real upsert (the DB write path the
  * bare query probe skips), logging around every write, so a hang in
  * upsertRawListings / setBackfillCheckpoint is pinned to the exact call.
