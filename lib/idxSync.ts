@@ -714,6 +714,35 @@ export async function probeSelectBisect(): Promise<void> {
 }
 
 /**
+ * DIAGNOSTIC: probeSelectBisect found ONE bad field (ArchitecturalStyle) but the
+ * bisection stops at the first. This tests EVERY candidate field individually
+ * (anchors + that one field, media-expanded, $top=5) to list ALL fields that
+ * zero the query on their own, then confirms the full select MINUS those fields
+ * returns rows. Output: a `DROP=[…]` line to paste into the SELECT_FIELDS cleanup.
+ */
+export async function probeSelectFindAllBad(): Promise<void> {
+  const disp = displayableStatusClause();
+  const filter = `${disp} and ModificationTimestamp gt 2026-07-10T00:00:00.000Z`;
+  const ANCHORS = ['ListingKey', 'ModificationTimestamp', 'StandardStatus'];
+  const candidates = SELECT_FIELDS_ARR.filter((f) => !ANCHORS.includes(f));
+
+  const probe = (label: string, fields: string[]) =>
+    realcompProbeCount(label, { $select: fields.join(','), $expand: MEDIA_EXPAND, $filter: filter, $top: '5' }, 20_000);
+
+  console.error(`[qall] testing ${candidates.length} candidate fields individually`);
+  const bad: string[] = [];
+  for (const f of candidates) {
+    const c = await probe(`field ${f}`, [...ANCHORS, f]);
+    if (c <= 0) bad.push(f);
+  }
+  console.error(`[qall] ${bad.length} bad field(s): DROP=[${bad.join(', ')}]`);
+
+  const pruned = SELECT_FIELDS_ARR.filter((f) => !bad.includes(f));
+  const prunedCount = await probe(`pruned select (${pruned.length} fields, media)`, [...pruned]);
+  console.error(`[qall] pruned select count=${prunedCount} — ${prunedCount > 0 ? 'GOOD (fix = drop those fields)' : 'STILL ZERO (combination effect, needs more work)'}`);
+}
+
+/**
  * DIAGNOSTIC: fire the feed-wide first-window query N times (single request each,
  * no internal retry, 15s timeout) to MEASURE how reliably Realcomp serves it —
  * a mix of 200s and aborts = intermittent Realcomp; all aborts = sustained
