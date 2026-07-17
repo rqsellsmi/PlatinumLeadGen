@@ -254,6 +254,28 @@ export async function realcompFetch<T = Record<string, unknown>>(
  * accumulating everything in memory. Used by the initial backfill so it can
  * upsert page-by-page and print progress on very large result sets.
  */
+/**
+ * Whether to follow an @odata.nextLink. Realcomp attaches a PHANTOM nextLink (a
+ * $skiptoken past the result set) to empty/final pages, and fetching that phantom
+ * page HANGS — confirmed: a 0-record hour window came back with skiptoken=1000 and
+ * page 2 timed out on every retry. The backfill never hit this because its month
+ * windows always return full pages. Guard: never follow after an empty page, or
+ * after a page whose nextLink skiptoken points beyond the records we've actually
+ * received (i.e. the server is pointing past data that doesn't exist).
+ */
+function shouldFollowNextLink(next: string | null, pageLen: number, totalReceived: number): boolean {
+  if (!next || pageLen === 0) return false;
+  try {
+    const params = new URL(next).searchParams;
+    const raw = params.get('$skiptoken') ?? params.get('$skip');
+    if (raw == null) return true; // no offset token — follow (the timeout still guards)
+    const skip = Number(raw);
+    return !Number.isFinite(skip) || skip <= 0 || totalReceived >= skip;
+  } catch {
+    return true; // unparseable — let it try; the per-request timeout still guards
+  }
+}
+
 /** Compact summary of an @odata.nextLink for diagnostics: host + skiptoken, or
  *  flags a relative/unparseable/foreign-host link (the kinds that would hang). */
 function summarizeNextLink(next: string | null, baseHost: string): string {
@@ -326,11 +348,12 @@ export async function realcompFetchPages<T = Record<string, unknown>>(
     total += page.length;
     pageNo += 1;
     const next = data['@odata.nextLink'] ?? null;
+    const follow = shouldFollowNextLink(next, page.length, total);
     console.error(
-      `[realcomp] ${tag}${which}: HTTP ${res.status}, ${page.length} records in ${Date.now() - t0}ms; nextLink ${summarizeNextLink(next, baseHost)}`,
+      `[realcomp] ${tag}${which}: HTTP ${res.status}, ${page.length} records in ${Date.now() - t0}ms; nextLink ${summarizeNextLink(next, baseHost)}${next && !follow ? ' (phantom — not following)' : ''}`,
     );
     if (page.length) await onPage(page);
-    nextUrl = next;
+    nextUrl = follow ? next : null;
   }
   return total;
 }

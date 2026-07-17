@@ -696,7 +696,7 @@ export interface SyncResult {
  */
 export async function runIdxSync(
   fetchPages: FetchPagesFn,
-  opts: { budgetMs?: number } = {},
+  opts: { budgetMs?: number; sinceIso?: string } = {},
 ): Promise<SyncResult> {
   const [logRow] = await db
     .insert(idxSyncLog)
@@ -748,11 +748,16 @@ export async function runIdxSync(
       });
     };
 
-    // Resume point: the explicit incremental checkpoint (advanced only after a
-    // window fully drains), else the newest ModificationTimestamp we already hold
-    // (from the backfill), else a year ago.
-    let startIso = await getBackfillCheckpoint(INCREMENTAL_CHECKPOINT_KEY);
+    // Resume point: an explicit `sinceIso` override (a one-time back-pull, e.g.
+    // "re-pull from 2026-07-10") wins; else the incremental checkpoint (advanced
+    // only after a window fully drains); else the newest ModificationTimestamp we
+    // already hold (from the backfill); else a year ago. A sinceIso run still
+    // advances the checkpoint as it goes, so subsequent normal runs resume from
+    // where it left off.
+    let startIso = opts.sinceIso;
+    if (!startIso) startIso = (await getBackfillCheckpoint(INCREMENTAL_CHECKPOINT_KEY)) ?? undefined;
     if (!startIso) startIso = (await getSyncCursor()) ?? oneYearAgoIso();
+    console.error(`[idxSync] start=${startIso}${opts.sinceIso ? ' (--since override)' : ''}`);
     let windowStartMs = Date.parse(startIso);
     if (Number.isNaN(windowStartMs)) windowStartMs = Date.parse(oneYearAgoIso());
     const rangeStartMs = windowStartMs;

@@ -28,12 +28,26 @@ import { runIdxSync } from '../lib/idxSync';
 // backoff(≤30s); 20 retries ≈ 30 min of waiting before giving up. Once a request
 // succeeds the sync blasts through the remaining hourly windows in seconds, and
 // every completed window is checkpointed so an unfinished run resumes next time.
-// NOTE: dialed down for a DIAGNOSTIC pass so the run finishes fast and its
-// labeled per-request log is readable (an in-progress job's log 404s until it
-// completes). Restore the patient values (60s / 20) once the pagination
-// behavior is understood.
-const SYNC_REQUEST_TIMEOUT_MS = 30_000;
-const SYNC_MAX_NET_RETRIES = 4;
+// With the phantom-nextLink hang fixed, empty windows return fast and real pages
+// don't stall, so modest values suffice: a generous per-request timeout for a
+// real media-expanded page, and a few retries for the occasional network blip.
+const SYNC_REQUEST_TIMEOUT_MS = 90_000;
+const SYNC_MAX_NET_RETRIES = 5;
+
+/** Read a `--name value` CLI flag. */
+function arg(name: string): string | undefined {
+  const i = process.argv.indexOf(`--${name}`);
+  return i >= 0 ? process.argv[i + 1] : undefined;
+}
+
+/** Parse an optional `--since YYYY-MM-DD` into an ISO timestamp (UTC midnight). */
+function parseSince(): string | undefined {
+  const raw = arg('since');
+  if (!raw) return undefined;
+  const d = new Date(`${raw}T00:00:00.000Z`);
+  if (Number.isNaN(d.getTime())) throw new Error(`--since must be YYYY-MM-DD, got: ${raw}`);
+  return d.toISOString();
+}
 
 async function main() {
   // stderr (unbuffered) so this survives a process kill.
@@ -41,6 +55,9 @@ async function main() {
   if (!isRealcompConfigured()) {
     throw new Error('Realcomp is not configured — set REALCOMP_CLIENT_ID / REALCOMP_CLIENT_SECRET.');
   }
+
+  const sinceIso = parseSince();
+  if (sinceIso) console.error(`[idx-sync] one-time back-pull from ${sinceIso}`);
 
   // Preflight health check (token + a no-media/with-media probe); never throws.
   await realcompPreflight();
@@ -64,7 +81,7 @@ async function main() {
         },
         { timeoutMs: SYNC_REQUEST_TIMEOUT_MS, maxNetRetries: SYNC_MAX_NET_RETRIES },
       ),
-    { budgetMs: Infinity }, // runner has hours — drain the whole delta, never truncate
+    { budgetMs: Infinity, sinceIso }, // runner has hours — drain the whole delta, never truncate
   );
 
   console.log(

@@ -24,7 +24,12 @@ on:
     # load window, so an off-the-hour minute is far more reliable. Cadence is
     # still best-effort — GHA never guarantees exact hourly timing.
     - cron: '17 * * * *'
-  workflow_dispatch: {} # allow manual runs for testing
+  workflow_dispatch:
+    inputs:
+      since:
+        description: "One-time back-pull start (YYYY-MM-DD), e.g. 2026-07-10. Blank = normal incremental from the cursor."
+        required: false
+        default: ''
 
 concurrency:
   group: idx-sync
@@ -62,4 +67,9 @@ jobs:
           REALCOMP_AUTH_URL: ${{ secrets.REALCOMP_AUTH_URL }}
           REALCOMP_AUDIENCE: ${{ secrets.REALCOMP_AUDIENCE }}
           REALCOMP_OFFICE_KEYS: ${{ secrets.REALCOMP_OFFICE_KEYS }}
-        run: npm run idx:sync:incremental
+        run: |
+          if [ -n "${{ inputs.since }}" ]; then
+            npm run idx:sync:incremental -- --since "${{ inputs.since }}"
+          else
+            npm run idx:sync:incremental
+          fi
