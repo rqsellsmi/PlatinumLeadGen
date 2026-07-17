@@ -293,3 +293,47 @@ export async function fetchMetadata(): Promise<string> {
   if (!res.ok) throw new Error(`Realcomp $metadata error: ${res.status} ${await res.text()}`);
   return res.text();
 }
+
+// ---------------------------------------------------------------------------
+// Diagnostic preflight (scripts/idx-incremental-sync.ts)
+// ---------------------------------------------------------------------------
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)),
+  ]);
+}
+
+/**
+ * Preflight probe: time the token fetch, then a MINIMAL 1-record data request,
+ * each with a short timeout — so a stuck sync surfaces WHICH call hangs and fails
+ * in seconds instead of sitting for the 5-min request timeout. Logs to stderr
+ * (unbuffered, so lines survive a process kill). Throws on the first failure.
+ */
+export async function realcompPreflight(): Promise<void> {
+  const t0 = Date.now();
+  console.error(`[preflight] fetching token…`);
+  const token = await withTimeout(getValidRealcompToken(), 25_000, 'token fetch');
+  console.error(`[preflight] token OK in ${Date.now() - t0}ms (len ${token.length})`);
+
+  const url = `${baseUrl()}/Property?$top=1&$select=ListingKey`;
+  console.error(`[preflight] GET ${url} (20s timeout)…`);
+  const t1 = Date.now();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20_000);
+  try {
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    const body = await res.text();
+    console.error(`[preflight] data request → HTTP ${res.status} in ${Date.now() - t1}ms, ${body.length} bytes`);
+    if (!res.ok) console.error(`[preflight] body: ${body.slice(0, 800)}`);
+  } catch (err) {
+    console.error(`[preflight] data request FAILED/aborted in ${Date.now() - t1}ms:`, err);
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}

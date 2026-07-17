@@ -16,13 +16,19 @@
  * Usage: tsx scripts/idx-incremental-sync.ts
  */
 import './loadEnv';
-import { realcompFetchPages, isRealcompConfigured } from '../lib/realcomp';
+import { realcompFetchPages, isRealcompConfigured, realcompPreflight } from '../lib/realcomp';
 import { runIdxSync } from '../lib/idxSync';
 
 async function main() {
+  // stderr (unbuffered) so this survives a process kill.
+  console.error(`[idx-sync] booting ${new Date().toISOString()}`);
   if (!isRealcompConfigured()) {
     throw new Error('Realcomp is not configured — set REALCOMP_CLIENT_ID / REALCOMP_CLIENT_SECRET.');
   }
+
+  // Preflight: pinpoint (and fail fast on) a hanging token or first data request
+  // before the full sync, instead of sitting silent for minutes.
+  await realcompPreflight();
 
   let pages = 0;
   let fetched = 0;
