@@ -62,14 +62,6 @@ async function main() {
   // Preflight health check (token + a no-media/with-media probe); never throws.
   await realcompPreflight();
 
-  // DIAGNOSTIC BUILD: the sync ran clean but matched 0 records — find out why by
-  // isolating each filter clause and printing the feed's real timestamps, then
-  // exit. Restore the normal sync once we know which clause zeroes the result.
-  await probeQueryDiagnostics(sinceIso ?? new Date(Date.now() - 7 * 86_400_000).toISOString());
-  console.error('[idx-sync] query diagnostics complete — exiting.');
-  process.exit(0);
-  // eslint-disable-next-line no-unreachable
-
   let pages = 0;
   let fetched = 0;
   const started = Date.now();
@@ -87,7 +79,9 @@ async function main() {
           await onPage(page);
           console.log(`[idx-sync] page ${pages}: +${page.length} (${fetched} fetched, ${Math.round((Date.now() - started) / 1000)}s)`);
         },
-        { timeoutMs: SYNC_REQUEST_TIMEOUT_MS, maxNetRetries: SYNC_MAX_NET_RETRIES },
+        // pageSize → client-driven $top/$skip paging (Realcomp's server-driven
+        // nextLink returns empty pages + a phantom link for these filtered queries).
+        { timeoutMs: SYNC_REQUEST_TIMEOUT_MS, maxNetRetries: SYNC_MAX_NET_RETRIES, pageSize: 1000 },
       ),
     { budgetMs: Infinity, sinceIso }, // runner has hours — drain the whole delta, never truncate
   );

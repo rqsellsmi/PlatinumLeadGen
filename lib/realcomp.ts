@@ -294,22 +294,42 @@ export async function realcompFetchPages<T = Record<string, unknown>>(
   path: string,
   params: Record<string, string>,
   onPage: (page: T[]) => Promise<void>,
-  opts: { timeoutMs?: number; maxNetRetries?: number; label?: string } = {},
+  opts: { timeoutMs?: number; maxNetRetries?: number; label?: string; pageSize?: number } = {},
 ): Promise<number> {
   let token = await getValidRealcompToken();
   const maxNetRetries = opts.maxNetRetries ?? MAX_NET_RETRIES;
   const tag = opts.label ? `[${opts.label}] ` : '';
-  const url = new URL(`${baseUrl()}/${path.replace(/^\/+/, '')}`);
-  const baseHost = url.host;
-  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  const baseHost = new URL(baseUrl()).host;
+
+  // Two paging modes:
+  //  - CLIENT-driven ($top/$skip), used by the incremental via opts.pageSize:
+  //    Realcomp's server-driven paging returns an EMPTY first page + a phantom
+  //    @odata.nextLink for these filtered queries, hiding the actual matching
+  //    records (confirmed: same filter with $top returns rows, without it returns
+  //    0). $top/$skip fetches them directly.
+  //  - SERVER-driven (@odata.nextLink), the default, used by the backfill whose
+  //    large windows page normally.
+  const clientPaging = typeof opts.pageSize === 'number' && opts.pageSize > 0;
+  const pageSize = opts.pageSize ?? 0;
+  const buildUrl = (skip: number): string => {
+    const u = new URL(`${baseUrl()}/${path.replace(/^\/+/, '')}`);
+    for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
+    if (clientPaging) {
+      u.searchParams.set('$top', String(pageSize));
+      u.searchParams.set('$skip', String(skip));
+    }
+    return u.toString();
+  };
 
   let total = 0;
-  let nextUrl: string | null = url.toString();
+  let skip = 0;
+  let nextUrl: string | null = buildUrl(0);
   let pageNo = 0; // increments per PAGE (not per retry)
   let authRetries = 0;
   let netRetries = 0;
+  const MAX_PAGES = 500; // safety cap against a broken/ignored $skip looping
   while (nextUrl) {
-    const which = pageNo === 0 ? 'initial' : `nextLink→page ${pageNo + 1}`;
+    const which = clientPaging ? `page ${pageNo + 1} ($skip=${skip})` : pageNo === 0 ? 'initial' : `nextLink→page ${pageNo + 1}`;
     const t0 = Date.now();
     let res: Response;
     try {
@@ -348,12 +368,20 @@ export async function realcompFetchPages<T = Record<string, unknown>>(
     total += page.length;
     pageNo += 1;
     const next = data['@odata.nextLink'] ?? null;
-    const follow = shouldFollowNextLink(next, page.length, total);
-    console.error(
-      `[realcomp] ${tag}${which}: HTTP ${res.status}, ${page.length} records in ${Date.now() - t0}ms; nextLink ${summarizeNextLink(next, baseHost)}${next && !follow ? ' (phantom — not following)' : ''}`,
-    );
-    if (page.length) await onPage(page);
-    nextUrl = follow ? next : null;
+    if (clientPaging) {
+      console.error(`[realcomp] ${tag}${which}: HTTP ${res.status}, ${page.length} records in ${Date.now() - t0}ms`);
+      if (page.length) await onPage(page);
+      // Last page = fewer than a full $top. Advance $skip otherwise.
+      skip += pageSize;
+      nextUrl = page.length < pageSize || pageNo >= MAX_PAGES ? null : buildUrl(skip);
+    } else {
+      const follow = shouldFollowNextLink(next, page.length, total);
+      console.error(
+        `[realcomp] ${tag}${which}: HTTP ${res.status}, ${page.length} records in ${Date.now() - t0}ms; nextLink ${summarizeNextLink(next, baseHost)}${next && !follow ? ' (phantom — not following)' : ''}`,
+      );
+      if (page.length) await onPage(page);
+      nextUrl = follow ? next : null;
+    }
   }
   return total;
 }
