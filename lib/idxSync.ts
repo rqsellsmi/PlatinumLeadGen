@@ -18,6 +18,7 @@
  */
 import { sql, getTableColumns, inArray, eq, max } from 'drizzle-orm';
 import { db } from './db';
+import { realcompProbe } from './realcomp';
 import {
   idxListings,
   idxListingPhotos,
@@ -595,6 +596,26 @@ function incrementalParams(filter: string): Record<string, string> {
     $expand: MEDIA_EXPAND,
     $filter: filter,
   };
+}
+
+/**
+ * DIAGNOSTIC: fire the EXACT query the incremental sync's first window issues
+ * (full $select + status filter + ModificationTimestamp window + Media expand),
+ * with a hard timeout — so a hang in the *real* query is caught and bounded
+ * instead of running silently for minutes. Logs the filter + status/latency.
+ */
+export async function probeIncrementalFirstQuery(): Promise<void> {
+  const startIso =
+    (await getBackfillCheckpoint(INCREMENTAL_CHECKPOINT_KEY)) ?? (await getSyncCursor()) ?? oneYearAgoIso();
+  let startMs = Date.parse(startIso);
+  if (Number.isNaN(startMs)) startMs = Date.parse(oneYearAgoIso());
+  const endMs = Math.min(startMs + INCREMENTAL_STEP_MS, Date.now());
+  const filter =
+    `${displayableStatusClause()} and ModificationTimestamp gt ${new Date(startMs).toISOString()} ` +
+    `and ModificationTimestamp le ${new Date(endMs).toISOString()}`;
+  console.error(`[probe] first-window window ${new Date(startMs).toISOString()} → ${new Date(endMs).toISOString()}`);
+  console.error(`[probe] first-window filter: ${filter}`);
+  await realcompProbe('sync-query', incrementalParams(filter), 60_000);
 }
 
 // ---------------------------------------------------------------------------

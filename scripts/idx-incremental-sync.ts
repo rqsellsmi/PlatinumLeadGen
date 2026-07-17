@@ -17,7 +17,7 @@
  */
 import './loadEnv';
 import { realcompFetchPages, isRealcompConfigured, realcompPreflight } from '../lib/realcomp';
-import { runIdxSync } from '../lib/idxSync';
+import { runIdxSync, probeIncrementalFirstQuery } from '../lib/idxSync';
 
 async function main() {
   // stderr (unbuffered) so this survives a process kill.
@@ -26,9 +26,14 @@ async function main() {
     throw new Error('Realcomp is not configured — set REALCOMP_CLIENT_ID / REALCOMP_CLIENT_SECRET.');
   }
 
-  // Preflight health check: logs token + a no-media/with-media probe so any auth
-  // or connectivity regression is visible up front (diagnostic only, never throws).
+  // DIAGNOSTIC BUILD: preflight (token + $top=1 probes) then fire the sync's EXACT
+  // first-window query with a 60s timeout, and EXIT — so if the real query hangs
+  // we see it bounded and the log is readable, instead of a 10-min silent stall.
   await realcompPreflight();
+  await probeIncrementalFirstQuery();
+  console.error('[idx-sync] probes complete — exiting (diagnostic build).');
+  return;
+  // eslint-disable-next-line no-unreachable
 
   let pages = 0;
   let fetched = 0;

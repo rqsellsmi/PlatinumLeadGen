@@ -349,6 +349,18 @@ async function probe(label: string, url: string, token: string, ms: number): Pro
 }
 
 /**
+ * Fire ONE Property request with the given OData params and a hard timeout,
+ * logging status/latency/bytes. Used to replicate the sync's EXACT query so a
+ * hang is caught red-handed (and bounded) instead of running for minutes.
+ */
+export async function realcompProbe(label: string, params: Record<string, string>, ms: number): Promise<void> {
+  const token = await getValidRealcompToken();
+  const url = new URL(`${baseUrl()}/Property`);
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  await probe(label, url.toString(), token, ms);
+}
+
+/**
  * Preflight probe: time the token fetch, then two identical 1-record requests —
  * one WITHOUT media, one WITH the same `$expand=Media` the sync uses — each with a
  * short timeout. If the no-media request returns fast but the media one hangs,
