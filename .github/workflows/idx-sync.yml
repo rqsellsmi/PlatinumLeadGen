@@ -33,10 +33,10 @@ concurrency:
 jobs:
   idx-sync:
     runs-on: ubuntu-latest
-    # An incremental delta is normally minutes; cap well short of the 6h runner
-    # limit so a wedged run fails loudly instead of burning Actions minutes. A
-    # large catch-up still fits, and the sync is cursor-resumable across runs.
-    timeout-minutes: 60
+    # Realcomp stalls the feed-wide query in ~20-min stretches; the sync waits
+    # those out (patient retries), so give it room. Still well short of the 6h
+    # runner limit, and the sync is checkpoint-resumable across runs regardless.
+    timeout-minutes: 120
     steps:
       - name: Checkout
         uses: actions/checkout@v4

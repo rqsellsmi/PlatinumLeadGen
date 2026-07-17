@@ -19,12 +19,17 @@ import './loadEnv';
 import { realcompFetchPages, isRealcompConfigured, realcompPreflight } from '../lib/realcomp';
 import { runIdxSync } from '../lib/idxSync';
 
-// Realcomp intermittently hangs on a feed-wide request; with the default 5-min
-// per-request timeout that freezes the whole sync. A short timeout aborts a
-// stalled request fast so the fetch layer's retry re-issues it (a retry usually
-// succeeds — the query works most of the time). A 1-hour window's page is small,
-// so a legitimate response lands well inside this.
-const SYNC_REQUEST_TIMEOUT_MS = 30_000;
+// Realcomp's feed-wide query stalls in ~20-minute stretches, then recovers (a
+// reliability probe measured 8/8 fast, but 12 min later the same query hung 4x).
+// The initial backfill survives this by being PATIENT — a long per-request
+// timeout + hours of runtime — so it waits a bad stretch out and lands once
+// Realcomp recovers. Match that here: a moderate timeout that logs progress each
+// cycle, and enough retries to span a ~20-min outage. Each cycle ≈ timeout +
+// backoff(≤30s); 20 retries ≈ 30 min of waiting before giving up. Once a request
+// succeeds the sync blasts through the remaining hourly windows in seconds, and
+// every completed window is checkpointed so an unfinished run resumes next time.
+const SYNC_REQUEST_TIMEOUT_MS = 60_000;
+const SYNC_MAX_NET_RETRIES = 20;
 
 async function main() {
   // stderr (unbuffered) so this survives a process kill.
@@ -41,8 +46,8 @@ async function main() {
   const started = Date.now();
 
   const result = await runIdxSync(
-    // Wrap the paged fetch: SHORT per-request timeout (so a hung request retries
-    // instead of freezing) + progress logging so the Actions log shows liveness.
+    // Wrap the paged fetch: patient timeout + many retries (wait out a Realcomp
+    // stall) + progress logging so the Actions log shows liveness.
     (path, params, onPage) =>
       realcompFetchPages(
         path,
@@ -53,7 +58,7 @@ async function main() {
           await onPage(page);
           console.log(`[idx-sync] page ${pages}: +${page.length} (${fetched} fetched, ${Math.round((Date.now() - started) / 1000)}s)`);
         },
-        { timeoutMs: SYNC_REQUEST_TIMEOUT_MS },
+        { timeoutMs: SYNC_REQUEST_TIMEOUT_MS, maxNetRetries: SYNC_MAX_NET_RETRIES },
       ),
     { budgetMs: Infinity }, // runner has hours — drain the whole delta, never truncate
   );

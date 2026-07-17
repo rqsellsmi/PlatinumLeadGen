@@ -258,9 +258,10 @@ export async function realcompFetchPages<T = Record<string, unknown>>(
   path: string,
   params: Record<string, string>,
   onPage: (page: T[]) => Promise<void>,
-  opts: { timeoutMs?: number } = {},
+  opts: { timeoutMs?: number; maxNetRetries?: number } = {},
 ): Promise<number> {
   let token = await getValidRealcompToken();
+  const maxNetRetries = opts.maxNetRetries ?? MAX_NET_RETRIES;
   const url = new URL(`${baseUrl()}/${path.replace(/^\/+/, '')}`);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
 
@@ -274,13 +275,16 @@ export async function realcompFetchPages<T = Record<string, unknown>>(
       res = await fetchWithTimeout(nextUrl, token, opts.timeoutMs);
     } catch (err) {
       // Network error / abort timeout — a single blip (or Realcomp intermittently
-      // hanging on a request, which it does) must not kill the run. Retry with
-      // backoff; only give up after several in a row. With a SHORT opts.timeoutMs
-      // (the incremental sync), a stalled request aborts fast and the retry
-      // usually succeeds, instead of freezing for the full default timeout.
-      if (netRetries < MAX_NET_RETRIES) {
+      // hanging on a request for ~20 min at a stretch, which it does) must not
+      // kill the run. Retry with backoff; a high opts.maxNetRetries lets the sync
+      // WAIT OUT a Realcomp degraded window (like the initial backfill does) so a
+      // retry lands once it recovers. Logged so a long wait isn't mistaken for a
+      // dead process.
+      if (netRetries < maxNetRetries) {
         netRetries += 1;
-        await sleep(backoffMs(netRetries));
+        const wait = backoffMs(netRetries);
+        console.error(`[realcomp] request aborted/failed; retry ${netRetries}/${maxNetRetries} in ${wait}ms (Realcomp may be stalling)`);
+        await sleep(wait);
         continue;
       }
       throw err;
@@ -292,9 +296,11 @@ export async function realcompFetchPages<T = Record<string, unknown>>(
       continue;
     }
     // Transient upstream error (5xx / 429 / 408) — back off and retry.
-    if (RETRYABLE_STATUS.has(res.status) && netRetries < MAX_NET_RETRIES) {
+    if (RETRYABLE_STATUS.has(res.status) && netRetries < maxNetRetries) {
       netRetries += 1;
-      await sleep(backoffMs(netRetries));
+      const wait = backoffMs(netRetries);
+      console.error(`[realcomp] HTTP ${res.status}; retry ${netRetries}/${maxNetRetries} in ${wait}ms`);
+      await sleep(wait);
       continue;
     }
     if (!res.ok) throw new Error(`Realcomp API error: ${res.status} ${await res.text()}`);
