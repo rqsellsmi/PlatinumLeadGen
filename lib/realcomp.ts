@@ -304,23 +304,12 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   ]);
 }
 
-/**
- * Preflight probe: time the token fetch, then a MINIMAL 1-record data request,
- * each with a short timeout — so a stuck sync surfaces WHICH call hangs and fails
- * in seconds instead of sitting for the 5-min request timeout. Logs to stderr
- * (unbuffered, so lines survive a process kill). Throws on the first failure.
- */
-export async function realcompPreflight(): Promise<void> {
-  const t0 = Date.now();
-  console.error(`[preflight] fetching token…`);
-  const token = await withTimeout(getValidRealcompToken(), 25_000, 'token fetch');
-  console.error(`[preflight] token OK in ${Date.now() - t0}ms (len ${token.length})`);
-
-  const url = `${baseUrl()}/Property?$top=1&$select=ListingKey`;
-  console.error(`[preflight] GET ${url} (20s timeout)…`);
-  const t1 = Date.now();
+/** GET a URL with a hard timeout, logging status + latency (or the abort). */
+async function probe(label: string, url: string, token: string, ms: number): Promise<void> {
+  console.error(`[preflight] ${label}: GET ${url} (${ms / 1000}s timeout)…`);
+  const t = Date.now();
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 20_000);
+  const timer = setTimeout(() => controller.abort(), ms);
   try {
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -328,12 +317,40 @@ export async function realcompPreflight(): Promise<void> {
       signal: controller.signal,
     });
     const body = await res.text();
-    console.error(`[preflight] data request → HTTP ${res.status} in ${Date.now() - t1}ms, ${body.length} bytes`);
-    if (!res.ok) console.error(`[preflight] body: ${body.slice(0, 800)}`);
+    console.error(`[preflight] ${label}: HTTP ${res.status} in ${Date.now() - t}ms, ${body.length} bytes`);
+    if (!res.ok) console.error(`[preflight] ${label} body: ${body.slice(0, 600)}`);
   } catch (err) {
-    console.error(`[preflight] data request FAILED/aborted in ${Date.now() - t1}ms:`, err);
-    throw err;
+    console.error(`[preflight] ${label}: FAILED/aborted in ${Date.now() - t}ms:`, err);
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Preflight probe: time the token fetch, then two identical 1-record requests —
+ * one WITHOUT media, one WITH the same `$expand=Media` the sync uses — each with a
+ * short timeout. If the no-media request returns fast but the media one hangs,
+ * the Media expand is the culprit (not connectivity/row-count). Logs to stderr
+ * (unbuffered → survives a process kill); never throws (diagnostic only).
+ */
+export async function realcompPreflight(): Promise<void> {
+  const t0 = Date.now();
+  console.error(`[preflight] fetching token…`);
+  let token: string;
+  try {
+    token = await withTimeout(getValidRealcompToken(), 25_000, 'token fetch');
+  } catch (err) {
+    console.error(`[preflight] token FAILED in ${Date.now() - t0}ms:`, err);
+    return;
+  }
+  console.error(`[preflight] token OK in ${Date.now() - t0}ms (len ${token.length})`);
+
+  const base = baseUrl();
+  await probe('no-media', `${base}/Property?$top=1&$select=ListingKey`, token, 20_000);
+  await probe(
+    'with-media',
+    `${base}/Property?$top=1&$select=ListingKey&$expand=Media($select=MediaURL,Order,MediaCategory)`,
+    token,
+    20_000,
+  );
 }
