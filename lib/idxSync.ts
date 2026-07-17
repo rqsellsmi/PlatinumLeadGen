@@ -634,12 +634,37 @@ export async function runIdxSync(
     let q2Upserted = 0;
     let truncated = false;
 
+    // Flush running counts to the log row as pages land (throttled), so a run
+    // that is killed/aborted mid-stream leaves evidence in the "Recent sync runs"
+    // table instead of a frozen `running` with `—/—`. Best-effort: a flush error
+    // must not fail the sync.
+    let lastFlush = 0;
+    const flushProgress = async (): Promise<void> => {
+      const now = Date.now();
+      if (now - lastFlush < 10_000) return;
+      lastFlush = now;
+      try {
+        await db
+          .update(idxSyncLog)
+          .set({
+            query1RecordsFetched: q1Fetched,
+            query1RecordsUpserted: q1Upserted,
+            query2RecordsFetched: q2Fetched,
+            query2RecordsUpserted: q2Upserted,
+          })
+          .where(eq(idxSyncLog.id, logId));
+      } catch (err) {
+        console.warn('[idxSync] progress flush failed:', err);
+      }
+    };
+
     // A single query, streamed: upsert each page as it lands and stop once the
     // budget is spent. Returns false when the budget cut it short.
     const streamQuery = async (filter: string, onCount: (fetched: number, upserted: number) => void): Promise<boolean> => {
       try {
         await fetchPages('Property', incrementalParams(filter), async (page) => {
           onCount(page.length, await upsertRawListings(page));
+          await flushProgress();
           if (Date.now() >= deadline) throw new SyncBudgetReached();
         });
         return true;

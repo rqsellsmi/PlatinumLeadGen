@@ -387,6 +387,12 @@ because it runs **on the runner** (350-min cap), not on Vercel.
   per-page progress.
 - `.github/workflows/idx-sync.yml`: rewritten to run that script on the runner
   (DB + Realcomp secrets, `timeout-minutes: 60`) instead of pinging Vercel.
+- `runIdxSync` now **flushes running Q1/Q2 counts to `idx_sync_log` every ~10s**
+  as pages land, so a killed/aborted run leaves counts in the admin "Recent sync
+  runs" table instead of a frozen `running` with `—/—` (added to diagnose why a
+  run was executing ~58 min — the cursor/`modificationTimestamp` IS stored, so a
+  long run implies either a run started with an empty table or a heavier-than-
+  expected feed pull; the live counts + runner stdout will show which).
 - `lib/idxAdmin.ts`: `partial` counts as a non-failing success on the dashboard;
   admin **Run Now** page gets `maxDuration = 60`.
 
