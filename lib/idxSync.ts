@@ -639,6 +639,27 @@ export async function probeQueryDiagnostics(sinceIso: string): Promise<void> {
 }
 
 /**
+ * DIAGNOSTIC: the filter matches with an OPEN $top query but the windowed sync
+ * query returns 0. Isolate which added element ($expand=Media, the full $select,
+ * or the narrow gt..le window) zeroes it. Each row prints the record count.
+ */
+export async function probeMediaDiagnostics(): Promise<void> {
+  const disp = displayableStatusClause();
+  const sel = 'ListingKey,ModificationTimestamp,StandardStatus';
+  const since = '2026-07-10T00:00:00.000Z';
+  // A recent hour that should contain records (a 7/17 record showed up earlier).
+  const narrow = 'ModificationTimestamp gt 2026-07-17T16:00:00.000Z and ModificationTimestamp le 2026-07-17T17:00:00.000Z';
+  const openF = `${disp} and ModificationTimestamp gt ${since}`;
+  const narrowF = `${disp} and ${narrow}`;
+  await realcompProbeBody('A open, small select, NO media', { $select: sel, $filter: openF, $top: '5' }, 20_000);
+  await realcompProbeBody('B open, small select, WITH media', { $select: sel, $expand: MEDIA_EXPAND, $filter: openF, $top: '5' }, 20_000);
+  await realcompProbeBody('C narrow, small select, NO media', { $select: sel, $filter: narrowF, $top: '5' }, 20_000);
+  await realcompProbeBody('D narrow, small select, WITH media', { $select: sel, $expand: MEDIA_EXPAND, $filter: narrowF, $top: '5' }, 20_000);
+  await realcompProbeBody('E open, FULL select, WITH media', { $select: SELECT_FIELDS, $expand: MEDIA_EXPAND, $filter: openF, $top: '5' }, 20_000);
+  await realcompProbeBody('F narrow, FULL select, WITH media (== sync req)', { $select: SELECT_FIELDS, $expand: MEDIA_EXPAND, $filter: narrowF, $top: '5' }, 20_000);
+}
+
+/**
  * DIAGNOSTIC: fire the feed-wide first-window query N times (single request each,
  * no internal retry, 15s timeout) to MEASURE how reliably Realcomp serves it —
  * a mix of 200s and aborts = intermittent Realcomp; all aborts = sustained
