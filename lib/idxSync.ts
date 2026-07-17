@@ -772,6 +772,9 @@ export async function runIdxSync(
         `ModificationTimestamp gt ${new Date(windowStartMs).toISOString()} ` +
         `and ModificationTimestamp le ${new Date(windowEndMs).toISOString()}`;
 
+      // stderr (unbuffered) window delimiter so the [realcomp] request logs
+      // between here and the "done" line are unambiguously THIS window's Query 2.
+      console.error(`[idxSync] === Q2 window ${new Date(windowStartMs).toISOString()} → ${new Date(windowEndMs).toISOString()} ===`);
       await drainQuery(`${displayableStatusClause()} and ${winClause}`, (f, u) => {
         q2Fetched += f;
         q2Upserted += u;
@@ -780,9 +783,7 @@ export async function runIdxSync(
       // Whole window drained — record it so the next run resumes here.
       await setBackfillCheckpoint(INCREMENTAL_CHECKPOINT_KEY, new Date(windowEndMs).toISOString());
       windowStartMs = windowEndMs;
-      // Per-window liveness (visible in the runner's Actions log), so a catch-up
-      // through many hours shows steady progress rather than going quiet.
-      console.log(`[idxSync] window ≤ ${new Date(windowEndMs).toISOString()} — Q2 ${q2Fetched} fetched / ${q2Upserted} upserted (cum)`);
+      console.error(`[idxSync] === Q2 window done ≤ ${new Date(windowEndMs).toISOString()} — ${q2Fetched} fetched / ${q2Upserted} upserted (cum) ===`);
     }
 
     // Query 1 — your offices, ALL statuses (Query 2 only covers displayable ones,
@@ -794,6 +795,7 @@ export async function runIdxSync(
       const q1Clause =
         `ModificationTimestamp gt ${new Date(rangeStartMs).toISOString()} ` +
         `and ModificationTimestamp le ${new Date(windowStartMs).toISOString()}`;
+      console.error(`[idxSync] === Q1 (offices) ${new Date(rangeStartMs).toISOString()} → ${new Date(windowStartMs).toISOString()} ===`);
       for (const filter of officeFilterBatches(q1Clause, MEDIA_EXPAND)) {
         await drainQuery(filter, (f, u) => {
           q1Fetched += f;

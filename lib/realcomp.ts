@@ -254,36 +254,50 @@ export async function realcompFetch<T = Record<string, unknown>>(
  * accumulating everything in memory. Used by the initial backfill so it can
  * upsert page-by-page and print progress on very large result sets.
  */
+/** Compact summary of an @odata.nextLink for diagnostics: host + skiptoken, or
+ *  flags a relative/unparseable/foreign-host link (the kinds that would hang). */
+function summarizeNextLink(next: string | null, baseHost: string): string {
+  if (!next) return 'none';
+  try {
+    const u = new URL(next);
+    const skip = u.searchParams.get('$skiptoken') || u.searchParams.get('$skip') || '(none)';
+    const foreign = u.host !== baseHost ? ` FOREIGN-HOST(base=${baseHost})` : '';
+    return `host=${u.host}${foreign} skiptoken=${String(skip).slice(0, 60)}`;
+  } catch {
+    return `UNPARSEABLE/relative: ${next.slice(0, 100)}`;
+  }
+}
+
 export async function realcompFetchPages<T = Record<string, unknown>>(
   path: string,
   params: Record<string, string>,
   onPage: (page: T[]) => Promise<void>,
-  opts: { timeoutMs?: number; maxNetRetries?: number } = {},
+  opts: { timeoutMs?: number; maxNetRetries?: number; label?: string } = {},
 ): Promise<number> {
   let token = await getValidRealcompToken();
   const maxNetRetries = opts.maxNetRetries ?? MAX_NET_RETRIES;
+  const tag = opts.label ? `[${opts.label}] ` : '';
   const url = new URL(`${baseUrl()}/${path.replace(/^\/+/, '')}`);
+  const baseHost = url.host;
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
 
   let total = 0;
   let nextUrl: string | null = url.toString();
+  let pageNo = 0; // increments per PAGE (not per retry)
   let authRetries = 0;
   let netRetries = 0;
   while (nextUrl) {
+    const which = pageNo === 0 ? 'initial' : `nextLink→page ${pageNo + 1}`;
+    const t0 = Date.now();
     let res: Response;
     try {
       res = await fetchWithTimeout(nextUrl, token, opts.timeoutMs);
     } catch (err) {
-      // Network error / abort timeout — a single blip (or Realcomp intermittently
-      // hanging on a request for ~20 min at a stretch, which it does) must not
-      // kill the run. Retry with backoff; a high opts.maxNetRetries lets the sync
-      // WAIT OUT a Realcomp degraded window (like the initial backfill does) so a
-      // retry lands once it recovers. Logged so a long wait isn't mistaken for a
-      // dead process.
+      // Abort/network error on THIS request — retry with backoff (log which page).
       if (netRetries < maxNetRetries) {
         netRetries += 1;
         const wait = backoffMs(netRetries);
-        console.error(`[realcomp] request aborted/failed; retry ${netRetries}/${maxNetRetries} in ${wait}ms (Realcomp may be stalling)`);
+        console.error(`[realcomp] ${tag}${which} aborted after ${Date.now() - t0}ms; retry ${netRetries}/${maxNetRetries} in ${wait}ms`);
         await sleep(wait);
         continue;
       }
@@ -292,6 +306,7 @@ export async function realcompFetchPages<T = Record<string, unknown>>(
     // A 401 means the token is stale/expired — re-mint and retry every time.
     if (res.status === 401 && authRetries < MAX_AUTH_RETRIES) {
       authRetries += 1;
+      console.error(`[realcomp] ${tag}${which} HTTP 401 after ${Date.now() - t0}ms — re-minting token`);
       token = await getValidRealcompToken(true);
       continue;
     }
@@ -299,7 +314,7 @@ export async function realcompFetchPages<T = Record<string, unknown>>(
     if (RETRYABLE_STATUS.has(res.status) && netRetries < maxNetRetries) {
       netRetries += 1;
       const wait = backoffMs(netRetries);
-      console.error(`[realcomp] HTTP ${res.status}; retry ${netRetries}/${maxNetRetries} in ${wait}ms`);
+      console.error(`[realcomp] ${tag}${which} HTTP ${res.status} after ${Date.now() - t0}ms; retry ${netRetries}/${maxNetRetries} in ${wait}ms`);
       await sleep(wait);
       continue;
     }
@@ -309,8 +324,13 @@ export async function realcompFetchPages<T = Record<string, unknown>>(
     const data = (await res.json()) as ODataResponse<T>;
     const page = data.value ?? [];
     total += page.length;
+    pageNo += 1;
+    const next = data['@odata.nextLink'] ?? null;
+    console.error(
+      `[realcomp] ${tag}${which}: HTTP ${res.status}, ${page.length} records in ${Date.now() - t0}ms; nextLink ${summarizeNextLink(next, baseHost)}`,
+    );
     if (page.length) await onPage(page);
-    nextUrl = data['@odata.nextLink'] ?? null;
+    nextUrl = next;
   }
   return total;
 }

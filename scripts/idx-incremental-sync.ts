@@ -28,8 +28,12 @@ import { runIdxSync } from '../lib/idxSync';
 // backoff(≤30s); 20 retries ≈ 30 min of waiting before giving up. Once a request
 // succeeds the sync blasts through the remaining hourly windows in seconds, and
 // every completed window is checkpointed so an unfinished run resumes next time.
-const SYNC_REQUEST_TIMEOUT_MS = 60_000;
-const SYNC_MAX_NET_RETRIES = 20;
+// NOTE: dialed down for a DIAGNOSTIC pass so the run finishes fast and its
+// labeled per-request log is readable (an in-progress job's log 404s until it
+// completes). Restore the patient values (60s / 20) once the pagination
+// behavior is understood.
+const SYNC_REQUEST_TIMEOUT_MS = 30_000;
+const SYNC_MAX_NET_RETRIES = 4;
 
 async function main() {
   // stderr (unbuffered) so this survives a process kill.
