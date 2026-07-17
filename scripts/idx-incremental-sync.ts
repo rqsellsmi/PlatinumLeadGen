@@ -17,7 +17,7 @@
  */
 import './loadEnv';
 import { realcompFetchPages, isRealcompConfigured, realcompPreflight } from '../lib/realcomp';
-import { runIdxSync, probeIncrementalFirstQuery } from '../lib/idxSync';
+import { runIdxSync, probeFirstWindowUpsert } from '../lib/idxSync';
 
 async function main() {
   // stderr (unbuffered) so this survives a process kill.
@@ -26,13 +26,22 @@ async function main() {
     throw new Error('Realcomp is not configured — set REALCOMP_CLIENT_ID / REALCOMP_CLIENT_SECRET.');
   }
 
-  // DIAGNOSTIC BUILD: preflight (token + $top=1 probes) then fire the sync's EXACT
-  // first-window query with a 60s timeout, and EXIT — so if the real query hangs
-  // we see it bounded and the log is readable, instead of a 10-min silent stall.
+  // DIAGNOSTIC BUILD: the bare query is proven fine, so exercise the first window's
+  // fetch AND real upsert (the DB write path) with per-write logging, bounded by a
+  // hard 90s timeout, then force-exit — so a hang in upsertRawListings /
+  // setBackfillCheckpoint is pinned exactly and the step's log stays readable.
   await realcompPreflight();
-  await probeIncrementalFirstQuery();
+  await Promise.race([
+    probeFirstWindowUpsert(),
+    new Promise<void>((resolve) =>
+      setTimeout(() => {
+        console.error('[probe2] TIMED OUT after 90s — the last logged step is where it hangs.');
+        resolve();
+      }, 90_000),
+    ),
+  ]);
   console.error('[idx-sync] probes complete — exiting (diagnostic build).');
-  return;
+  process.exit(0);
   // eslint-disable-next-line no-unreachable
 
   let pages = 0;

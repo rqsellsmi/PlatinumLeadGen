@@ -18,7 +18,7 @@
  */
 import { sql, getTableColumns, inArray, eq, max } from 'drizzle-orm';
 import { db } from './db';
-import { realcompProbe } from './realcomp';
+import { realcompProbe, realcompFetchPages } from './realcomp';
 import {
   idxListings,
   idxListingPhotos,
@@ -616,6 +616,38 @@ export async function probeIncrementalFirstQuery(): Promise<void> {
   console.error(`[probe] first-window window ${new Date(startMs).toISOString()} → ${new Date(endMs).toISOString()}`);
   console.error(`[probe] first-window filter: ${filter}`);
   await realcompProbe('sync-query', incrementalParams(filter), 60_000);
+}
+
+/**
+ * DIAGNOSTIC: run the first window's fetch AND real upsert (the DB write path the
+ * bare query probe skips), logging around every write, so a hang in
+ * upsertRawListings / setBackfillCheckpoint is pinned to the exact call.
+ */
+export async function probeFirstWindowUpsert(): Promise<void> {
+  const startIso =
+    (await getBackfillCheckpoint(INCREMENTAL_CHECKPOINT_KEY)) ?? (await getSyncCursor()) ?? oneYearAgoIso();
+  let startMs = Date.parse(startIso);
+  if (Number.isNaN(startMs)) startMs = Date.parse(oneYearAgoIso());
+  const endMs = Math.min(startMs + INCREMENTAL_STEP_MS, Date.now());
+  const filter =
+    `${displayableStatusClause()} and ModificationTimestamp gt ${new Date(startMs).toISOString()} ` +
+    `and ModificationTimestamp le ${new Date(endMs).toISOString()}`;
+  console.error(`[probe2] first window ${new Date(startMs).toISOString()} → ${new Date(endMs).toISOString()}`);
+
+  let n = 0;
+  let pageNo = 0;
+  await realcompFetchPages('Property', incrementalParams(filter), async (page) => {
+    pageNo += 1;
+    n += page.length;
+    console.error(`[probe2] page ${pageNo}: ${page.length} records — upserting…`);
+    const t = Date.now();
+    const up = await upsertRawListings(page);
+    console.error(`[probe2] page ${pageNo}: upserted ${up} in ${Date.now() - t}ms`);
+  });
+  console.error(`[probe2] fetch loop done (${n} records) — writing checkpoint…`);
+  const tc = Date.now();
+  await setBackfillCheckpoint(INCREMENTAL_CHECKPOINT_KEY, new Date(endMs).toISOString());
+  console.error(`[probe2] checkpoint written in ${Date.now() - tc}ms — window OK`);
 }
 
 // ---------------------------------------------------------------------------
