@@ -18,7 +18,7 @@
  */
 import { sql, getTableColumns, inArray, eq, max } from 'drizzle-orm';
 import { db } from './db';
-import { realcompProbe, realcompFetchPages } from './realcomp';
+import { realcompProbe, realcompProbeBody, realcompFetchPages } from './realcomp';
 import {
   idxListings,
   idxListingPhotos,
@@ -616,6 +616,26 @@ export async function probeIncrementalFirstQuery(): Promise<void> {
   console.error(`[probe] first-window window ${new Date(startMs).toISOString()} → ${new Date(endMs).toISOString()}`);
   console.error(`[probe] first-window filter: ${filter}`);
   await realcompProbe('sync-query', incrementalParams(filter), 60_000);
+}
+
+/**
+ * DIAGNOSTIC: the sync matches 0 records — figure out WHY by isolating each
+ * filter clause. Fires small ($top=5, no media) queries and logs the actual
+ * ModificationTimestamps returned:
+ *   - newest-5: no filter, newest first → the feed's real max ModificationTimestamp
+ *   - ts-only:  ModificationTimestamp gt <since> alone
+ *   - status-only: displayable-status alone
+ *   - combined: the sync's exact filter
+ * Whichever clause turns a non-empty result into count=0 is the culprit.
+ */
+export async function probeQueryDiagnostics(sinceIso: string): Promise<void> {
+  const disp = displayableStatusClause();
+  const sel = 'ListingKey,ModificationTimestamp,StandardStatus';
+  console.error(`[qdiag] since=${sinceIso}`);
+  await realcompProbeBody('newest-5 (no filter, ts desc)', { $select: sel, $orderby: 'ModificationTimestamp desc', $top: '5' }, 20_000);
+  await realcompProbeBody('ts-only (gt since)', { $select: sel, $filter: `ModificationTimestamp gt ${sinceIso}`, $top: '5' }, 20_000);
+  await realcompProbeBody('status-only', { $select: sel, $filter: disp, $top: '5' }, 20_000);
+  await realcompProbeBody('combined (sync filter)', { $select: sel, $filter: `${disp} and ModificationTimestamp gt ${sinceIso}`, $top: '5' }, 20_000);
 }
 
 /**

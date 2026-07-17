@@ -358,6 +358,42 @@ export async function realcompFetchPages<T = Record<string, unknown>>(
   return total;
 }
 
+/**
+ * Diagnostic: fire ONE Property query with the given params and log the record
+ * count, whether a nextLink came back, and the first few rows' Modification
+ * Timestamp/StandardStatus — so we can see WHAT the feed actually returns for a
+ * filter (why the incremental matches 0). Single request, short timeout, no media.
+ */
+export async function realcompProbeBody(label: string, params: Record<string, string>, ms: number): Promise<void> {
+  const token = await getValidRealcompToken();
+  const url = new URL(`${baseUrl()}/Property`);
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  const t = Date.now();
+  try {
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    const body = await res.text();
+    let summary = body.slice(0, 300);
+    try {
+      const j = JSON.parse(body) as { value?: Array<Record<string, unknown>>; '@odata.nextLink'?: string };
+      const rows = (j.value ?? []).slice(0, 5).map((r) => `${r.ModificationTimestamp ?? '?'}|${r.StandardStatus ?? ''}`);
+      summary = `count=${j.value?.length ?? 0} nextLink=${j['@odata.nextLink'] ? 'yes' : 'no'} :: ${rows.join('  ')}`;
+    } catch {
+      /* keep raw slice */
+    }
+    console.error(`[qdiag] ${label}: HTTP ${res.status} in ${Date.now() - t}ms :: ${summary}`);
+  } catch (err) {
+    console.error(`[qdiag] ${label}: FAILED in ${Date.now() - t}ms: ${err instanceof Error ? err.message : String(err)}`);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Fetch the raw $metadata document (used by scripts/idx-verify-metadata.ts). */
 export async function fetchMetadata(): Promise<string> {
   const token = await getValidRealcompToken();

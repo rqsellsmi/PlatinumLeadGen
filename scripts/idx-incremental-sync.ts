@@ -17,7 +17,7 @@
  */
 import './loadEnv';
 import { realcompFetchPages, isRealcompConfigured, realcompPreflight } from '../lib/realcomp';
-import { runIdxSync } from '../lib/idxSync';
+import { runIdxSync, probeQueryDiagnostics } from '../lib/idxSync';
 
 // Realcomp's feed-wide query stalls in ~20-minute stretches, then recovers (a
 // reliability probe measured 8/8 fast, but 12 min later the same query hung 4x).
@@ -61,6 +61,14 @@ async function main() {
 
   // Preflight health check (token + a no-media/with-media probe); never throws.
   await realcompPreflight();
+
+  // DIAGNOSTIC BUILD: the sync ran clean but matched 0 records — find out why by
+  // isolating each filter clause and printing the feed's real timestamps, then
+  // exit. Restore the normal sync once we know which clause zeroes the result.
+  await probeQueryDiagnostics(sinceIso ?? new Date(Date.now() - 7 * 86_400_000).toISOString());
+  console.error('[idx-sync] query diagnostics complete — exiting.');
+  process.exit(0);
+  // eslint-disable-next-line no-unreachable
 
   let pages = 0;
   let fetched = 0;
