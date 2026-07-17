@@ -573,3 +573,21 @@ whole chain because most of the wasted time was theorizing past the real cause.
     and latency per call. Note: the GitHub logs API 404s for in-progress jobs — it
     only serves the archived log after the step completes, so a diagnostic build
     that runs the probe and EXITS (skipping the hang) is what makes it readable.
+  - **THE FINAL CAUSE: Realcomp INTERMITTENTLY hangs on the feed-wide request, and
+    our per-request timeout was 5 minutes.** A probe firing the sync's EXACT query
+    returned HTTP 200 in 1.2s (run #107); the identical query via `realcompFetchPages`
+    the next run (#108) never returned a page in 90s. Same query, same token — so
+    the request itself intermittently stalls on Realcomp's side. With
+    `REQUEST_TIMEOUT_MS = 300_000`, one stalled request froze the whole run for 5
+    minutes (and the sync fires dozens). Fix: thread a per-request `timeoutMs` into
+    `realcompFetchPages`/`fetchWithTimeout` and have the incremental sync use a
+    SHORT one (30s runner / 20s serverless) — a stalled request aborts fast and the
+    existing net-retry loop re-issues it, and a retry usually succeeds. A 1-hour
+    window's page is small, so a legitimate response lands well inside 30s. General
+    rule: a shared "big" timeout tuned for a 6h backfill is a footgun for a
+    short-lived job against a flaky upstream — make it per-call.
+  - **Debugging method that worked (after several that didn't): bisect the code
+    path with bounded probes, outermost-first.** token → minimal query → exact
+    query → exact query + real upsert → the real fetch wrapper. Each probe ruled a
+    layer in or out against the actual production endpoint/data, on the actual
+    runner. Reading the *real* logs beats reasoning about what "should" happen.

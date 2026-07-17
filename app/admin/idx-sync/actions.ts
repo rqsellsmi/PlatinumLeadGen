@@ -20,7 +20,9 @@ export async function runSyncNow(): Promise<RunSyncResult> {
     return { ok: false, message: 'Realcomp is not configured (REALCOMP_CLIENT_ID / SECRET).' };
   }
   try {
-    const r = await runIdxSync((path, params, onPage) => realcompFetchPages(path, params, onPage));
+    const r = await runIdxSync((path, params, onPage) =>
+      realcompFetchPages(path, params, onPage, { timeoutMs: 20_000 }),
+    );
     revalidatePath('/admin/idx-sync');
     const head = r.truncated
       ? 'Sync progressed (time budget hit — run again to continue the backlog)'

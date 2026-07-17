@@ -22,7 +22,11 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const result = await runIdxSync((path, params, onPage) => realcompFetchPages(path, params, onPage));
+    // Short per-request timeout so an intermittently-hung Realcomp request aborts
+    // and retries instead of freezing the whole (60s-capped) invocation.
+    const result = await runIdxSync((path, params, onPage) =>
+      realcompFetchPages(path, params, onPage, { timeoutMs: 20_000 }),
+    );
     return NextResponse.json({ success: true, ...result });
   } catch (err) {
     console.error('[cron/idx-sync] failed:', err);

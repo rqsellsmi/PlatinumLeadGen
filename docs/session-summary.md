@@ -409,6 +409,15 @@ because it runs **on the runner** (350-min cap), not on Vercel.
   post-mint propagation `sleep` so the first request doesn't 401. Added
   `realcompPreflight()` (token + no-media/with-media probe, stderr, never throws)
   as a per-run health check. Media was NOT the cause (with-media returned 200).
+- **FINAL CAUSE — Realcomp intermittently hangs the feed-wide request.** A probe
+  fired the sync's EXACT query and got HTTP 200 in 1.2s (run #107); the identical
+  query via `realcompFetchPages` the next run never returned a page in 90s (#108).
+  Same query/token → the request itself intermittently stalls, and
+  `REQUEST_TIMEOUT_MS` was 5 minutes, so one stall froze the whole run. Fix
+  (`lib/realcomp.ts`): per-request `timeoutMs` on `realcompFetchPages`/
+  `fetchWithTimeout`; the incremental sync uses 30s (runner) / 20s (serverless),
+  so a stalled request aborts fast and the existing retry re-issues it. Real sync
+  re-enabled in `scripts/idx-incremental-sync.ts`.
 - `lib/idxAdmin.ts`: `partial` counts as a non-failing success on the dashboard;
   admin **Run Now** page gets `maxDuration = 60`.
 

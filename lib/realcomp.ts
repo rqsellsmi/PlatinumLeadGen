@@ -44,9 +44,9 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const backoffMs = (attempt: number) => Math.min(30_000, 1000 * 2 ** attempt);
 
 /** One fetch with a per-request abort timeout (so a hung request can be retried). */
-async function fetchWithTimeout(url: string, token: string): Promise<Response> {
+async function fetchWithTimeout(url: string, token: string, timeoutMs = REQUEST_TIMEOUT_MS): Promise<Response> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(url, {
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -258,6 +258,7 @@ export async function realcompFetchPages<T = Record<string, unknown>>(
   path: string,
   params: Record<string, string>,
   onPage: (page: T[]) => Promise<void>,
+  opts: { timeoutMs?: number } = {},
 ): Promise<number> {
   let token = await getValidRealcompToken();
   const url = new URL(`${baseUrl()}/${path.replace(/^\/+/, '')}`);
@@ -270,10 +271,13 @@ export async function realcompFetchPages<T = Record<string, unknown>>(
   while (nextUrl) {
     let res: Response;
     try {
-      res = await fetchWithTimeout(nextUrl, token);
+      res = await fetchWithTimeout(nextUrl, token, opts.timeoutMs);
     } catch (err) {
-      // Network error / abort timeout — a single blip must not kill a long
-      // backfill. Retry with backoff; only give up after several in a row.
+      // Network error / abort timeout — a single blip (or Realcomp intermittently
+      // hanging on a request, which it does) must not kill the run. Retry with
+      // backoff; only give up after several in a row. With a SHORT opts.timeoutMs
+      // (the incremental sync), a stalled request aborts fast and the retry
+      // usually succeeds, instead of freezing for the full default timeout.
       if (netRetries < MAX_NET_RETRIES) {
         netRetries += 1;
         await sleep(backoffMs(netRetries));

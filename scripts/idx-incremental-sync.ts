@@ -17,7 +17,14 @@
  */
 import './loadEnv';
 import { realcompFetchPages, isRealcompConfigured, realcompPreflight } from '../lib/realcomp';
-import { runIdxSync, probeFirstWindowUpsert } from '../lib/idxSync';
+import { runIdxSync } from '../lib/idxSync';
+
+// Realcomp intermittently hangs on a feed-wide request; with the default 5-min
+// per-request timeout that freezes the whole sync. A short timeout aborts a
+// stalled request fast so the fetch layer's retry re-issues it (a retry usually
+// succeeds — the query works most of the time). A 1-hour window's page is small,
+// so a legitimate response lands well inside this.
+const SYNC_REQUEST_TIMEOUT_MS = 30_000;
 
 async function main() {
   // stderr (unbuffered) so this survives a process kill.
@@ -26,38 +33,28 @@ async function main() {
     throw new Error('Realcomp is not configured — set REALCOMP_CLIENT_ID / REALCOMP_CLIENT_SECRET.');
   }
 
-  // DIAGNOSTIC BUILD: the bare query is proven fine, so exercise the first window's
-  // fetch AND real upsert (the DB write path) with per-write logging, bounded by a
-  // hard 90s timeout, then force-exit — so a hang in upsertRawListings /
-  // setBackfillCheckpoint is pinned exactly and the step's log stays readable.
+  // Preflight health check (token + a no-media/with-media probe); never throws.
   await realcompPreflight();
-  await Promise.race([
-    probeFirstWindowUpsert(),
-    new Promise<void>((resolve) =>
-      setTimeout(() => {
-        console.error('[probe2] TIMED OUT after 90s — the last logged step is where it hangs.');
-        resolve();
-      }, 90_000),
-    ),
-  ]);
-  console.error('[idx-sync] probes complete — exiting (diagnostic build).');
-  process.exit(0);
-  // eslint-disable-next-line no-unreachable
 
   let pages = 0;
   let fetched = 0;
   const started = Date.now();
 
   const result = await runIdxSync(
-    // Wrap the paged fetch to print progress as it streams — so the Actions log
-    // shows liveness on a large catch-up, the way idx-initial-sync does.
+    // Wrap the paged fetch: SHORT per-request timeout (so a hung request retries
+    // instead of freezing) + progress logging so the Actions log shows liveness.
     (path, params, onPage) =>
-      realcompFetchPages(path, params, async (page) => {
-        pages += 1;
-        fetched += page.length;
-        await onPage(page);
-        console.log(`[idx-sync] page ${pages}: +${page.length} (${fetched} fetched, ${Math.round((Date.now() - started) / 1000)}s)`);
-      }),
+      realcompFetchPages(
+        path,
+        params,
+        async (page) => {
+          pages += 1;
+          fetched += page.length;
+          await onPage(page);
+          console.log(`[idx-sync] page ${pages}: +${page.length} (${fetched} fetched, ${Math.round((Date.now() - started) / 1000)}s)`);
+        },
+        { timeoutMs: SYNC_REQUEST_TIMEOUT_MS },
+      ),
     { budgetMs: Infinity }, // runner has hours — drain the whole delta, never truncate
   );
 
