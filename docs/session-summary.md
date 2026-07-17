@@ -433,3 +433,42 @@ because it runs **on the runner** (350-min cap), not on Vercel.
   `DEPLOY_URL`/`CRON_SECRET` are no longer used by it.
 - Trigger `IDX hourly sync` (Actions → Run workflow) to confirm green; the admin
   IDX Sync banner should clear and "Last successful sync" should populate.
+
+## IDX incremental-sync fix — the zero-record cause (round 2) + domain move
+
+After the timeout/paging work above, the hourly sync still upserted **0 records
+every run, silently** (HTTP 200, empty `value`, phantom `@odata.nextLink`). The
+cursor never advanced, so ~3 days of solds/actives went missing.
+
+- **Root cause (lessons §16b):** the full `$select` zeroed the query. A
+  decomposition probe proved it wasn't media, the time window, or paging — a
+  3-field select returned rows, the full ~90-field select returned 0. A per-field
+  audit (`probeSelectFindAllBad()` in `lib/idxSync.ts`) then found **six fields
+  that make Realcomp return 0 rows for ANY query that selects them, even alone:**
+  `ArchitecturalStyle`, `InteriorFeatures`, `Appliances`, `ParkingFeatures`,
+  `LotFeatures`, `AssociationAmenities`. All are in `$metadata` (they pass
+  `idx:verify`), so metadata validation does not catch this. They were added in
+  the `0021` buyer-fields expansion — AFTER the initial backfill — which is why
+  incremental broke but the backfill was fine.
+- **Fix:** dropped those six from `SELECT_FIELDS_ARR` (columns + mappings kept, so
+  they light up automatically if Realcomp ever fixes the feed). Also dropped
+  `PhotosCount` (a transient audit timeout, redundant with `$expand=Media`) and
+  derived `photosCount` from the media-array length. Diagnostic exit removed from
+  `scripts/idx-incremental-sync.ts` so the runner runs the real sync again.
+- **Recovery:** ran the workflow's `since=2026-07-10` back-pull to fill the gap;
+  the cursor advanced to current and the `:17` hourly job resumes normal
+  incremental maintenance. Tests green (82), typecheck clean.
+- **Follow-up (deferred):** the six dropped fields render as empty on listing
+  pages until we fetch them via a separate query that doesn't select them
+  alongside the rest.
+
+### Production domain → `remax-platinumonline.com`
+No app-code change: every canonical/OG/`metadataBase`/sitemap/robots/email URL is
+env-driven off `SITE_URL`, whose fallback default is already
+`https://remax-platinumonline.com`; `next.config` image `remotePatterns` allow all
+https hosts; auth uses `trustHost: true` with host-scoped `__Secure-authjs`
+cookies. The move is **env-vars + external config only** — see the domain answer
+in-thread: set `SITE_URL` + `NEXTAUTH_URL` (Vercel) and `DEPLOY_URL` (Actions) to
+the new domain, add/verify the domain in Vercel, extend the Google Maps browser
+key's HTTP-referrer allowlist, register the new IDX display URL with Realcomp, and
+add the domain in Google Search Console + resubmit the sitemap.
