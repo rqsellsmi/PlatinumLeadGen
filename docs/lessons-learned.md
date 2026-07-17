@@ -602,3 +602,37 @@ whole chain because most of the wasted time was theorizing past the real cause.
     bad window resumes from where it stopped on the next hourly run. When a symptom
     is time-correlated and not code-correlated, stop editing code and measure the
     dependency's reliability directly.
+
+### 16b. The REAL cause of the zero-record incremental sync: six un-`$select`able fields
+
+  - **Symptom after all the timeout/paging fixes above: the sync still upserted 0
+    records, every run, silently.** No 504, no error — HTTP 200 with an empty
+    `value` array and a phantom `@odata.nextLink`. The cursor never moved, so
+    ~3 days of solds/actives went missing.
+  - **Decomposition proved it wasn't media, the time window, or paging.** A probe
+    (`probeMediaDiagnostics`) fired the same filter with a 3-field `$select` vs the
+    full ~90-field select: 3-field returned 5 rows (with or without `$expand=Media`,
+    open or narrow window); the **full `$select` returned 0**. So the *field list*
+    was the culprit, not any query mechanic.
+  - **Bisection then per-field audit (`probeSelectFindAllBad`) pinned the exact
+    fields.** Binary-searching the field list found the first offender
+    (`ArchitecturalStyle` at prefix 56); testing every field individually against
+    the anchors found all of them. **Six fields make Realcomp return 0 rows for ANY
+    query that `$select`s them, even alone:** `ArchitecturalStyle`,
+    `InteriorFeatures`, `Appliances`, `ParkingFeatures`, `LotFeatures`,
+    `AssociationAmenities`. They are all in `$metadata` (they pass `idx:verify`), so
+    metadata validation does NOT catch this — the feed accepts the field name but
+    zeroes the result set instead of 400-ing (unlike `TaxYear`, which 400s).
+  - **Why it hit incremental and not the backfill:** these six were added in the
+    "buyer-relevant fields" expansion AFTER the initial backfill ran. The backfill's
+    select never contained them; the incremental sync was the first job to use the
+    fat select, so it was the first to silently zero out.
+  - **Fix:** drop those six from `SELECT_FIELDS_ARR` (columns + mappings stay, so
+    they light up automatically if Realcomp ever fixes the feed; populating them
+    now would need a separate query that doesn't `$select` them alongside the rest).
+    Also dropped `PhotosCount` (a transient audit timeout, and redundant with
+    `$expand=Media`) — `photosCount` is now derived from the media array length.
+  - **Method reminder (again): bisect against the live endpoint, don't theorize.**
+    A metadata-valid field silently returning zero rows is not something you'd
+    guess; an automated per-field probe against the real feed found all six in one
+    ~3-minute run.

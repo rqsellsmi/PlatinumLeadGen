@@ -40,28 +40,41 @@ export const SELECT_FIELDS_ARR = [
   'PostalCity', 'OriginalCity', 'OriginalPostalCity', 'CountyOrParish',
   'SubdivisionName', 'MLSAreaMajor', 'StateOrProvince', 'PostalCode', 'Latitude',
   'Longitude', 'BedroomsTotal', 'BathroomsTotalInteger', 'BathroomsFull',
-  'BathroomsHalf', 'LivingArea', 'YearBuilt', 'LotSizeAcres', 'PhotosCount',
+  'BathroomsHalf', 'LivingArea', 'YearBuilt', 'LotSizeAcres',
   'ListOfficeName', 'ListOfficePhone', 'OriginatingSystemName', 'ModificationTimestamp',
   'VirtualTourURLUnbranded', 'PublicRemarks', 'GarageSpaces', 'Basement',
   'ElementarySchoolDistrict', 'HighSchoolDistrict', 'WaterfrontYN', 'WaterfrontFeatures',
   'WaterBodyName', 'WaterFrontageFeet', 'InternetAddressDisplayYN',
   'InternetEntireListingDisplayYN',
   // Buyer-relevant "data sheet" fields (0021). Enum multi-values (Heating,
-  // Appliances, InteriorFeatures, …) come back as arrays and are serialized to
+  // Cooling, ExteriorFeatures, …) come back as arrays and are serialized to
   // comma lists; scalars map straight through.
-  'ArchitecturalStyle', 'Levels', 'StoriesTotal', 'RoomsTotal', 'Heating', 'Cooling',
-  'FireplacesTotal', 'FireplaceFeatures', 'LaundryFeatures', 'InteriorFeatures',
-  'ExteriorFeatures', 'Appliances', 'Flooring', 'ConstructionMaterials', 'Roof',
-  'FoundationDetails', 'ParkingFeatures', 'AttachedGarageYN', 'PoolPrivateYN',
-  'PoolFeatures', 'PatioAndPorchFeatures', 'LotFeatures', 'LotSizeDimensions', 'View',
+  'Levels', 'StoriesTotal', 'RoomsTotal', 'Heating', 'Cooling',
+  'FireplacesTotal', 'FireplaceFeatures', 'LaundryFeatures',
+  'ExteriorFeatures', 'Flooring', 'ConstructionMaterials', 'Roof',
+  'FoundationDetails', 'AttachedGarageYN', 'PoolPrivateYN',
+  'PoolFeatures', 'PatioAndPorchFeatures', 'LotSizeDimensions', 'View',
   'WaterSource', 'Sewer', 'Utilities', 'NewConstructionYN', 'Zoning', 'AssociationYN',
-  'AssociationFee', 'AssociationFeeFrequency', 'AssociationFeeIncludes', 'AssociationAmenities',
+  'AssociationFee', 'AssociationFeeFrequency', 'AssociationFeeIncludes',
   // Realcomp's live $metadata declares TaxAnnualAmount but NOT TaxYear (verified
   // via scripts/idx-verify-metadata.ts). Selecting a field the feed doesn't
   // declare makes Realcomp 400 the whole query, so TaxYear is omitted here. The
   // taxYear column + mapping stay (harmless null; picks it up automatically if
   // Realcomp ever adds the field) and the listing page hides the year when null.
   'TaxAnnualAmount',
+  // EXCLUDED — these are in $metadata (they pass idx:verify) but Realcomp returns
+  // ZERO rows (HTTP 200 + a phantom @odata.nextLink, no 400) for ANY query that
+  // $selects them, even alone with the anchor fields. Pinpointed by
+  // probeSelectFindAllBad() (lib/idxSync.ts) — see docs/lessons-learned.md §16:
+  //   ArchitecturalStyle, InteriorFeatures, Appliances, ParkingFeatures,
+  //   LotFeatures, AssociationAmenities.
+  // This is why the incremental sync (the first job to run the expanded select)
+  // pulled 0 records while the pre-expansion backfill was fine. Their columns +
+  // mappings stay (harmless null) so we light up automatically if Realcomp fixes
+  // the feed; populating them needs a separate no-select-conflict query (TODO).
+  // PhotosCount is also dropped — it only timed out in the audit (not a 0-count),
+  // but it's redundant with $expand=Media, so photosCount is derived from the
+  // media array instead (see extractRawListing).
 ] as const;
 
 export const SELECT_FIELDS = SELECT_FIELDS_ARR.join(',');
@@ -415,7 +428,10 @@ export function mapRealcompListing(raw: Raw): NewIdxListing | null {
     taxAnnualAmount: real(raw.TaxAnnualAmount),
     taxYear: int(raw.TaxYear),
     photoUrl: primaryPhotoUrl(raw),
-    photosCount: int(raw.PhotosCount),
+    // Derived from the expanded Media set — PhotosCount is not $selectable
+    // without zeroing the query (see SELECT_FIELDS_ARR), and Media gives the
+    // real per-listing photo count anyway.
+    photosCount: extractPhotos(raw).length,
     virtualTourUrl: str(raw.VirtualTourURLUnbranded),
     publicRemarks: str(raw.PublicRemarks),
     listingOfficeName: str(raw.ListOfficeName),
