@@ -26,12 +26,9 @@ async function main() {
     throw new Error('Realcomp is not configured — set REALCOMP_CLIENT_ID / REALCOMP_CLIENT_SECRET.');
   }
 
-  // DIAGNOSTIC BUILD: run only the preflight probes (token, no-media vs with-media
-  // request) and exit, so the step completes fast and its log is readable. The
-  // full sync below is temporarily skipped until we identify the hanging call.
+  // Preflight health check: logs token + a no-media/with-media probe so any auth
+  // or connectivity regression is visible up front (diagnostic only, never throws).
   await realcompPreflight();
-  console.error('[idx-sync] preflight complete — exiting (diagnostic build).');
-  return;
 
   let pages = 0;
   let fetched = 0;

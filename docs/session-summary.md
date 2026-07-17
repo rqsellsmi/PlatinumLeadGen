@@ -400,6 +400,15 @@ because it runs **on the runner** (350-min cap), not on Vercel.
   window's Query 2 before advancing the checkpoint — small result sets, fast first
   page, gap-free resume, no `$orderby`. Query 1 (offices, tiny) runs once over the
   range advanced. Per-window progress logs to the runner's Actions output.
+- **ROOT CAUSE of the silent hang (found via preflight + reading runner logs):** a
+  freshly-minted Realcomp token isn't valid on the data API for ~1-2s — the first
+  request 401s ("Token failed validation"), the next 200s (same token). The fetch
+  loop force-re-minted on 401 via `mintRealcompToken`, which had **no timeout** on
+  its auth fetch, so a stalled auth / churn of un-propagated tokens hung the sync
+  for minutes. Fix (`lib/realcomp.ts`): 30s timeout on the token mint + a ~3s
+  post-mint propagation `sleep` so the first request doesn't 401. Added
+  `realcompPreflight()` (token + no-media/with-media probe, stderr, never throws)
+  as a per-run health check. Media was NOT the cause (with-media returned 200).
 - `lib/idxAdmin.ts`: `partial` counts as a non-failing success on the dashboard;
   admin **Run Now** page gets `maxDuration = 60`.
 

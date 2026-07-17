@@ -554,3 +554,22 @@ whole chain because most of the wasted time was theorizing past the real cause.
     window fully drains — small result sets, fast first page, gap-free resume, no
     `$orderby`. The incremental sync should never issue an unbounded feed-wide
     query, even "since the cursor."
+  - **THE ACTUAL ROOT CAUSE (found by a preflight probe, read from the runner
+    logs via the GitHub API): a freshly-minted Realcomp token isn't valid on the
+    data API for ~1-2s.** A preflight firing token → `Property?$top=1` (no media)
+    → same with `$expand=Media` showed: token OK, **no-media 401 "Token failed
+    validation" at +213ms**, **with-media 200 at +2.9s** — same token, so it's a
+    ~1-2s propagation delay, and Media was never the problem. The fetch loop's
+    401 handler *force-re-mints* (`getValidRealcompToken(true)`), and
+    `mintRealcompToken` had **no timeout on its auth fetch** — so a stalled auth
+    response (or a churn of un-propagated re-mints) hung the whole sync silently
+    for minutes. Fix: (a) give the token mint its own 30s timeout so it can't hang
+    forever; (b) `sleep(~3s)` after minting so the token propagates before first
+    use, so the first request doesn't 401 and trigger the re-mint churn.
+  - **The `Property?$top=1` two-request probe (with vs without the suspect param)
+    is the tool that finally isolated it.** Two cheap, bounded requests logged to
+    *stderr* (unbuffered → survive a kill), plus reading the archived job log via
+    the GitHub API, turned "hangs silently for 10 min" into an exact HTTP status
+    and latency per call. Note: the GitHub logs API 404s for in-progress jobs — it
+    only serves the archived log after the step completes, so a diagnostic build
+    that runs the probe and EXITS (skipping the hang) is what makes it readable.

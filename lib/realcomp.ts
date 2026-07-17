@@ -29,6 +29,17 @@ const MAX_NET_RETRIES = 4;
 const REQUEST_TIMEOUT_MS = 300_000;
 const RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
 
+// The auth endpoint gets its own (short) timeout so a slow/hung token mint can't
+// wedge the whole sync — mintRealcompToken had NO timeout, so on a stalled auth
+// response the sync hung silently for minutes (confirmed via the runner logs).
+const TOKEN_TIMEOUT_MS = 30_000;
+// A freshly-issued Realcomp token is NOT accepted by the data API for ~1-2s: the
+// first request returns 401 "Token failed validation", the next (seconds later)
+// returns 200 (confirmed via preflight). Wait after minting so the caller's first
+// request doesn't 401 — which the fetch loop would otherwise "fix" by force-re-
+// minting ANOTHER un-propagated token, churning or hanging on the auth call.
+const TOKEN_PROPAGATION_MS = 3_000;
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const backoffMs = (attempt: number) => Math.min(30_000, 1000 * 2 ** attempt);
 
@@ -91,21 +102,32 @@ interface MintedToken {
  * JSON body, exactly three fields.
  */
 async function mintRealcompToken(): Promise<MintedToken> {
-  const res = await fetch(authUrl(), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      client_id: clientId(),
-      client_secret: clientSecret(),
-      audience: audience(),
-    }),
-    cache: 'no-store',
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TOKEN_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(authUrl(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_id: clientId(),
+        client_secret: clientSecret(),
+        audience: audience(),
+      }),
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
   if (!res.ok) {
     throw new Error(`Realcomp token request failed (${res.status}): ${await res.text()}`);
   }
   const data = (await res.json()) as TokenResponse;
   if (!data.access_token) throw new Error('Realcomp token response missing access_token.');
+
+  // Let the just-issued token propagate before it's used (see TOKEN_PROPAGATION_MS).
+  await sleep(TOKEN_PROPAGATION_MS);
 
   return {
     accessToken: data.access_token,
