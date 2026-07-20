@@ -156,7 +156,55 @@ There is also `/api/webhooks/appointment` (same API-key auth).
 
 ---
 
-## 7. Architecture notes
+## 7. Telnyx agent texting
+
+Agents can accept/decline lead offers and update lead status by replying to
+SMS, in addition to the email offer/dashboard. This is optional — the
+platform runs email-only until you configure it. Owner setup checklist:
+
+1. **Provision numbers.** Buy one Telnyx number per office (4 at launch:
+   Brighton, Ann Arbor, Fenton, Grand Blanc). This is per-office, not
+   per-agent, and extends cleanly if a new office opens later.
+2. **Complete carrier registration BEFORE go-live.** Telnyx (like all US SMS
+   carriers) requires either **10DLC registration** (Brand + Campaign) or
+   **Toll-Free Verification** for the numbers above. Messages sent from an
+   unregistered number are throttled or silently filtered by carriers —
+   budget a few business days for approval and do this first, not after
+   agents start relying on texts.
+3. **Set environment variables** in Vercel (Production + Preview) — see
+   `.env.example`:
+   - `TELNYX_API_KEY` — from the Telnyx portal (Auth → API Keys).
+   - `TELNYX_PUBLIC_KEY` — the Messaging Profile's public key, used to verify
+     inbound webhook signatures. Required for `/api/webhooks/telnyx` to
+     accept events.
+   - Optional: `TELNYX_MESSAGING_PROFILE_ID` (pins outbound sends to one
+     Messaging Profile), `TELNYX_DEFAULT_FROM` (fallback "from" number in
+     E.164 when an agent's office has no number set).
+   - Also add `TELNYX_API_KEY` and `TELNYX_PUBLIC_KEY` as **GitHub Actions
+     secrets** if the cron workflow needs to send/process texts outside of a
+     Vercel-triggered request.
+4. **Populate `offices.telnyx_number`** (E.164, e.g. `+15551234567`) for each
+   office in `/admin/offices` (or directly in the DB) — this is the number
+   texts to that office's agents are sent **from**.
+5. **Point the Messaging Profile's inbound + delivery webhook** at
+   `https://<domain>/api/webhooks/telnyx` in the Telnyx portal.
+6. **Confirm each agent's `phone`** in `/admin/agents` is on file and
+   correct — it's how inbound texts are matched to the agent who sent them.
+
+**Agent reply commands** (inbound texts not matching one of these are
+forwarded to the owner by email as unrecognized):
+
+| Reply | Effect |
+| --- | --- |
+| `YES <lead#>` | Accept the offered lead |
+| `NO <lead#>` | Decline the offered lead |
+| `CONTACTED <lead#> [notes]` (also `SPOKE`, `LEFT VM`, `CALLED`, `ATTEMPTED`, `QUALIFIED`, `WORKING`, `CLOSED`, `LOST`) | Update lead status, with optional free-text notes |
+| `STOP` / `START` | Opt out of / back into SMS |
+| `HELP` | Reply with a short usage summary |
+
+---
+
+## 8. Architecture notes
 
 - **Routing engine** (`lib/routing.ts`): proximity-first weighted round-robin. The
   "Dearborn bug" is fixed — the proximity pool is built **before** walking the queue,

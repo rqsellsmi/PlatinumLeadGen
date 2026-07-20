@@ -17,7 +17,9 @@ import { recommendAgents, type RoutingAgent } from './routing';
 import { getRoutingQueue, persistQueue } from './queue';
 import { isWithinOfferWindow } from './offerWindow';
 import { sendEmail, agentLeadOfferEmail, agentAcceptanceEmail, adminAlertEmail } from './email';
-import { sendSms } from './sms';
+import { sendAgentSms } from './agentSms';
+import { sendClientInfoSms } from './clientInfoSms';
+import { offerText } from './smsTemplates';
 import { generateMagicLinkToken, magicLinkExpiry, isTokenExpired } from './agentPortalAuth';
 import { logLeadEvent } from './leadEvents';
 
@@ -240,14 +242,20 @@ export async function dispatchOfferEmail(offerId: number): Promise<boolean> {
   });
   await sendEmail(email);
 
-  // SMS alert (no-op unless Twilio is configured). Keep it short; the accept
-  // link lets the agent claim the lead straight from their phone.
+  // SMS alert (no-op unless Telnyx is configured). Keep it short; the agent
+  // can claim the lead straight from their phone by replying YES <id>.
   try {
-    const cityBit = lead.propertyCity ? ` in ${lead.propertyCity}` : '';
-    await sendSms(
-      agent.phone,
-      `RE/MAX Platinum: new lead${cityBit}. Respond by ${formatEtDeadline(deadline)}. Accept: ${base}/api/offer/${offer.offerToken}?response=accept`,
-    );
+    await sendAgentSms({
+      agent,
+      kind: 'offer',
+      leadId: lead.id,
+      body: offerText({
+        leadId: lead.id,
+        city: lead.propertyCity ?? null,
+        estimate: lead.estimatedValue ?? null,
+        deadline: formatEtDeadline(deadline),
+      }),
+    });
   } catch (err) {
     console.error('[autoOffer] offer SMS failed:', err);
   }
@@ -371,15 +379,7 @@ export async function manualReassignLead(
       relatedAgentId: agent.id,
     }),
   );
-  try {
-    const cityBit = lead.propertyCity ? ` in ${lead.propertyCity}` : '';
-    await sendSms(
-      agent.phone,
-      `RE/MAX Platinum: you've been assigned a lead${cityBit}. Details in the agent portal: ${siteUrl()}/agent/leads`,
-    );
-  } catch (err) {
-    console.error('[autoOffer] assignment SMS failed:', err);
-  }
+  await sendClientInfoSms(lead.id, agent.id, newOfferId);
 
   return { ok: true, newOfferId, previousOfferClosed };
 }

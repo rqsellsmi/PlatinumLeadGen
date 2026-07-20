@@ -15,20 +15,13 @@ import { siteUrl } from '@/lib/siteUrl';
 import { NextRequest, NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { leadOffers, leads, agents } from '@/drizzle/schema';
-import { applyScore, type ScoreReason } from '@/lib/scoring';
-import { reassignLead } from '@/lib/autoOffer';
-import { agentAcceptanceEmail, sendEmail } from '@/lib/email';
+import { leadOffers, leads } from '@/drizzle/schema';
+import { applyAccept, applyDecline } from '@/lib/offerActions';
 import { setAgentSessionCookie } from '@/lib/agentSession';
 import { checkPreset, clientIp } from '@/lib/rateLimit';
-import { logLeadEvent } from '@/lib/leadEvents';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-const FIFTEEN_MIN_MS = 15 * 60 * 1000;
-const THIRTY_MIN_MS = 30 * 60 * 1000;
-const ONE_HOUR_MS = 60 * 60 * 1000;
 
 const SHELL_HEAD = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
@@ -162,96 +155,24 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
 
     const { offer, short } = await loadOffer(params.token);
     if (short) return short;
-    const now = new Date();
 
     if (response === 'decline') {
-      if (offer!.status !== 'offered') {
+      const r = await applyDecline(offer!.id);
+      if (r.reason === 'already-responded' || r.reason === 'not-found') {
         return messagePage('Already responded', 'This lead has already been resolved. No further action is needed.', 200);
-      }
-      await db
-        .update(leadOffers)
-        .set({ status: 'declined', declinedAt: now, respondedAt: now, updatedAt: now })
-        .where(eq(leadOffers.id, offer!.id));
-      try {
-        await applyScore({ agentId: offer!.agentId, reason: 'system_decline', leadId: offer!.leadId, leadOfferId: offer!.id });
-      } catch (err) {
-        console.error('[api/offer] decline applyScore failed:', err);
-      }
-      await logLeadEvent(offer!.leadId, 'offer_declined', null);
-      try {
-        await reassignLead(offer!.leadId);
-      } catch (err) {
-        console.error('[api/offer] reassignLead failed:', err);
       }
       return messagePage('Thanks', 'You declined this lead. It has been reassigned to another agent.', 200);
     }
 
     if (response === 'accept') {
-      if (offer!.status !== 'offered') {
+      const r = await applyAccept(offer!.id);
+      if (r.reason === 'already-responded' || r.reason === 'not-found') {
         return messagePage(
           'Already responded',
           'This lead offer has already been responded to. If you accepted it, open the agent portal to manage it.',
           200,
           `${siteUrl()}/agent/login`,
         );
-      }
-      await db
-        .update(leadOffers)
-        .set({ status: 'accepted', acceptedAt: now, respondedAt: now, tokenUsedAt: now, updatedAt: now })
-        .where(eq(leadOffers.id, offer!.id));
-      await db
-        .update(leads)
-        .set({ acceptedAt: now, lastStatusChangedAt: now, updatedAt: now })
-        .where(eq(leads.id, offer!.leadId));
-
-      // Response-time score, 4 bands (spec v2 §2). A null offerSentAt (queued
-      // offer dispatched asynchronously) is treated as the top tier.
-      {
-        let reason: ScoreReason = 'system_response_fast';
-        let explicitDelta: number | undefined;
-        if (offer!.offerSentAt) {
-          const elapsed = now.getTime() - offer!.offerSentAt.getTime();
-          if (elapsed < FIFTEEN_MIN_MS) reason = 'system_response_fast';
-          else if (elapsed <= THIRTY_MIN_MS) {
-            reason = 'system_response_fast';
-            explicitDelta = 6;
-          } else if (elapsed <= ONE_HOUR_MS) reason = 'system_response_good';
-          else reason = 'system_response_slow';
-        }
-        try {
-          await applyScore({ agentId: offer!.agentId, reason, delta: explicitDelta, leadId: offer!.leadId, leadOfferId: offer!.id });
-        } catch (err) {
-          console.error('[api/offer] accept applyScore failed:', err);
-        }
-      }
-
-      await logLeadEvent(offer!.leadId, 'offer_accepted', null);
-
-      try {
-        const detailRows = await db
-          .select({ lead: leads, agent: agents })
-          .from(leads)
-          .innerJoin(agents, eq(agents.id, offer!.agentId))
-          .where(eq(leads.id, offer!.leadId))
-          .limit(1);
-        const detail = detailRows[0];
-        if (detail) {
-          const { lead, agent } = detail;
-          const leadName = `${lead.firstName ?? ''} ${lead.lastName ?? ''}`.trim() || 'New lead';
-          await sendEmail(
-            agentAcceptanceEmail({
-              to: agent.email,
-              agentName: `${agent.firstName} ${agent.lastName}`.trim(),
-              leadName,
-              leadEmail: lead.email,
-              leadPhone: lead.phone,
-              propertyAddress: lead.propertyAddress,
-              portalUrl: `${siteUrl()}/agent/leads`,
-            }),
-          );
-        }
-      } catch (err) {
-        console.error('[api/offer] acceptance email failed:', err);
       }
 
       try {

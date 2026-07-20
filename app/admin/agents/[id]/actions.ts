@@ -8,6 +8,7 @@ import { agents } from '@/drizzle/schema';
 import { applyScore } from '@/lib/scoring';
 import { geocodeAddress } from '@/lib/geocode';
 import { requireAdmin } from '@/components/admin/requireAdmin';
+import { toE164 } from '@/lib/sms';
 
 function num(v: FormDataEntryValue | null): number | null {
   if (v == null || v === '') return null;
@@ -42,13 +43,15 @@ export async function updateAgent(formData: FormData) {
     }
   }
 
+  const rawPhone = String(formData.get('phone') ?? '').trim();
+  const phone = rawPhone ? (toE164(rawPhone) ?? rawPhone) : null;
   await db
     .update(agents)
     .set({
       firstName,
       lastName,
       email,
-      phone: String(formData.get('phone') ?? '').trim() || null,
+      phone,
       officeId: num(formData.get('officeId')),
       proximityAnchor: anchor,
       locationCity,

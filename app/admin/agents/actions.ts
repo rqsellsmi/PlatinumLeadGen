@@ -5,6 +5,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { agents } from '@/drizzle/schema';
 import { requireAdmin } from '@/components/admin/requireAdmin';
+import { toE164 } from '@/lib/sms';
 
 function num(v: FormDataEntryValue | null): number | null {
   if (v == null || v === '') return null;
@@ -20,11 +21,13 @@ export async function createAgent(formData: FormData) {
   if (!firstName || !lastName || !email) {
     throw new Error('First name, last name, and email are required');
   }
+  const rawPhone = String(formData.get('phone') ?? '').trim();
+  const phone = rawPhone ? (toE164(rawPhone) ?? rawPhone) : null;
   await db.insert(agents).values({
     firstName,
     lastName,
     email,
-    phone: String(formData.get('phone') ?? '').trim() || null,
+    phone,
     officeId: num(formData.get('officeId')),
     latitude: num(formData.get('lat')),
     longitude: num(formData.get('lng')),
