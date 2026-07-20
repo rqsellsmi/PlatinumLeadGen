@@ -1,31 +1,23 @@
 /**
- * Twilio SMS client — sends texts via the Twilio REST API (no SDK dependency).
- * No-ops gracefully when Twilio env vars are unset, so the platform runs
+ * Telnyx SMS client — sends texts via the Telnyx Messages API (no SDK dependency).
+ * No-ops gracefully when Telnyx env vars are unset, so the platform runs
  * SMS-less until you add credentials in Vercel.
  *
- * Env: TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER (E.164, e.g.
- * +15551234567). Optional TWILIO_MESSAGING_SERVICE_SID overrides the from
- * number if you use a Messaging Service.
+ * Env: TELNYX_API_KEY. Optional TELNYX_MESSAGING_PROFILE_ID attaches a
+ * messaging profile to outbound messages. The sending number ("from") is
+ * supplied per-call via opts.from — see lib/autoOffer.ts.
  */
 
 export interface SmsResult {
   sent: boolean;
   skipped?: boolean;
   error?: string;
+  telnyxMessageId?: string;
 }
 
-function creds(): { sid: string; token: string; from: string; messagingServiceSid?: string } | null {
-  const sid = process.env.TWILIO_ACCOUNT_SID;
-  const token = process.env.TWILIO_AUTH_TOKEN;
-  const from = process.env.TWILIO_FROM_NUMBER;
-  const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID || undefined;
-  if (!sid || !token || (!from && !messagingServiceSid)) return null;
-  return { sid, token, from: from ?? '', messagingServiceSid };
-}
-
-/** True when Twilio is configured (used to gate alert sends). */
-export function smsConfigured(): boolean {
-  return creds() != null;
+/** True when the Telnyx API key is present. Office-number presence is checked per-send. */
+export function telnyxConfigured(): boolean {
+  return !!process.env.TELNYX_API_KEY;
 }
 
 /** Best-effort E.164 normalization; assumes US (+1) for 10-digit numbers. */
@@ -42,35 +34,41 @@ export function toE164(raw: string | null | undefined): string | null {
   return null;
 }
 
-/** Send an SMS. Returns {skipped:true} when Twilio isn't configured. */
-export async function sendSms(to: string | null | undefined, body: string): Promise<SmsResult> {
-  const c = creds();
-  if (!c) return { sent: false, skipped: true };
+/** Pure Telnyx Messages API request body. */
+export function buildTelnyxPayload(from: string, to: string, text: string) {
+  const body: { from: string; to: string; text: string; messaging_profile_id?: string } = { from, to, text };
+  const mp = process.env.TELNYX_MESSAGING_PROFILE_ID;
+  if (mp) body.messaging_profile_id = mp;
+  return body;
+}
+
+/** Send one SMS via Telnyx. {skipped:true} when unconfigured or number invalid. */
+export async function sendSms(
+  to: string | null | undefined,
+  body: string,
+  opts?: { from?: string },
+): Promise<SmsResult> {
+  const apiKey = process.env.TELNYX_API_KEY;
+  if (!apiKey) return { sent: false, skipped: true };
   const e164 = toE164(to);
   if (!e164) return { sent: false, skipped: true, error: 'invalid-or-missing-number' };
+  if (!opts?.from) return { sent: false, skipped: true, error: 'no-from-number' };
 
   try {
-    const auth = Buffer.from(`${c.sid}:${c.token}`).toString('base64');
-    const params = new URLSearchParams({ To: e164, Body: body });
-    if (c.messagingServiceSid) params.set('MessagingServiceSid', c.messagingServiceSid);
-    else params.set('From', c.from);
-
-    const res = await fetch(
-      `https://api.twilio.com/2010-04-01/Accounts/${c.sid}/Messages.json`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Basic ${auth}`,
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: params.toString(),
+    const res = await fetch('https://api.telnyx.com/v2/messages', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
       },
-    );
+      body: JSON.stringify(buildTelnyxPayload(opts.from, e164, body)),
+    });
     if (!res.ok) {
       const txt = await res.text().catch(() => '');
-      return { sent: false, error: `twilio ${res.status} ${txt.slice(0, 200)}` };
+      return { sent: false, error: `telnyx ${res.status} ${txt.slice(0, 200)}` };
     }
-    return { sent: true };
+    const json = (await res.json().catch(() => null)) as { data?: { id?: string } } | null;
+    return { sent: true, telnyxMessageId: json?.data?.id };
   } catch (err) {
     return { sent: false, error: err instanceof Error ? err.message : 'sms error' };
   }
