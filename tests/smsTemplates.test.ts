@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { offerText, clientInfoText, updateReminderText, helpText } from '../lib/smsTemplates';
+import { offerText, clientInfoText, updateReminderText, helpText, optOutAckText } from '../lib/smsTemplates';
 
 describe('offerText', () => {
   it('includes code + city + estimate, no client name', () => {
@@ -14,6 +14,12 @@ describe('offerText', () => {
     const t = offerText({ leadId: 1, city: 'Fenton', estimate: null, deadline: '5pm' });
     expect(t).not.toContain('$');
   });
+  it('omits city when null', () => {
+    const t = offerText({ leadId: 42, city: null, estimate: 300000, deadline: '6pm' });
+    expect(t).toContain('#42');
+    expect(t).not.toContain('null');
+    expect(t).not.toContain('undefined');
+  });
 });
 
 describe('clientInfoText', () => {
@@ -21,6 +27,7 @@ describe('clientInfoText', () => {
     const t = clientInfoText({ leadId: 5739, firstName: 'Jane', lastName: 'Doe', phone: '+18105550134', email: 'jane@x.com', address: '123 Main St', city: 'Brighton', estimate: 412000 });
     expect(t).toContain('#5739');
     expect(t).toContain('Jane Doe');
+    expect(t).toContain('+18105550134');
     expect(t).toContain('jane@x.com');
     expect(t).toContain('123 Main St');
   });
@@ -39,10 +46,25 @@ describe('updateReminderText', () => {
     expect(t).toContain('Jane Doe');
     expect(t).toContain('123 Main St');
   });
+  it('handles null name and address gracefully', () => {
+    const t = updateReminderText({ leadId: 999, firstName: null, lastName: null, address: null });
+    expect(t).toContain('#999');
+    expect(t).not.toContain('null');
+    expect(t).not.toContain('undefined');
+  });
 });
 
 describe('helpText', () => {
   it('mentions STOP', () => {
     expect(helpText()).toContain('STOP');
+  });
+});
+
+describe('optOutAckText', () => {
+  it('confirms opt-out and mentions START', () => {
+    const t = optOutAckText();
+    expect(t).toBeTruthy();
+    expect(t).toContain('opted out');
+    expect(t).toContain('START');
   });
 });
