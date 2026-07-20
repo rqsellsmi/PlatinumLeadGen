@@ -15,11 +15,6 @@ export interface SmsResult {
   telnyxMessageId?: string;
 }
 
-/** True when the Telnyx API key is present. Office-number presence is checked per-send. */
-export function telnyxConfigured(): boolean {
-  return !!process.env.TELNYX_API_KEY;
-}
-
 /** Best-effort E.164 normalization; assumes US (+1) for 10-digit numbers. */
 export function toE164(raw: string | null | undefined): string | null {
   if (!raw) return null;

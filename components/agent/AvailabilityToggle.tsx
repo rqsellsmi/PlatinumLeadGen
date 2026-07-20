@@ -45,6 +45,10 @@ export default function AvailabilityToggle({ initial }: { initial: boolean }) {
           ? "You're receiving new leads."
           : 'New leads are paused. You can still see and work your current leads.'}
       </p>
+      <p className="mt-2 text-xs text-mute-lighter">
+        Activating yourself turns on text-message lead notifications to your mobile number on
+        file. Message &amp; data rates may apply; reply STOP to any text to opt out.
+      </p>
     </div>
   );
 }

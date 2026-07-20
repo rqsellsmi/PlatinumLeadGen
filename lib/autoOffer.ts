@@ -242,8 +242,8 @@ export async function dispatchOfferEmail(offerId: number): Promise<boolean> {
   });
   await sendEmail(email);
 
-  // SMS alert (no-op unless Telnyx is configured). Keep it short; the accept
-  // link lets the agent claim the lead straight from their phone.
+  // SMS alert (no-op unless Telnyx is configured). Keep it short; the agent
+  // can claim the lead straight from their phone by replying YES <id>.
   try {
     await sendAgentSms({
       agent,

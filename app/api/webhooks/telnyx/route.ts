@@ -11,7 +11,7 @@
  * exception is a failed signature check, which returns 401.
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNotNull } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { agents, leadOffers } from '@/drizzle/schema';
 import { verifyTelnyxSignature } from '@/lib/telnyxSignature';
@@ -83,8 +83,12 @@ async function handle(raw: string): Promise<NextResponse> {
   const providerId: string | undefined = payload.id;
 
   // 6. Identify the agent by normalized sender number; ALWAYS log the inbound.
+  // Stored agent.phone values may be un-normalized (admin form doesn't enforce
+  // E.164), so we can't push the comparison into SQL — load the (small) set of
+  // agents with a phone on file and compare normalized forms in JS.
   const fromE164 = toE164(from) ?? from;
-  const [agent] = await db.select().from(agents).where(eq(agents.phone, fromE164)).limit(1);
+  const candidates = await db.select().from(agents).where(isNotNull(agents.phone));
+  const agent = fromE164 ? (candidates.find((a) => toE164(a.phone) === fromE164) ?? null) : null;
 
   await logSmsMessage({
     direction: 'inbound',

@@ -3,7 +3,7 @@
  * config, logging every attempt. Email is the source of truth — this never
  * throws (design spec §5/§8/§9).
  */
-import { sendSms } from './sms';
+import { sendSms, toE164 } from './sms';
 import { pickOfficeNumber } from './officeNumbers';
 import { logSmsMessage } from './smsMessages';
 import { db } from './db';
@@ -44,7 +44,7 @@ export async function sendAgentSms(o: {
       leadId: o.leadId ?? null,
       officeId,
       fromNumber: from,
-      toNumber: o.agent.phone ?? '',
+      toNumber: toE164(o.agent.phone) ?? o.agent.phone ?? '',
       body: o.body,
       kind: o.kind,
       telnyxMessageId: res.telnyxMessageId ?? null,
