@@ -92,6 +92,7 @@ export const offices = pgTable('offices', {
   // Last fetch error for this office (null = last fetch succeeded), so the admin
   // can see WHY a fetch returned nothing instead of failing silently.
   googleReviewsError: varchar('google_reviews_error', { length: 500 }),
+  telnyxNumber: varchar('telnyx_number', { length: 20 }),
   isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
@@ -138,6 +139,8 @@ export const agents = pgTable(
     // Password auth (set by admin only) — Section 3.3 additions.
     passwordHash: varchar('password_hash', { length: 200 }),
     passwordResetToken: varchar('password_reset_token', { length: 128 }),
+    smsOptOut: boolean('sms_opt_out').notNull().default(false),
+    smsOptOutAt: timestamp('sms_opt_out_at'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
@@ -687,6 +690,34 @@ export const emailSendLog = pgTable('email_send_log', {
 });
 
 // ---------------------------------------------------------------------------
+// SMS message log — Telnyx agent texting (Phase 1)
+// ---------------------------------------------------------------------------
+export const smsMessages = pgTable(
+  'sms_messages',
+  {
+    id: serial('id').primaryKey(),
+    direction: varchar('direction', { length: 10 }).notNull(), // 'outbound' | 'inbound'
+    agentId: integer('agent_id').references(() => agents.id),
+    leadId: integer('lead_id').references(() => leads.id),
+    officeId: integer('office_id').references(() => offices.id),
+    fromNumber: varchar('from_number', { length: 20 }).notNull(),
+    toNumber: varchar('to_number', { length: 20 }).notNull(),
+    body: text('body').notNull(),
+    kind: varchar('kind', { length: 30 }).notNull(),
+    telnyxMessageId: varchar('telnyx_message_id', { length: 100 }),
+    status: varchar('status', { length: 20 }).notNull(),
+    errorMessage: text('error_message'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    agentIdx: index('sms_messages_agent_idx').on(t.agentId),
+    leadIdx: index('sms_messages_lead_idx').on(t.leadId),
+    telnyxIdx: index('sms_messages_telnyx_id_idx').on(t.telnyxMessageId),
+  }),
+);
+
+// ---------------------------------------------------------------------------
 // Appointment requests (thank-you page + webhook)
 // ---------------------------------------------------------------------------
 export const appointmentRequests = pgTable('appointment_requests', {
@@ -1073,6 +1104,8 @@ export type Valuation = typeof valuations.$inferSelect;
 export type NewValuation = typeof valuations.$inferInsert;
 export type GoogleReviewRow = typeof googleReviews.$inferSelect;
 export type RealcompToken = typeof realcompTokens.$inferSelect;
+export type SmsMessage = typeof smsMessages.$inferSelect;
+export type NewSmsMessage = typeof smsMessages.$inferInsert;
 export type IdxListing = typeof idxListings.$inferSelect;
 export type NewIdxListing = typeof idxListings.$inferInsert;
 export type IdxListingPhoto = typeof idxListingPhotos.$inferSelect;
