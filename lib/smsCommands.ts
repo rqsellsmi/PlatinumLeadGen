@@ -65,10 +65,10 @@ export function parseCommand(raw: string): ParsedCommand {
 
   // Accept / decline (single-word commands).
   if (ACCEPT.has(first)) {
-    return { kind: 'accept', code: parseCode(tokens[1]), notes: afterCode(tokens, 0) };
+    return { kind: 'accept', code: parseCode(tokens[1]), notes: afterCode(tokens) };
   }
   if (DECLINE.has(first)) {
-    return { kind: 'decline', code: parseCode(tokens[1]), notes: afterCode(tokens, 0) };
+    return { kind: 'decline', code: parseCode(tokens[1]), notes: afterCode(tokens) };
   }
 
   // Status phrases (possibly multi-word).
@@ -86,9 +86,9 @@ export function parseCommand(raw: string): ParsedCommand {
   return { kind: 'unknown', raw: trimmed };
 }
 
-/** Notes = everything after the (optional) code token at index `cmdIdx+1`. */
-function afterCode(tokens: string[], cmdIdx: number): string {
-  const codeTok = tokens[cmdIdx + 1];
+/** Notes = everything after the (optional) code token (at index 1). */
+function afterCode(tokens: string[]): string {
+  const codeTok = tokens[1];
   const hasCode = parseCode(codeTok) != null;
-  return tokens.slice(cmdIdx + 1 + (hasCode ? 1 : 0)).join(' ').trim();
+  return tokens.slice(1 + (hasCode ? 1 : 0)).join(' ').trim();
 }

@@ -39,15 +39,15 @@ describe('parseCommand — status', () => {
     });
   });
   it('CALLED and ATTEMPTED map to attempted_contact', () => {
-    expect((parseCommand('called 1') as any).status).toBe('attempted_contact');
-    expect((parseCommand('attempted 1') as any).status).toBe('attempted_contact');
+    expect(parseCommand('called 1')).toMatchObject({ kind: 'status', status: 'attempted_contact' });
+    expect(parseCommand('attempted 1')).toMatchObject({ kind: 'status', status: 'attempted_contact' });
   });
   it('WORKING/QUALIFIED/CLOSED/LOST/REOPENED map through', () => {
-    expect((parseCommand('working 1') as any).status).toBe('working');
-    expect((parseCommand('qualified 1') as any).status).toBe('qualified');
-    expect((parseCommand('closed 1') as any).status).toBe('closed');
-    expect((parseCommand('lost 1') as any).status).toBe('lost');
-    expect((parseCommand('reopened 1') as any).status).toBe('reopened');
+    expect(parseCommand('working 1')).toMatchObject({ kind: 'status', status: 'working' });
+    expect(parseCommand('qualified 1')).toMatchObject({ kind: 'status', status: 'qualified' });
+    expect(parseCommand('closed 1')).toMatchObject({ kind: 'status', status: 'closed' });
+    expect(parseCommand('lost 1')).toMatchObject({ kind: 'status', status: 'lost' });
+    expect(parseCommand('reopened 1')).toMatchObject({ kind: 'status', status: 'reopened' });
   });
   it('status with no code → code null, remainder is notes', () => {
     expect(parseCommand('CONTACTED left a message')).toEqual({
