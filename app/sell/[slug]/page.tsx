@@ -1,3 +1,4 @@
+import { siteUrl } from '@/lib/siteUrl';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import {
@@ -32,7 +33,7 @@ import ExitIntentOverlay from '@/components/cro/ExitIntentOverlay';
 // Render at request time so new/edited cities appear immediately.
 export const dynamic = 'force-dynamic';
 
-const SITE_URL = process.env.SITE_URL ?? 'https://remax-platinumonline.com';
+const SITE_URL = siteUrl();
 
 /** Short city name, e.g. "Brighton, MI" -> "Brighton". */
 function shortCityName(name: string): string {

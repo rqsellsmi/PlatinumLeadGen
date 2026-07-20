@@ -1,6 +1,7 @@
+import { siteUrl } from '@/lib/siteUrl';
 import type { MetadataRoute } from 'next';
 
-const SITE_URL = process.env.SITE_URL ?? 'https://remax-platinumonline.com';
+const SITE_URL = siteUrl();
 
 export default function robots(): MetadataRoute.Robots {
   return {

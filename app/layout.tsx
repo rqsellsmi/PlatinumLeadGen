@@ -1,3 +1,4 @@
+import { siteUrl } from '@/lib/siteUrl';
 import type { Metadata } from 'next';
 import { fontVariables } from '@/lib/fonts';
 import Analytics from '@/components/Analytics';
@@ -5,7 +6,7 @@ import AttributionCapture from '@/components/AttributionCapture';
 import './globals.css';
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.SITE_URL ?? 'https://remax-platinumonline.com'),
+  metadataBase: new URL(siteUrl()),
   title: {
     default: 'RE/MAX Platinum — Michigan Home Values & Free Home Valuation',
     template: '%s | RE/MAX Platinum',

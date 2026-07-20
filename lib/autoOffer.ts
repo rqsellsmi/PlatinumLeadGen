@@ -2,6 +2,7 @@
  * autoOfferLead() and reassignLead() (Section 5.5).
  * Called from /api/leads/submit and /api/webhooks/lead after a lead is saved.
  */
+import { siteUrl } from './siteUrl';
 import crypto from 'crypto';
 import { eq, inArray, and, isNull } from 'drizzle-orm';
 import { db } from './db';
@@ -31,10 +32,6 @@ const OFFER_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const ACCEPTANCE_WINDOW_MS = 3 * 60 * 60 * 1000; // 3-hour acceptance timer
 const FIRST_UPDATE_MS = 48 * 60 * 60 * 1000; // 48 hours
 const WEEKLY_MS = 7 * 24 * 60 * 60 * 1000;
-
-function siteUrl(): string {
-  return process.env.SITE_URL ?? 'https://remax-platinumonline.com';
-}
 
 /**
  * Load active+available agents with their effective proximity anchor: the

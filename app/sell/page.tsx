@@ -1,3 +1,4 @@
+import { siteUrl } from '@/lib/siteUrl';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { getActiveLocations, getMarketStats } from '@/lib/queries';
@@ -7,7 +8,7 @@ import SiteFooter from '@/components/SiteFooter';
 
 export const dynamic = 'force-dynamic';
 
-const SITE_URL = process.env.SITE_URL ?? 'https://remax-platinumonline.com';
+const SITE_URL = siteUrl();
 
 export const metadata: Metadata = {
   title: 'Michigan Home Values by City | RE/MAX Platinum',

@@ -6,6 +6,7 @@
  * from the confirmation email it reveals the report without re-entering contact
  * info. Views are counted for the admin access log.
  */
+import { siteUrl } from './siteUrl';
 import { randomBytes } from 'crypto';
 import { eq, sql } from 'drizzle-orm';
 import { db } from './db';
@@ -33,7 +34,7 @@ export async function ensureReportToken(leadId: number): Promise<string | null> 
 
 /** Build the absolute report URL for the confirmation email. */
 export function reportUrl(citySlug: string | null | undefined, token: string): string {
-  const base = process.env.SITE_URL ?? 'https://remax-platinumonline.com';
+  const base = siteUrl();
   const city = citySlug ? `&city=${encodeURIComponent(citySlug)}` : '';
   return `${base}/thank-you?type=valuation${city}&report=${token}`;
 }

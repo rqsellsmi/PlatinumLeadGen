@@ -11,6 +11,7 @@
  *
  * TODO v2: add Twilio SMS alongside sendEmail.
  */
+import { siteUrl } from './siteUrl';
 import { eq } from 'drizzle-orm';
 import { db } from './db';
 import { msGraphTokens, emailSendLog } from '../drizzle/schema';
@@ -36,9 +37,6 @@ function adminEmail(): string {
     process.env.EMAIL_ADMIN_EMAIL ??
     fromEmail()
   );
-}
-function siteUrl(): string {
-  return process.env.SITE_URL ?? 'https://remax-platinumonline.com';
 }
 
 // ---------------------------------------------------------------------------

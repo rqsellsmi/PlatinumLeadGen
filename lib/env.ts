@@ -4,6 +4,7 @@
  * lib/db.ts so the check runs early. Skipped at build/lint/test time.
  */
 
+import { siteUrl } from './siteUrl';
 import { DATABASE_URL_CANDIDATES, resolveDatabaseUrl } from './dbUrl';
 
 type Group = { label: string; anyOf: string[] };
@@ -99,7 +100,7 @@ export const env = {
     return resolveDatabaseUrl();
   },
   get SITE_URL() {
-    return process.env.SITE_URL ?? 'https://remax-platinumonline.com';
+    return siteUrl();
   },
   get ADMIN_EMAIL() {
     return process.env.MS_GRAPH_ADMIN_EMAIL ?? process.env.EMAIL_ADMIN_EMAIL ?? '';

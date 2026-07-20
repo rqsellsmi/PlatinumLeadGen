@@ -636,3 +636,26 @@ whole chain because most of the wasted time was theorizing past the real cause.
     A metadata-valid field silently returning zero rows is not something you'd
     guess; an automated per-field probe against the real feed found all six in one
     ~3-minute run.
+
+### 16c. `SITE_URL` without a scheme fails the whole production build
+
+  - **Symptom:** Vercel build failed with `TypeError: Invalid URL … code:
+    'ERR_INVALID_URL', input: 'remax-platinumonline.com'` → `Failed to collect
+    page data for /_not-found` → `Command "npm run build" exited with 1`. No
+    error in the app code; the build log looked green until "Collecting page
+    data".
+  - **Cause:** the `SITE_URL` env var was set to a **bare hostname**
+    (`remax-platinumonline.com`, no `https://`). `app/layout.tsx` does
+    `metadataBase: new URL(SITE_URL)`, and `new URL()` throws on a scheme-less
+    string. Next evaluates root-layout metadata while collecting `/_not-found`,
+    so the bad value takes the entire build down. It only bit in production
+    because local/dev left `SITE_URL` unset (falling back to the `https://…`
+    default).
+  - **Fix:** immediate — set `SITE_URL` (and `NEXTAUTH_URL`, `DEPLOY_URL`) to the
+    full `https://remax-platinumonline.com`. Durable — `lib/siteUrl.ts`
+    normalizes the value (prepend `https://` if no scheme, trim, drop trailing
+    slash, fall back to the default on garbage) and every `SITE_URL` read routes
+    through it, so a scheme-less dashboard entry can never fail the build again.
+  - **Lesson:** any env var fed to `new URL()` at module/metadata scope is a
+    build-time landmine — normalize/validate it in one place instead of scattering
+    `new URL(process.env.X)` across the app.

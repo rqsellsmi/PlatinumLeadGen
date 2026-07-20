@@ -2,6 +2,7 @@
  * Cron: 48h escalation + weekly reminders for accepted leads. (Section 8)
  * Runs every 30 minutes.
  */
+import { siteUrl } from '@/lib/siteUrl';
 import { NextRequest, NextResponse } from 'next/server';
 import { and, eq, isNull, isNotNull, lt, or, count } from 'drizzle-orm';
 import { db } from '@/lib/db';
@@ -22,10 +23,6 @@ export const dynamic = 'force-dynamic';
 
 const HOUR_MS = 60 * 60 * 1000;
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-
-function siteUrl(): string {
-  return process.env.SITE_URL ?? 'https://remax-platinumonline.com';
-}
 
 export async function GET(req: NextRequest) {
   try {

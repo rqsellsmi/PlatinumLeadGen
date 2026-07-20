@@ -2,6 +2,7 @@
  * POST /api/agent/login — magic-link token, email+password, or request-link.
  * (Section 9.1)
  */
+import { siteUrl } from '@/lib/siteUrl';
 import { NextRequest, NextResponse } from 'next/server';
 import { and, eq } from 'drizzle-orm';
 import bcrypt from 'bcryptjs';
@@ -18,10 +19,6 @@ import { checkPreset, clientIp } from '@/lib/rateLimit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-function siteUrl(): string {
-  return process.env.SITE_URL ?? 'https://remax-platinumonline.com';
-}
 
 export async function POST(req: NextRequest) {
   try {

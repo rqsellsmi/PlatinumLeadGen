@@ -1,3 +1,4 @@
+import { siteUrl } from '@/lib/siteUrl';
 import type { MetadataRoute } from 'next';
 import { getActiveLocations } from '@/lib/queries';
 
@@ -5,7 +6,7 @@ import { getActiveLocations } from '@/lib/queries';
 // driver would throw "Dynamic server usage" if this were prerendered at build.
 export const dynamic = 'force-dynamic';
 
-const SITE_URL = process.env.SITE_URL ?? 'https://remax-platinumonline.com';
+const SITE_URL = siteUrl();
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const locations = await getActiveLocations();

@@ -2,6 +2,7 @@
  * Cron: Thursday broker digest of all accepted leads. (Section 8)
  * Runs weekly Thursday 13:00 UTC.
  */
+import { siteUrl } from '@/lib/siteUrl';
 import { NextRequest, NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
@@ -12,10 +13,6 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-
-function siteUrl(): string {
-  return process.env.SITE_URL ?? 'https://remax-platinumonline.com';
-}
 
 export async function GET(req: NextRequest) {
   try {

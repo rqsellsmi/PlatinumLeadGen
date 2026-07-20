@@ -11,6 +11,7 @@
  * Bots issue GETs and don't submit forms, so they can no longer trigger a state
  * change; the agent clicks one button to confirm.
  */
+import { siteUrl } from '@/lib/siteUrl';
 import { NextRequest, NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
@@ -28,10 +29,6 @@ export const dynamic = 'force-dynamic';
 const FIFTEEN_MIN_MS = 15 * 60 * 1000;
 const THIRTY_MIN_MS = 30 * 60 * 1000;
 const ONE_HOUR_MS = 60 * 60 * 1000;
-
-function siteUrl(): string {
-  return process.env.SITE_URL ?? 'https://remax-platinumonline.com';
-}
 
 const SHELL_HEAD = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
