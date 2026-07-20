@@ -17,8 +17,8 @@ import { recommendAgents, type RoutingAgent } from './routing';
 import { getRoutingQueue, persistQueue } from './queue';
 import { isWithinOfferWindow } from './offerWindow';
 import { sendEmail, agentLeadOfferEmail, agentAcceptanceEmail, adminAlertEmail } from './email';
-import { sendSms } from './sms';
 import { sendAgentSms } from './agentSms';
+import { sendClientInfoSms } from './clientInfoSms';
 import { offerText } from './smsTemplates';
 import { generateMagicLinkToken, magicLinkExpiry, isTokenExpired } from './agentPortalAuth';
 import { logLeadEvent } from './leadEvents';
@@ -379,15 +379,7 @@ export async function manualReassignLead(
       relatedAgentId: agent.id,
     }),
   );
-  try {
-    const cityBit = lead.propertyCity ? ` in ${lead.propertyCity}` : '';
-    await sendSms(
-      agent.phone,
-      `RE/MAX Platinum: you've been assigned a lead${cityBit}. Details in the agent portal: ${siteUrl()}/agent/leads`,
-    );
-  } catch (err) {
-    console.error('[autoOffer] assignment SMS failed:', err);
-  }
+  await sendClientInfoSms(lead.id, agent.id);
 
   return { ok: true, newOfferId, previousOfferClosed };
 }
