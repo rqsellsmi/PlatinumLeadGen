@@ -14,6 +14,8 @@ import {
   staleLeadWarningEmail,
   stale6DayWarningEmail,
 } from '@/lib/email';
+import { sendAgentSms } from '@/lib/agentSms';
+import { updateReminderText } from '@/lib/smsTemplates';
 import { applyScore } from '@/lib/scoring';
 import { logLeadEvent } from '@/lib/leadEvents';
 import { STALL_WINDOW_MS } from '@/lib/leadLifecycle';
@@ -64,6 +66,17 @@ export async function GET(req: NextRequest) {
             adminLeadUrl: `${siteUrl()}/admin/leads/${row.lead.id}`,
           }),
         );
+        await sendAgentSms({
+          agent: row.agent,
+          kind: 'update_reminder',
+          leadId: row.lead.id,
+          body: updateReminderText({
+            leadId: row.lead.id,
+            firstName: row.lead.firstName ?? null,
+            lastName: row.lead.lastName ?? null,
+            address: row.lead.propertyAddress ?? null,
+          }),
+        });
         await db
           .update(leadOffers)
           .set({ escalationSentAt: now, updatedAt: now })
