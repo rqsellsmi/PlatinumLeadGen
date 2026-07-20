@@ -659,3 +659,79 @@ whole chain because most of the wasted time was theorizing past the real cause.
   - **Lesson:** any env var fed to `new URL()` at module/metadata scope is a
     build-time landmine — normalize/validate it in one place instead of scattering
     `new URL(process.env.X)` across the app.
+
+## 17. Telnyx agent-texting session
+
+Built two-way SMS between the platform and agents (offer teaser / full
+client-info / update-due reminder outbound; `YES`/`NO`/status-command/`STOP`/
+`START`/`HELP` inbound via a signature-verified webhook), replacing the
+long-dormant Twilio stub. Migration `0024_telnyx_sms`. Full gate (127 tests,
+typecheck, build) run clean before this doc update — see `docs/current-state.md`
+§4.7 for what shipped.
+
+- **Multi-word commands need longest-phrase-first matching, not the first
+  token.** The grammar has both single-word statuses (`CONTACTED`, `WORKING`,
+  `CLOSED`) and a two-word one (`LEFT VM` → `attempted_contact`). A parser that
+  splits on the first token and looks it up in a map matches `LEFT` alone (not a
+  real command) and either misfires or falls through to "unknown" — `VM` never
+  gets consulted. `lib/smsCommands.ts` instead keeps a phrase→status table,
+  sorts it by word-count descending (`STATUS_SORTED`), and tries each phrase's
+  full token-slice against the message before falling back to shorter phrases.
+  **Any command grammar with both single- and multi-word forms must try the
+  longest match first** — the same class of bug as greedy-vs-lazy regex, but
+  easy to miss when the single-word cases are added first and multi-word ones
+  bolted on later. Caught early by writing the `LEFT VM` case into
+  `tests/smsCommands.test.ts` before wiring the webhook, not after.
+- **`@/` path-alias imports silently break `lib/*.ts` under vitest.** The
+  `tsconfig.json`/Next.js `@/` alias works fine for app code (webpack resolves
+  it) but this repo's `vitest.config` has no matching alias plugin, so a `lib`
+  module importing another `lib` module via `@/lib/x` resolves at typecheck/build
+  time but throws `Cannot find module '@/lib/x'` the moment a *test* imports it.
+  Every pure `lib/*.ts` file added for this feature (`smsCommands.ts`,
+  `telnyxSignature.ts`, `smsTemplates.ts`, `officeNumbers.ts`, `agentSms.ts`,
+  `smsMessages.ts`, `offerActions.ts`, `statusUpdates.ts`, `clientInfoSms.ts`)
+  uses **relative** imports (`./sms`, `../drizzle/schema`) instead, matching
+  what the rest of `lib/` already did. `app/**` route handlers can still use
+  `@/…` since only their non-test call path exercises the alias. Rule: if a file
+  under `lib/` needs to be importable by a vitest spec, import its `lib/`
+  siblings relatively — don't assume the alias "just works" because the IDE and
+  `tsc` are both fine with it.
+- **Extracting a shared core is what makes web and SMS trustworthy as two
+  entry points to one behavior.** Accept/decline had lived only in the
+  offer-response route handler; recording a status update had lived only in the
+  agent-portal action. Pulling both into `lib/offerActions.ts`
+  (`applyAccept`/`applyDecline`) and `lib/statusUpdates.ts`
+  (`recordStatusUpdate`) — with the route/action now thin callers — meant the
+  inbound `YES`/`NO`/`CONTACTED` webhook commands run the *exact* code path the
+  web UI runs, not a second reimplementation that could drift (same shape as
+  §14's "widen the handoff, don't fork it"). `lib/clientInfoSms.ts` deliberately
+  stayed its own module rather than folding into `offerActions.ts`, because
+  `offerActions` is the lower-level primitive that `clientInfoSms` (and the
+  webhook) both call — folding the SMS send into the core would have made
+  `offerActions.ts` import the SMS layer while the SMS layer imports
+  `offerActions.ts`, a circular import. Keep shared cores at the layer *below*
+  every consumer that composes them, not inside one consumer.
+- **A webhook that can mutate state needs fail-closed auth AND caller-scoped
+  authorization, not just one.** `verifyTelnyxSignature` (Ed25519 over the raw
+  body, using the timestamp+body concatenation, checked before any JSON
+  parsing) rejects anything not actually from Telnyx with a `401` — a missing or
+  malformed signature never reaches the handler. Past that gate, every mutation
+  is additionally scoped to *the identified agent's own* `lead_offers` rows
+  (`resolveOffer` filters by `agentId`), so even a legitimate Telnyx-signed
+  request naming someone else's lead number can't act on it. Signature
+  verification proves "this came from Telnyx"; it does not prove "this agent
+  may touch this lead" — both checks are required, and conflating them (e.g.
+  trusting the signature alone) would let any agent text-manage any other
+  agent's leads by guessing a lead number.
+- **Same "can't run the live vendor from a code-only session" boundary as IDX
+  (§12, §14) and Places (§14) — this is now the third feature to hit it.** No
+  Telnyx credentials in the sandbox, so live send/receive, the Ed25519 key
+  pairing, and 10DLC/toll-free carrier registration are all the owner's
+  first-connection step (documented in `SETUP.md` §7). What *is* verifiable
+  without credentials: every pure function is unit-tested (command parsing,
+  template text, signature-verification math against hand-built Ed25519 test
+  vectors, office-number resolution), and the whole feature is designed to
+  degrade to a silent no-op behind config flags (`telnyxConfigured()`, no
+  `phone`, `smsOptOut`, no `offices.telnyx_number`/`TELNYX_DEFAULT_FROM`) so a
+  half-configured deploy fails safe — an unset key means "no texts," never a
+  thrown error that could break the email-based flow SMS sits alongside.
