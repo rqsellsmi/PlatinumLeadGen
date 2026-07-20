@@ -67,9 +67,9 @@ still sends exactly as it does today.
 
 ---
 
-## 4. Data model (migration `0023`)
+## 4. Data model (migration `0024`)
 
-Head is currently `0022_area_poi_cache`; this adds `0023`. Hand-authored idempotent
+Head is currently `0023_lead_status_working`; this adds `0024`. Hand-authored idempotent
 SQL, registered in `meta/_journal.json`. Apply in order.
 
 ### 4.1 `offices.telnyx_number` (new column)
