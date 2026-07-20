@@ -27,7 +27,7 @@ export function offerText(p: {
 export function clientInfoText(p: {
   leadId: number; firstName: string | null; lastName: string | null;
   phone: string | null; email: string | null; address: string | null;
-  city: string | null; estimate: number | null;
+  city: string | null; estimate: number | null; leadUrl?: string;
 }): string {
   const name = fullName(p.firstName, p.lastName) || 'Client';
   const contact = [p.phone, p.email].filter(Boolean).join(', ');
@@ -37,6 +37,7 @@ export function clientInfoText(p: {
     `Lead #${p.leadId}: ${name}${contact ? `, ${contact}` : ''}.`,
     property ? `Property: ${property}.` : '',
     est ? `Est. ${est}.` : '',
+    p.leadUrl ? `View: ${p.leadUrl}.` : '',
     `Reply CONTACTED ${p.leadId} <notes> to log updates.`,
   ].filter(Boolean);
   return parts.join(' ');
@@ -44,10 +45,12 @@ export function clientInfoText(p: {
 
 export function updateReminderText(p: {
   leadId: number; firstName: string | null; lastName: string | null; address: string | null;
+  leadUrl?: string;
 }): string {
   const name = fullName(p.firstName, p.lastName) || 'your lead';
   const at = p.address ? `, ${p.address}` : '';
-  return `Lead #${p.leadId} — ${name}${at} needs a status update. ` +
+  const view = p.leadUrl ? ` View: ${p.leadUrl}.` : '';
+  return `Lead #${p.leadId} — ${name}${at} needs a status update.${view} ` +
     `Reply e.g. CONTACTED ${p.leadId} left a voicemail.`;
 }
 

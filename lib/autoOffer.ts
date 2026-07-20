@@ -379,7 +379,7 @@ export async function manualReassignLead(
       relatedAgentId: agent.id,
     }),
   );
-  await sendClientInfoSms(lead.id, agent.id);
+  await sendClientInfoSms(lead.id, agent.id, newOfferId);
 
   return { ok: true, newOfferId, previousOfferClosed };
 }

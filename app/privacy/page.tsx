@@ -91,6 +91,22 @@ export default function PrivacyPage() {
         </p>
       </LegalSection>
 
+      <LegalSection heading="SMS / Text Messaging">
+        <p>
+          We send text messages to our affiliated real estate agents for lead notifications, lead-detail
+          delivery, and status-update reminders. Agents opt in by activating notifications in the agent
+          portal and can opt out at any time by replying STOP (reply HELP for help).
+        </p>
+        <p>Message frequency varies; message and data rates may apply.</p>
+        <p>
+          <strong>
+            Mobile phone numbers and SMS opt-in consent are not shared with or sold to any third parties or
+            affiliates for their own marketing or promotional purposes.
+          </strong>{' '}
+          Text messaging originator opt-in data and consent will not be shared with any third parties.
+        </p>
+      </LegalSection>
+
       <LegalSection heading="Cookies and Tracking Technologies">
         <p>
           Our website uses cookies and similar tracking technologies (including Google Tag Manager, Google

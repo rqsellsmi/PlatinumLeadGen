@@ -75,6 +75,7 @@ export async function GET(req: NextRequest) {
             firstName: row.lead.firstName ?? null,
             lastName: row.lead.lastName ?? null,
             address: row.lead.propertyAddress ?? null,
+            leadUrl: `${siteUrl()}/agent/leads/${row.offer.id}`,
           }),
         });
         await db

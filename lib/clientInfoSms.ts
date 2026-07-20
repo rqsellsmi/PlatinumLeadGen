@@ -9,12 +9,14 @@ import { db } from './db';
 import { leads, agents } from '../drizzle/schema';
 import { sendAgentSms } from './agentSms';
 import { clientInfoText } from './smsTemplates';
+import { siteUrl } from './siteUrl';
 
-export async function sendClientInfoSms(leadId: number, agentId: number): Promise<void> {
+export async function sendClientInfoSms(leadId: number, agentId: number, leadOfferId: number): Promise<void> {
   try {
     const [lead] = await db.select().from(leads).where(eq(leads.id, leadId)).limit(1);
     const [agent] = await db.select().from(agents).where(eq(agents.id, agentId)).limit(1);
     if (!lead || !agent) return;
+    const leadUrl = `${siteUrl()}/agent/leads/${leadOfferId}`;
     await sendAgentSms({
       agent,
       kind: 'lead_details',
@@ -28,6 +30,7 @@ export async function sendClientInfoSms(leadId: number, agentId: number): Promis
         address: lead.propertyAddress ?? null,
         city: lead.propertyCity ?? null,
         estimate: lead.estimatedValue ?? null,
+        leadUrl,
       }),
     });
   } catch (err) {

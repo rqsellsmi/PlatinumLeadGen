@@ -37,6 +37,15 @@ describe('clientInfoText', () => {
     expect(t).not.toContain('null');
     expect(t).not.toContain('undefined');
   });
+  it('includes the lead URL when provided, before the reply hint', () => {
+    const t = clientInfoText({ leadId: 5739, firstName: 'Jane', lastName: 'Doe', phone: null, email: null, address: null, city: null, estimate: null, leadUrl: 'https://remax-platinumonline.com/agent/leads/17' });
+    expect(t).toContain('View: https://remax-platinumonline.com/agent/leads/17');
+    expect(t.indexOf('View:')).toBeLessThan(t.indexOf('Reply CONTACTED'));
+  });
+  it('omits the lead URL cleanly when not provided', () => {
+    const t = clientInfoText({ leadId: 2, firstName: 'Sam', lastName: null, phone: null, email: null, address: null, city: null, estimate: null });
+    expect(t).not.toContain('View:');
+  });
 });
 
 describe('updateReminderText', () => {
@@ -51,6 +60,15 @@ describe('updateReminderText', () => {
     expect(t).toContain('#999');
     expect(t).not.toContain('null');
     expect(t).not.toContain('undefined');
+  });
+  it('includes the lead URL when provided, before the reply hint', () => {
+    const t = updateReminderText({ leadId: 5739, firstName: 'Jane', lastName: 'Doe', address: '123 Main St', leadUrl: 'https://remax-platinumonline.com/agent/leads/17' });
+    expect(t).toContain('View: https://remax-platinumonline.com/agent/leads/17');
+    expect(t.indexOf('View:')).toBeLessThan(t.indexOf('Reply e.g.'));
+  });
+  it('omits the lead URL cleanly when not provided', () => {
+    const t = updateReminderText({ leadId: 999, firstName: null, lastName: null, address: null });
+    expect(t).not.toContain('View:');
   });
 });
 

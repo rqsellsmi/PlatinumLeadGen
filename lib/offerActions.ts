@@ -129,7 +129,7 @@ export async function applyAccept(offerId: number): Promise<OfferActionResult> {
     console.error('[offerActions] acceptance email failed:', err);
   }
 
-  await sendClientInfoSms(offer.leadId, offer.agentId);
+  await sendClientInfoSms(offer.leadId, offer.agentId, offer.id);
 
   return { ok: true, leadId: offer.leadId, agentId: offer.agentId };
 }
