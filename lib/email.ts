@@ -9,7 +9,7 @@
  * Uses the OAuth 2.0 client-credentials flow — no user sign-in, no refresh
  * token. Re-authenticate with client credentials when the access token expires.
  *
- * TODO v2: add Twilio SMS alongside sendEmail.
+ * SMS (agent texting) is a separate integration — see lib/sms.ts (Telnyx).
  */
 import { siteUrl } from './siteUrl';
 import { eq } from 'drizzle-orm';

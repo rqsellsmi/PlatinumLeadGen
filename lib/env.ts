@@ -46,10 +46,9 @@ const RECOMMENDED_GROUPS: Group[] = [
   { label: 'REALCOMP_BASE_URL', anyOf: ['REALCOMP_BASE_URL'] },
   { label: 'REALCOMP_AUTH_URL', anyOf: ['REALCOMP_AUTH_URL'] },
   { label: 'REALCOMP_OFFICE_KEYS', anyOf: ['REALCOMP_OFFICE_KEYS'] },
-  // Twilio SMS alerts to agents — optional; email still works without it.
-  { label: 'TWILIO_ACCOUNT_SID', anyOf: ['TWILIO_ACCOUNT_SID'] },
-  { label: 'TWILIO_AUTH_TOKEN', anyOf: ['TWILIO_AUTH_TOKEN'] },
-  { label: 'TWILIO_FROM_NUMBER', anyOf: ['TWILIO_FROM_NUMBER', 'TWILIO_MESSAGING_SERVICE_SID'] },
+  // Telnyx SMS — agent texting. Optional; email still sends without it.
+  { label: 'TELNYX_API_KEY', anyOf: ['TELNYX_API_KEY'] },
+  { label: 'TELNYX_PUBLIC_KEY', anyOf: ['TELNYX_PUBLIC_KEY'] },
   { label: 'SITE_URL', anyOf: ['SITE_URL'] },
   { label: 'CRON_SECRET', anyOf: ['CRON_SECRET'] },
   { label: 'REVALIDATE_SECRET', anyOf: ['REVALIDATE_SECRET'] },
