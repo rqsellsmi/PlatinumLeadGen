@@ -1,7 +1,7 @@
 /** Persist and update SMS message rows (design spec §4.2). Best-effort; swallows errors. */
 import { eq } from 'drizzle-orm';
 import { db } from './db';
-import { smsMessages, type NewSmsMessage } from '@/drizzle/schema';
+import { smsMessages, type NewSmsMessage } from '../drizzle/schema';
 
 export async function logSmsMessage(row: NewSmsMessage): Promise<void> {
   try {

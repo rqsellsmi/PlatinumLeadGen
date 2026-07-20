@@ -18,6 +18,8 @@ import { getRoutingQueue, persistQueue } from './queue';
 import { isWithinOfferWindow } from './offerWindow';
 import { sendEmail, agentLeadOfferEmail, agentAcceptanceEmail, adminAlertEmail } from './email';
 import { sendSms } from './sms';
+import { sendAgentSms } from './agentSms';
+import { offerText } from './smsTemplates';
 import { generateMagicLinkToken, magicLinkExpiry, isTokenExpired } from './agentPortalAuth';
 import { logLeadEvent } from './leadEvents';
 
@@ -240,14 +242,20 @@ export async function dispatchOfferEmail(offerId: number): Promise<boolean> {
   });
   await sendEmail(email);
 
-  // SMS alert (no-op unless Twilio is configured). Keep it short; the accept
+  // SMS alert (no-op unless Telnyx is configured). Keep it short; the accept
   // link lets the agent claim the lead straight from their phone.
   try {
-    const cityBit = lead.propertyCity ? ` in ${lead.propertyCity}` : '';
-    await sendSms(
-      agent.phone,
-      `RE/MAX Platinum: new lead${cityBit}. Respond by ${formatEtDeadline(deadline)}. Accept: ${base}/api/offer/${offer.offerToken}?response=accept`,
-    );
+    await sendAgentSms({
+      agent,
+      kind: 'offer',
+      leadId: lead.id,
+      body: offerText({
+        leadId: lead.id,
+        city: lead.propertyCity ?? null,
+        estimate: lead.estimatedValue ?? null,
+        deadline: formatEtDeadline(deadline),
+      }),
+    });
   } catch (err) {
     console.error('[autoOffer] offer SMS failed:', err);
   }
