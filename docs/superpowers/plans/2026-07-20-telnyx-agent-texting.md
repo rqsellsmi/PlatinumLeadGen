@@ -644,7 +644,7 @@ git commit -m "feat(sms): telnyx webhook ed25519 signature verification"
 - Produces:
   - `telnyxConfigured(): boolean` (true when `TELNYX_API_KEY` set).
   - `buildTelnyxPayload(from: string, to: string, text: string): { from: string; to: string; text: string; messaging_profile_id?: string }` (pure).
-  - `sendSms(to: string | null | undefined, body: string, opts: { from: string }): Promise<SmsResult>` where `SmsResult = { sent: boolean; skipped?: boolean; error?: string; telnyxMessageId?: string }`.
+  - `sendSms(to: string | null | undefined, body: string, opts?: { from?: string }): Promise<SmsResult>` where `SmsResult = { sent: boolean; skipped?: boolean; error?: string; telnyxMessageId?: string }`. **`opts`/`from` are optional on purpose:** a missing/blank `from` ⇒ `{skipped:true}`, so the pre-existing `autoOffer.ts` call sites keep compiling and safely no-op until Task 8 rewires them (every intermediate commit stays green).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -708,13 +708,13 @@ export function buildTelnyxPayload(from: string, to: string, text: string) {
 export async function sendSms(
   to: string | null | undefined,
   body: string,
-  opts: { from: string },
+  opts?: { from?: string },
 ): Promise<SmsResult> {
   const apiKey = process.env.TELNYX_API_KEY;
   if (!apiKey) return { sent: false, skipped: true };
   const e164 = toE164(to);
   if (!e164) return { sent: false, skipped: true, error: 'invalid-or-missing-number' };
-  if (!opts.from) return { sent: false, skipped: true, error: 'no-from-number' };
+  if (!opts?.from) return { sent: false, skipped: true, error: 'no-from-number' };
 
   try {
     const res = await fetch('https://api.telnyx.com/v2/messages', {
@@ -740,7 +740,7 @@ export async function sendSms(
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `npm run test -- sms`
-Expected: PASS. Also run `npm run typecheck` — expect failures at the two `autoOffer.ts` call sites (old `sendSms(agent.phone, body)` signature); those are fixed in Task 8.
+Expected: PASS. Run `npm run typecheck` — expect PASS: the old `autoOffer.ts` calls `sendSms(agent.phone, body)` still compile because `opts` is optional (they now no-op via the `no-from-number` skip until Task 8 rewires them). The `smsConfigured`/Twilio-name removal must not break other importers — grep `smsConfigured` before deleting it and keep a compatibility export if anything still imports it.
 
 - [ ] **Step 5: Commit**
 
@@ -1266,8 +1266,13 @@ export async function POST(req: NextRequest) {
     const r = await applyDecline(resolved.offerId);
     await sendAgentReply(agent, r.ok ? `Declined lead #${resolved.leadId}. Reassigning.` : 'That lead is no longer available.', 'command_ack');
   } else if (cmd.kind === 'status') {
-    await recordStatusUpdate(resolved.offerId, resolved.leadId, cmd.status, cmd.notes);
-    await sendAgentReply(agent, `Updated lead #${resolved.leadId} → ${cmd.status.replace('_', ' ')}.`, 'command_ack');
+    const su = await recordStatusUpdate({ leadOfferId: resolved.offerId, leadId: resolved.leadId, newStatus: cmd.status, note: cmd.notes || null });
+    await sendAgentReply(
+      agent,
+      su.ok ? `Updated lead #${resolved.leadId} → ${cmd.status.replace('_', ' ')}.`
+            : `Can't mark #${resolved.leadId} lost yet — reach or attempt contact first.`,
+      'command_ack',
+    );
   }
   return NextResponse.json({ ok: true });
 }
@@ -1280,7 +1285,7 @@ Implement:
 - `forwardToOwner(from, text)` → `sendEmail(adminAlertEmail(...))` (or a small inline compose to `MS_GRAPH_ADMIN_EMAIL`) with the sender number + text; log an `admin_forward` outbound row.
 - `notifyOwnerOptOut(agent)` → email the owner that the agent opted out.
 - `resolveOffer(agentId, code, kind)`: for accept/decline, find a `leadOffers` row for this agent that is still `offered` (matching `leadId=code` if provided; if `code` null and exactly one outstanding offer, use it; else `{ ok:false, message:'Reply with the lead number, e.g. YES 5739.' }`). For status, match an active (accepted, non-closed) lead for this agent by `code`; same single-candidate inference. Returns `{ ok, offerId, leadId, message }`.
-- `recordStatusUpdate(offerId, leadId, status, notes)`: write a `status_updates` row (reuse the portal's status-update helper/path — same one `app/api/agent/status-update/route.ts` uses) and `logLeadEvent(leadId, 'status_updated', notes)`. Respect the `canMarkLost` gate for `status==='lost'`; if blocked, the caller replies with the reason.
+- `recordStatusUpdate(...)`: **The portal's status-update logic is currently inline in `app/api/agent/status-update/route.ts` (insert `statusUpdates` row → `applyScore` → `logLeadEvent`, with the `canMarkLost`/`isLostReason` gate). To avoid duplicating it, first extract a shared helper `recordStatusUpdate(o: { leadOfferId: number; leadId: number; newStatus: LeadStatus; note: string | null; lostReason?: string | null }): Promise<{ ok: boolean; reason?: 'lost-gated' }>` into a new `lib/statusUpdates.ts`, move the route's inline body into it, rewire the portal route to call it, then call the same helper from the webhook.** Respect the `canMarkLost` gate for `newStatus==='lost'`; when blocked, return `{ ok:false, reason:'lost-gated' }` and the webhook replies with the reason. This extraction is a DRY requirement, not optional.
 
 - [ ] **Step 3: Verify**
 
