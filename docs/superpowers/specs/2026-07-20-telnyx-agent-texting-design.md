@@ -114,7 +114,7 @@ logged to `sms_messages`. The matching email still sends in every case.
 
 ### 5.1 Offer (revises existing alert) — `kind=offer`
 Teaser, **no PII**:
-> `RE/MAX Platinum: new lead #5739 in Brighton. Reply YES 5739 to accept or NO 5739 to pass. Expires 4:12pm.`
+> `RE/MAX Platinum: new lead #5739 in Brighton Est. $412k. Reply YES 5739 to accept or NO 5739 to pass. Expires 4:12pm.`
 
 ### 5.2 Client info — `kind=lead_details` *(new)*
 Sent on **accept** or **manual assignment** — the agent now owns the lead:
@@ -158,7 +158,7 @@ Parsing lives in **`lib/smsCommands.ts`** (pure, unit-tested).
 
 - **Accept:** `YES` / `ACCEPT` / `Y`
 - **Decline:** `NO` / `DECLINE` / `PASS` / `N`
-- **Status:** `CONTACTED`, `ATTEMPTED` (→ `attempted_contact`), `QUALIFIED`,
+- **Status:** `CONTACTED`, `SPOKE` (→ `contacted`), `LEFT VM` (→ `attempted_contact`), `CALLED` (→ `attempted_contact`), `ATTEMPTED` (→ `attempted_contact`), `QUALIFIED`,
   `WORKING`, `CLOSED`, `LOST`, `REOPENED` — mapped to the real `lead_status` enum.
   `LOST` respects the existing `canMarkLost` gate; if not yet unlockable we reply
   explaining why.
