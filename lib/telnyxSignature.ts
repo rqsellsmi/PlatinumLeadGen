@@ -30,6 +30,7 @@ export function verifyTelnyxSignature(o: {
   try {
     const tolerance = o.toleranceSec ?? 5 * 60;
     const now = o.nowSec ?? Math.floor(Date.now() / 1000);
+    if (!/^\d+$/.test(o.timestamp)) return false;
     const ts = parseInt(o.timestamp, 10);
     if (!Number.isFinite(ts) || Math.abs(now - ts) > tolerance) return false;
 

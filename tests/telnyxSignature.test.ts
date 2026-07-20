@@ -27,4 +27,15 @@ describe('verifyTelnyxSignature', () => {
   it('rejects garbage signature without throwing', () => {
     expect(verifyTelnyxSignature({ payload, signatureB64: 'notbase64!!', timestamp, publicKeyB64, nowSec: 1785100010 })).toBe(false);
   });
+  it('rejects a future timestamp beyond tolerance', () => {
+    const futureTimestamp = '1785100300';
+    expect(verifyTelnyxSignature({ payload, signatureB64, timestamp: futureTimestamp, publicKeyB64, nowSec: 1785100000, toleranceSec: 300 })).toBe(false);
+  });
+  it('rejects a wrong-length-but-valid-base64 signature', () => {
+    const wrongLengthSig = Buffer.alloc(32).toString('base64');
+    expect(verifyTelnyxSignature({ payload, signatureB64: wrongLengthSig, timestamp, publicKeyB64, nowSec: 1785100010 })).toBe(false);
+  });
+  it('rejects a non-digit timestamp string', () => {
+    expect(verifyTelnyxSignature({ payload, signatureB64, timestamp: '123garbage', publicKeyB64, nowSec: 1785100010 })).toBe(false);
+  });
 });
