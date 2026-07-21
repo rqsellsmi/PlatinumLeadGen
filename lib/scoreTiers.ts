@@ -79,6 +79,7 @@ export function scoreReasonLabel(reason: string): string {
     pipeline_stalled: 'Stalled 30 days',
     lead_deleted_reversal: 'Penalty reversed',
     manual_adjustment: 'Admin adjustment',
+    starting_credit: 'New-agent head start',
   };
   return map[reason] ?? reason;
 }
