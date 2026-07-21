@@ -65,6 +65,7 @@ export const scoreReasonEnum = pgEnum('score_reason', [
   'pipeline_stalled', // -3.0 Qualified lead idle 30d, recurring (spec v2 §4.3)
   'lead_deleted_reversal', // reversal of a negative event when a lead is deleted (v1.6 §K.3)
   'manual_adjustment', // variable (requires reason)
+  'starting_credit', // +50 one-time queue head start on first activation (rolling-365 only)
 ]);
 
 export const scriptPositionEnum = pgEnum('script_position', ['head', 'body']);
@@ -141,6 +142,10 @@ export const agents = pgTable(
     passwordResetToken: varchar('password_reset_token', { length: 128 }),
     smsOptOut: boolean('sms_opt_out').notNull().default(false),
     smsOptOutAt: timestamp('sms_opt_out_at'),
+    // Set the first time this agent activates (isAvailable=true); guards the
+    // one-time +50 rolling-365 "starting credit" queue head start so it is
+    // never re-granted on later toggles (see lib/scoring.ts).
+    startingCreditGrantedAt: timestamp('starting_credit_granted_at'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
