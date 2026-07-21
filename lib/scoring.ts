@@ -32,7 +32,8 @@ export type ScoreReason =
   | 'stale_7day'
   | 'pipeline_stalled'
   | 'lead_deleted_reversal'
-  | 'manual_adjustment';
+  | 'manual_adjustment'
+  | 'starting_credit';
 
 const ROLLING_WINDOW_MS = 365 * 24 * 60 * 60 * 1000;
 
@@ -43,7 +44,7 @@ const ROLLING_WINDOW_MS = 365 * 24 * 60 * 60 * 1000;
  * an explicit +6.
  */
 export const SCORE_DELTAS: Record<
-  Exclude<ScoreReason, 'manual_adjustment' | 'lead_deleted_reversal'>,
+  Exclude<ScoreReason, 'manual_adjustment' | 'lead_deleted_reversal' | 'starting_credit'>,
   number
 > = {
   system_response_fast: 8.0, // <15 min (15–30 min passes explicit +6)
@@ -80,6 +81,12 @@ export function resolveScoreDelta(reason: ScoreReason, delta?: number): number {
   if (reason === 'manual_adjustment' || reason === 'lead_deleted_reversal') {
     if (delta === undefined) throw new Error(`${reason} requires an explicit delta`);
     return delta;
+  }
+  if (reason === 'starting_credit') {
+    // Granted directly by grantStartingCreditIfFirstActivation (rolling-365
+    // only) — never through applyScore, which would also bump lifetime/
+    // ytd/monthly and inflate leaderboards/tier.
+    throw new Error('starting_credit must not be applied via applyScore/resolveScoreDelta');
   }
   if (delta !== undefined) return delta;
   return SCORE_DELTAS[reason];
@@ -141,4 +148,52 @@ export async function recomputeRolling365(agentId: number, now = new Date()): Pr
   const rolling = Number(rows[0]?.total ?? 0);
   await db.update(agents).set({ scoreRolling365: rolling }).where(eq(agents.id, agentId));
   return rolling;
+}
+
+/** One-time queue head start granted on an agent's first lead-availability activation. */
+export const STARTING_CREDIT = 50;
+
+/**
+ * Grant the one-time queue head start the first time an agent activates for leads.
+ * Rolling-365 ONLY (queue slots) — never touches lifetime/ytd/monthly, so leaderboards
+ * and tier are unaffected. Idempotent: the starting_credit_granted_at flag is claimed
+ * atomically so concurrent activations can't double-grant. Decays out of the 365-day
+ * window ~1 year after activation. Returns true if it granted this call.
+ *
+ * NOTE: existing already-active agents are NOT bulk-backfilled — they receive the
+ * credit on their next activation toggle, since the flag guards a single grant.
+ */
+export async function grantStartingCreditIfFirstActivation(
+  agentId: number,
+  now = new Date(),
+): Promise<boolean> {
+  try {
+    // Atomically claim the flag: only succeeds (returns a row) the first time,
+    // so a concurrent double-toggle can't double-grant.
+    const claimed = await db
+      .update(agents)
+      .set({ startingCreditGrantedAt: now })
+      .where(and(eq(agents.id, agentId), sql`${agents.startingCreditGrantedAt} IS NULL`))
+      .returning({ id: agents.id });
+
+    if (claimed.length === 0) {
+      return false; // already granted previously
+    }
+
+    await db.insert(agentScoreLog).values({
+      agentId,
+      delta: STARTING_CREDIT,
+      reason: 'starting_credit',
+      note: 'First-activation queue head start (+50, decays after 365 days)',
+      createdAt: now,
+    });
+
+    // Rolling-365 only — leaderboards/tier (lifetime/ytd/monthly) are untouched.
+    await recomputeRolling365(agentId, now);
+
+    return true;
+  } catch (err) {
+    console.error('grantStartingCreditIfFirstActivation failed', { agentId, err });
+    return false;
+  }
 }

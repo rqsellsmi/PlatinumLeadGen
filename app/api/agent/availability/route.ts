@@ -7,6 +7,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { agents } from '@/drizzle/schema';
 import { getCurrentAgent } from '@/lib/agentSession';
+import { grantStartingCreditIfFirstActivation } from '@/lib/scoring';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -24,5 +25,16 @@ export async function POST(req: NextRequest) {
     .update(agents)
     .set({ isAvailable: body.available, updatedAt: new Date() })
     .where(eq(agents.id, agent.id));
+
+  if (body.available === true) {
+    // One-time queue head start (rolling-365 only) — best-effort, must never
+    // break the availability toggle itself.
+    try {
+      await grantStartingCreditIfFirstActivation(agent.id);
+    } catch (err) {
+      console.error('grantStartingCreditIfFirstActivation threw', { agentId: agent.id, err });
+    }
+  }
+
   return NextResponse.json({ success: true, isAvailable: body.available });
 }

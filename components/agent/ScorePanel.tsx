@@ -13,18 +13,26 @@ interface ScoreEvent {
 }
 
 interface ScoreData {
-  score: number;
+  queueScore: number;
+  slots: number;
+  pointsToNextSlot: number;
+  slotProgressPct: number;
+  lifetime: number;
   tier: string;
   tierColor: string;
+  monthly: number;
+  ytd: number;
   recentEvents: ScoreEvent[];
 }
 
-const SCORE_MAX = 200;
-
 /**
- * Agent score panel (v1.6 §F). Shows the agent's current score, tier label, and
- * a collapsible log of their last 15 score events. Markers at 0 / 50 (start) /
- * 200 (max). Collapse state is local UI only (§K.8).
+ * Agent score panel (v1.6 §F, reworked per spec v2 §1/§6). Surfaces all four
+ * score tracks:
+ *  - Queue Score (rolling-365): the hero — drives rotation slots, with a
+ *    progress meter toward the next slot.
+ *  - Tier: standing vs. the active cohort, from the lifetime score.
+ *  - This Month / Year to Date: the two leaderboard tracks.
+ * Keeps the collapsible log of the agent's last 15 score events (§K.8).
  */
 export default function ScorePanel() {
   const [data, setData] = React.useState<ScoreData | null>(null);
@@ -55,40 +63,67 @@ export default function ScorePanel() {
     );
   }
 
-  const pct = Math.max(0, Math.min(100, (data.score / SCORE_MAX) * 100));
+  const slotProgressPct = Math.max(0, Math.min(100, data.slotProgressPct));
 
   return (
     <div className="rounded-card border border-line bg-white">
+      <div className="px-5 pt-4">
+        {/* Hero: Queue Score */}
+        <div className="flex items-baseline gap-3">
+          <span className="font-numeric text-4xl font-bold text-charcoal">
+            {Math.round(data.queueScore)}
+          </span>
+          <span className="text-sm font-semibold text-mute">Queue Score</span>
+        </div>
+        <p className="mt-1 text-sm font-bold text-charcoal">
+          {data.slots} slot{data.slots === 1 ? '' : 's'} in the lead queue
+        </p>
+
+        <div className="relative mt-2 h-2 rounded-pill bg-line">
+          <div
+            className="absolute inset-y-0 left-0 rounded-pill bg-platinum-blue"
+            style={{ width: `${slotProgressPct}%` }}
+          />
+        </div>
+        <p className="mt-1 text-xs text-mute-light">
+          {data.pointsToNextSlot > 0
+            ? `${Math.round(data.pointsToNextSlot)} more points to gain another slot in the queue`
+            : `You just reached ${data.slots} slots`}
+        </p>
+        <p className="mt-1 text-xs text-mute">More Queue Score = more turns at nearby leads.</p>
+      </div>
+
+      <div className="mt-4 flex items-center gap-2 border-t border-line-hair px-5 py-3">
+        <span className={`text-sm font-bold ${data.tierColor}`}>{data.tier}</span>
+        <span className="text-xs text-mute-light">Tier — your standing vs. the team.</span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 border-t border-line-hair px-5 py-3">
+        <div className="rounded-card bg-line-hair/40 p-3">
+          <p className="font-numeric text-xl font-bold text-charcoal">
+            {Math.round(data.monthly)}
+          </p>
+          <p className="text-xs font-semibold text-mute">This Month</p>
+          <p className="text-[10px] text-mute-light">monthly leaderboard</p>
+        </div>
+        <div className="rounded-card bg-line-hair/40 p-3">
+          <p className="font-numeric text-xl font-bold text-charcoal">{Math.round(data.ytd)}</p>
+          <p className="text-xs font-semibold text-mute">Year to Date</p>
+          <p className="text-[10px] text-mute-light">resets Jan 1</p>
+        </div>
+      </div>
+
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left"
+        className="flex w-full items-center justify-between gap-4 border-t border-line-hair px-5 py-3 text-left"
         aria-expanded={open}
       >
-        <div className="flex items-baseline gap-3">
-          <span className="font-numeric text-4xl font-bold text-charcoal">
-            {Math.round(data.score)}
-          </span>
-          <span className={`text-sm font-bold ${data.tierColor}`}>{data.tier}</span>
-        </div>
+        <span className="text-sm text-mute">Score history</span>
         <span className="text-xs font-semibold text-platinum-blue">
           {open ? 'Hide history ▲' : 'Score history ▼'}
         </span>
       </button>
-
-      <div className="px-5 pb-4">
-        {/* Score bar with 0 / 50 / 200 markers */}
-        <div className="relative mt-1 h-2 rounded-pill bg-line">
-          <div className="absolute inset-y-0 left-0 rounded-pill bg-platinum-blue" style={{ width: `${pct}%` }} />
-          {/* start marker at 50/200 = 25% */}
-          <div className="absolute top-1/2 h-3 w-0.5 -translate-y-1/2 bg-mute-light" style={{ left: '25%' }} />
-        </div>
-        <div className="mt-1 flex justify-between text-[10px] text-mute-light">
-          <span>0</span>
-          <span>50 start</span>
-          <span>200 max</span>
-        </div>
-      </div>
 
       {open ? (
         <div className="border-t border-line-hair px-5 py-3">

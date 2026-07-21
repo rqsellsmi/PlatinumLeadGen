@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SCORE_DELTAS, resolveScoreDelta } from '../lib/scoring';
+import { SCORE_DELTAS, STARTING_CREDIT, resolveScoreDelta } from '../lib/scoring';
 import { tierFor, tierForPercentile, percentileRank, scoreReasonLabel } from '../lib/scoreTiers';
 import {
   parseMoney,
@@ -37,6 +37,15 @@ describe('scoring v2 deltas (spec v2 §2)', () => {
     expect(() => resolveScoreDelta('lead_deleted_reversal')).toThrow();
     expect(() => resolveScoreDelta('manual_adjustment')).toThrow();
     expect(resolveScoreDelta('lead_deleted_reversal', 1.5)).toBe(1.5);
+  });
+
+  it('rejects starting_credit via resolveScoreDelta/applyScore (rolling-365-only grant path)', () => {
+    // starting_credit must only ever be applied by grantStartingCreditIfFirstActivation
+    // (a direct agentScoreLog insert + recomputeRolling365), never through applyScore —
+    // applyScore would also bump lifetime/ytd/monthly and inflate leaderboards/tier.
+    expect(() => resolveScoreDelta('starting_credit')).toThrow();
+    expect(() => resolveScoreDelta('starting_credit', 50)).toThrow();
+    expect(STARTING_CREDIT).toBe(50);
   });
 });
 

@@ -735,3 +735,56 @@ typecheck, build) run clean before this doc update — see `docs/current-state.m
   `phone`, `smsOptOut`, no `offices.telnyx_number`/`TELNYX_DEFAULT_FROM`) so a
   half-configured deploy fails safe — an unset key means "no texts," never a
   thrown error that could break the email-based flow SMS sits alongside.
+
+## 18. Telnyx post-review fixes + queue head start / portal score session
+
+A whole-branch review of the Telnyx build (§17) surfaced a bug per-task review
+had missed, and this session also added a one-time queue-only score credit for
+new agents plus a rework of the portal's score display. Durable lessons from
+both:
+
+- **Four score tracks, four jobs — and the display must say which is
+  which.** `scoreRolling365` drives queue slots, `scoreLifetime` drives tier,
+  `scoreMonthly`/`scoreYtd` drive the leaderboards. The agent portal used to
+  show one unlabeled "score," which made agents think their number should
+  match their queue reality (it didn't — it was lifetime). The fix wasn't a
+  smarter number, it was **labeling all four** so agents can tell which one
+  means what (`GET /api/agent/score`, `components/agent/ScorePanel.tsx`).
+- **A derived column can't be seeded by changing its default.**
+  `scoreRolling365` is recomputed from the score-log sum (`recomputeRolling365`),
+  not stored as an independent value, so a "give new agents a head start"
+  feature had to be a **log entry** (`agent_score_log`, reason
+  `starting_credit`), not a column default or a one-off `UPDATE agents SET
+  score_rolling_365 = ...`. Writing it as a log entry also gave the desired
+  decay-after-a-year behavior for free — no separate decay code needed.
+- **Rolling-only by construction, not by convention.** The requirement was
+  "queue slots only, never touches leaderboards/tier." Routing the credit
+  through a **direct** `agent_score_log` insert + `recomputeRolling365` (never
+  through `applyScore`, which writes all four tracks) plus a hard
+  `resolveScoreDelta` throw guard on the `starting_credit` reason makes that
+  guarantee structural: any future code path that tries to apply
+  `starting_credit` via the normal scoring function fails loudly at run time
+  instead of silently inflating lifetime/monthly/YTD. Prefer "the wrong usage
+  throws" over "the wrong usage is just discouraged in a comment."
+- **The identity seam a per-task review can't see.** The Telnyx webhook
+  (correct in isolation — it does an exact match against `agents.phone`) and
+  the admin agent form (correct in isolation — it just saves whatever the
+  admin typed) individually looked fine. Only a review of the **whole
+  feature end-to-end** (write path + read path together) caught that they
+  disagreed on phone format: the form stored `(810) 555-0134`-style input,
+  the webhook matched against strict E.164, so real agents' text replies
+  silently became "unrecognized sender" forwarded to the owner. The fix is
+  two-sided — **normalize on write** (admin create/update actions) **and
+  match tolerantly on read** (normalize both sides before comparing in the
+  webhook) — because a normalize-on-write-only fix still fails for every row
+  written before the fix shipped. When a value crosses a write boundary and a
+  read boundary that were built at different times (or by different code
+  paths), check that both sides agree on the canonical form, not just that
+  each side is internally consistent.
+- **Fail-closed at trust boundaries, reaffirmed.** The Telnyx webhook verifies
+  an Ed25519 signature and returns `401` on any failure — including an unset
+  `TELNYX_PUBLIC_KEY` — before any side effect runs. Nothing about the
+  phone-normalization fix (or any other post-review change) loosened that:
+  the two are independent layers (authenticity of the sender vs. identifying
+  *which* agent it is), and fixing an identity-matching bug is not a license
+  to relax the boundary that gates whether the request is trusted at all.
