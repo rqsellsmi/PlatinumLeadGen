@@ -80,6 +80,42 @@ npm run dev      # http://localhost:3000
    DATABASE_URL='<prod-neon-url>' EMAIL_ADMIN_EMAIL='<owner>' npm run seed
    ```
 
+### 3a. Preview deployments against a separate database
+
+Vercel builds a **Preview** deployment for every branch/PR, running that
+branch's code. To test against a preview Neon branch instead of production:
+
+1. **Point Preview at the preview DB with `APP_DATABASE_URL`.** The app resolves
+   its connection string from a priority list (`lib/dbUrl.ts`), and
+   `APP_DATABASE_URL` is checked **first** — precisely so you can override one
+   environment. In **Project Settings → Environment Variables**, add
+   `APP_DATABASE_URL` = the preview Neon branch's **pooled** connection string
+   (host contains `-pooler`, ends in `?sslmode=require`), and **scope it to
+   "Preview" only**. Leave it unset for Production, which keeps using the
+   integration-managed `DATABASE_URL` → prod DB.
+   - *Why not just set `DATABASE_URL` for Preview?* The Neon↔Vercel integration
+     **locks** `DATABASE_URL`/`POSTGRES_URL` and applies them to **both**
+     Production and Preview (pointing both at prod). `APP_DATABASE_URL` sidesteps
+     that without touching the managed vars.
+2. **Redeploy the preview.** Env-var changes only apply to **new** builds — the
+   currently-running preview won't pick up `APP_DATABASE_URL` until you redeploy
+   (Deployments → the preview → ⋯ → Redeploy, or push a commit).
+3. **Match migrations to the branch.** The preview DB must have every migration
+   the previewed branch expects (e.g. a branch adding `0025` needs `0025`
+   applied). Run `APP_DATABASE_URL='<preview-neon-url>' npm run db:migrate`
+   (or `DATABASE_URL=…`) against the preview branch.
+4. **Keep the Neon compute awake.** Neon auto-suspends idle branches; make sure
+   the preview branch's compute endpoint is **enabled** (not disabled) — a cold
+   start just adds latency, but a disabled endpoint refuses connections.
+
+**Troubleshooting** (check the preview deployment's **Runtime Logs**):
+- *"No database connection string found" / "Missing required environment
+  variables: DATABASE_URL"* → no candidate var is set for Preview → do step 1.
+- *A Neon connection error (timeout / auth / "database does not exist")* → a URL
+  is set but wrong or the branch is asleep → check step 1's string and step 4.
+- *"column … does not exist"* → connection works but the preview DB is behind on
+  migrations → do step 3.
+
 > **CSP:** `next.config.js` ships a Content-Security-Policy (Section 13.1) that
 > allows Google Maps, GTM, and RentCast. Do not disable it. If you add a new
 > third-party script, add its origin to the policy.
