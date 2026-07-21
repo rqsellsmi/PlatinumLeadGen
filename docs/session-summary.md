@@ -1,3 +1,111 @@
+# Session Summary — Telnyx Agent Texting (Phase 1) + Queue Head Start & Portal Score
+
+Branch: `claude/texting-telnyx-requirements-ktc9fo`. Migrations added:
+**0024–0025**. Full lessons in `docs/lessons-learned.md` §17 (the Telnyx build)
+and §18 (this update — post-review fixes + the queue head start).
+
+## What was done
+
+### 1. Telnyx agent texting (Phase 1) — two-way SMS with agents
+Built two-way SMS between the platform and agents, replacing the long-dormant
+Twilio stub. **Telnyx-only**; email remains the source of truth for every
+notification — SMS is additive and no-ops safely (never throws) whenever it's
+unconfigured, the agent has no phone, or they've opted out.
+- **Schema** (migration `0024_telnyx_sms`): `offices.telnyx_number` (outbound
+  "from" address), `agents.sms_opt_out`/`sms_opt_out_at`, and a new
+  `sms_messages` audit table (mirrors `email_send_log` for the SMS channel).
+- **Outbound** (`lib/agentSms.ts`), sent from the agent's home-office
+  `offices.telnyx_number` (fallback `TELNYX_DEFAULT_FROM`): a reply-based
+  **offer teaser** (no client PII) on a new offer, the **full client-info
+  text** on accept/manual-assignment, and an **update-due reminder** at the 48h
+  first-update-overdue point.
+- **Inbound** (`POST /api/webhooks/telnyx`): Ed25519 signature verification,
+  **fail-closed** (401 on any missing/bad signature, before the body is even
+  parsed). Commands: `YES`/`NO <lead#>` (accept/decline), multi-word status
+  phrases (`CONTACTED`/`SPOKE`/`LEFT VM`/`CALLED`/`ATTEMPTED`/`QUALIFIED`/
+  `WORKING`/`CLOSED`/`LOST`), and `STOP`/`START`/`HELP` (opt-out). Delivery
+  receipts update `sms_messages.status`. Unknown senders/commands are emailed
+  to the owner. Agents are identified by matching their cell to `agents.phone`.
+- **Shared cores** extracted so the web UI and SMS commands run identical
+  logic: `lib/offerActions.ts` (accept/decline), `lib/statusUpdates.ts`
+  (status updates), `lib/clientInfoSms.ts` (client-info send, kept separate to
+  avoid a circular import with `offerActions.ts`). New pure, unit-tested libs:
+  `smsCommands`, `telnyxSignature`, `smsTemplates`, `officeNumbers`, `agentSms`,
+  `smsMessages`.
+- Full detail in `docs/current-state.md` §4.7.
+
+### 2. Post-review fix: agent-phone normalization (commit `64e42ce`)
+A whole-branch review surfaced a seam a per-task review couldn't see: the
+webhook matched inbound senders against `agents.phone` with an **exact**
+E.164 comparison, but the admin agent form stored phones **un-normalized**
+(e.g. `(810) 555-0134`) — so most agents' text replies silently fell through
+as "unrecognized sender." Fixed by normalizing on write (agent create/update
+Server Actions) **and** matching tolerantly (normalize-then-compare) in the
+webhook, so both old and new rows work. Also in this pass: an agent-settings
+**activation notice** ("activating enables text-message lead notifications"),
+removal of the dead `telnyxConfigured()` export, and a stale "accept link"
+code comment corrected to describe the reply-based teaser it actually sends.
+
+### 3. Lead deep-link + privacy policy (commit `b247e19`)
+The client-info and update-due-reminder texts now include a **deep link** to
+`/agent/leads/<leadOfferId>`, threaded through the offer-accept, manual-
+reassign, and 48h-escalation call sites, so an agent can jump straight to the
+lead from the text. Added a carrier-required **SMS section to the privacy
+policy** (opt-in/opt-out mechanics, message frequency, and a clause that
+mobile numbers and SMS opt-in consent are never shared or sold to third
+parties) — needed for 10DLC registration.
+
+### 4. Queue head start: one-time +50 on first activation (commit `b7cf021`)
+Agents previously entered the rotation at whatever their history happened to
+score them, so a brand-new agent could sit behind everyone else in the queue
+indefinitely. Migration `0025_agent_starting_credit` adds
+`agents.starting_credit_granted_at` and a `starting_credit` score-reason
+value. `lib/scoring.ts grantStartingCreditIfFirstActivation` grants a
+one-time **+50 to `scoreRolling365` ONLY** (queue slots) the first time an
+agent flips themselves Available (`POST /api/agent/availability`) — never
+touching lifetime/monthly/YTD, so tiers and leaderboards are untouched.
+Implemented as a direct `agent_score_log` insert + `recomputeRolling365`
+(never through `applyScore`; `resolveScoreDelta` throws if `starting_credit`
+is ever passed to it, as a structural guard). One-time-ness is enforced by an
+atomic `UPDATE ... WHERE starting_credit_granted_at IS NULL RETURNING id`
+claim. The credit decays out of the 365-day rolling window ~1 year after
+*that agent's* activation (not system launch). Existing already-active agents
+are not bulk-backfilled — they get it on their next activation toggle.
+
+### 5. Portal score display reworked (commit `2299ab6`)
+Agents previously saw one unlabeled lifetime score on a stale 0–200 bar, which
+didn't explain their actual queue standing. `GET /api/agent/score` and
+`components/agent/ScorePanel.tsx` now surface **all four score tracks** with
+plain labels: **Queue Score** (rolling-365, the hero number) with a slots
+readout and a "{X} more points to gain another slot in the queue" progress
+meter, **Tier** (lifetime), **This Month** (monthly), **Year to Date** (ytd).
+Removed the stale v1 `SCORE_MAX = 200` cap (v2 scoring has been uncapped since
+Scoring v2, but the panel never caught up). Added a "New-agent head start"
+label for the `starting_credit` reason in the score-history log.
+
+## What still needs to be done (owner)
+- **Telnyx (pre-launch, unchanged by this session's fixes):** provision the
+  Telnyx number(s) and complete 10DLC/toll-free carrier registration; set
+  `TELNYX_API_KEY`/`TELNYX_PUBLIC_KEY` in every environment that sends or
+  processes texts; point the Telnyx portal's inbound webhook at
+  `/api/webhooks/telnyx` and confirm its public key matches
+  `TELNYX_PUBLIC_KEY`. One number (`TELNYX_DEFAULT_FROM`) covers launch;
+  per-office numbers are a later step (each needs its own separate 10DLC
+  campaign) for when Local Services Ads goes live per office. Live send/
+  receive is still untested — no Telnyx credentials exist in the build
+  sandbox.
+- **Apply migrations 0024–0025** on every Neon branch the app + GitHub Actions use.
+- Queue head start / portal score need no owner setup — both are pure
+  application logic verified by unit tests, typecheck, and build (132 tests
+  across 14 files).
+
+## Lessons
+See `docs/lessons-learned.md` §17 (the Telnyx build) and §18 (this session's
+phone-normalization fix, the rolling-only credit design, and the four-tracks
+display).
+
+---
+
 # Session Summary — Texting & Refinement (round 1: refinements)
 
 Branch: `texting-and-refinement`. Migrations added: **0021–0022**. Full lessons
