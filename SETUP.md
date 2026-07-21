@@ -162,15 +162,20 @@ Agents can accept/decline lead offers and update lead status by replying to
 SMS, in addition to the email offer/dashboard. This is optional — the
 platform runs email-only until you configure it. Owner setup checklist:
 
-1. **Provision numbers.** Buy one Telnyx number per office (4 at launch:
-   Brighton, Ann Arbor, Fenton, Grand Blanc). This is per-office, not
-   per-agent, and extends cleanly if a new office opens later.
+1. **Provision the number.** Start with **one** Telnyx number for internal
+   agent texting (offer/accept-decline/status). Set it as `TELNYX_DEFAULT_FROM`
+   and leave `offices.telnyx_number` empty — every agent then sends from that
+   one number. The design is already per-office: when you add Google **Local
+   Services Ads** later, give each office its own number (populate
+   `offices.telnyx_number`) — those are homeowner-facing and must be registered
+   as **separate 10DLC campaigns**, not folded into this internal one.
 2. **Complete carrier registration BEFORE go-live.** Telnyx (like all US SMS
    carriers) requires either **10DLC registration** (Brand + Campaign) or
-   **Toll-Free Verification** for the numbers above. Messages sent from an
-   unregistered number are throttled or silently filtered by carriers —
-   budget a few business days for approval and do this first, not after
-   agents start relying on texts.
+   **Toll-Free Verification** for the number. Register the internal
+   agent-notification campaign now; register the per-office LSA numbers as their
+   own campaigns when you add them. Messages sent from an unregistered number
+   are throttled or silently filtered by carriers — budget a few business days
+   for approval and do this first, not after agents start relying on texts.
 3. **Set environment variables** in Vercel (Production + Preview) — see
    `.env.example`:
    - `TELNYX_API_KEY` — from the Telnyx portal (Auth → API Keys).
@@ -183,9 +188,11 @@ platform runs email-only until you configure it. Owner setup checklist:
    - Also add `TELNYX_API_KEY` and `TELNYX_PUBLIC_KEY` as **GitHub Actions
      secrets** if the cron workflow needs to send/process texts outside of a
      Vercel-triggered request.
-4. **Populate `offices.telnyx_number`** (E.164, e.g. `+15551234567`) for each
-   office in `/admin/offices` (or directly in the DB) — this is the number
-   texts to that office's agents are sent **from**.
+4. **Per-office numbers (later).** For the single-number setup above you can
+   skip this — `TELNYX_DEFAULT_FROM` covers everyone. When you go per-office
+   (LSA), populate `offices.telnyx_number` (E.164, e.g. `+15551234567`) in
+   `/admin/offices` (or the DB); that becomes the number texts to that office's
+   agents are sent **from**, falling back to `TELNYX_DEFAULT_FROM` if empty.
 5. **Point the Messaging Profile's inbound + delivery webhook** at
    `https://<domain>/api/webhooks/telnyx` in the Telnyx portal.
 6. **Confirm each agent's `phone`** in `/admin/agents` is on file and
