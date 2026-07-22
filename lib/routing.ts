@@ -134,18 +134,33 @@ export interface RecommendParams {
 }
 
 export interface RecommendResult {
-  /** The chosen agent, or null if no eligible agent exists. */
+  /** The chosen agent, or null when none was assigned (see `outcome`). */
   agentId: number | null;
   /**
    * The queue AFTER this selection: the served slot is moved to the back, and
-   * any slots skipped for distance stay at the front. Persist this. Empty only
-   * when no eligible agent exists.
+   * any slots skipped for distance stay at the front. Persist this. Left
+   * unchanged when no agent was assigned.
    */
   rotationList: number[];
-  /** Distance in miles from agent to property, when both have coordinates. */
+  /**
+   * Distance in miles from the chosen agent to the property, when both have
+   * coordinates. On an `outside-area` outcome this is the distance to the
+   * NEAREST agent (so the admin can see how far out of range it fell).
+   */
   distanceMiles: number | null;
   /** Whether selection came from the proximity pool (false = global fallback). */
   usedProximity: boolean;
+  /**
+   * Why this result looks the way it does:
+   *  - `assigned`      an agent was chosen (proximity or global fallback).
+   *  - `no-agents`     there are no eligible agents at all (empty roster / all
+   *                    excluded on reassignment).
+   *  - `outside-area`  the lead has coordinates and at least one agent is
+   *                    geocoded, but the lead is outside EVERY geocoded agent's
+   *                    service radius — deliberately left UNASSIGNED (no global
+   *                    fallback) so the admin handles it directly.
+   */
+  outcome: 'assigned' | 'no-agents' | 'outside-area';
 }
 
 /**
@@ -179,19 +194,22 @@ export function recommendAgents(params: RecommendParams): RecommendResult {
   }
 
   if (eligible.length === 0 || rotation.length === 0) {
-    return { agentId: null, rotationList: rotation, distanceMiles: null, usedProximity: false };
+    return { agentId: null, rotationList: rotation, distanceMiles: null, usedProximity: false, outcome: 'no-agents' };
   }
 
   const hasLeadCoords = propertyLat != null && propertyLng != null;
 
   // Distance map + proximity pool — each agent is in the pool when the lead is
   // within THAT agent's own radius (falling back to the global default). Empty
-  // if no lead coords.
+  // if no lead coords. `anyAgentGeocoded` records whether proximity could even
+  // be evaluated (at least one eligible agent has coordinates).
   const distanceById = new Map<number, number>();
   const proximityPool = new Set<number>();
+  let anyAgentGeocoded = false;
   if (hasLeadCoords) {
     for (const a of eligible) {
       if (a.lat != null && a.lng != null) {
+        anyAgentGeocoded = true;
         const dist = haversine(propertyLat!, propertyLng!, a.lat, a.lng);
         distanceById.set(a.id, dist);
         if (dist <= (a.radiusMiles ?? radiusMiles)) proximityPool.add(a.id);
@@ -209,7 +227,24 @@ export function recommendAgents(params: RecommendParams): RecommendResult {
       servedIndex = idx;
       usedProximity = true;
     }
+  } else if (hasLeadCoords && anyAgentGeocoded) {
+    // We COULD evaluate proximity (the lead has coordinates and at least one
+    // agent is geocoded) and no agent is within range → the lead is outside
+    // every agent's service area. Do NOT fall back to the global queue; leave
+    // it unassigned so the admin handles it directly. Report the nearest-agent
+    // distance for context.
+    const nearest = distanceById.size > 0 ? Math.min(...distanceById.values()) : null;
+    return {
+      agentId: null,
+      rotationList: rotation,
+      distanceMiles: nearest,
+      usedProximity: false,
+      outcome: 'outside-area',
+    };
   }
+  // Otherwise (no lead coordinates, or no agent is geocoded) proximity cannot be
+  // evaluated at all, so we keep the global-queue fallback rather than sending
+  // every lead to the admin.
 
   const agentId = rotation[servedIndex];
 
@@ -223,5 +258,6 @@ export function recommendAgents(params: RecommendParams): RecommendResult {
     rotationList: newRotation,
     distanceMiles: distanceById.get(agentId) ?? null,
     usedProximity,
+    outcome: 'assigned',
   };
 }

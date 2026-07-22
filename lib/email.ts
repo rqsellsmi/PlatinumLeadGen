@@ -522,6 +522,63 @@ export function adminAlertEmail(subject: string, message: string): SendEmailArgs
 }
 
 // ---------------------------------------------------------------------------
+// 7b. Lead outside every agent's service area — to admin (left unassigned)
+// ---------------------------------------------------------------------------
+export interface LeadOutsideAreaEmailData {
+  leadName: string;
+  leadEmail: string | null;
+  leadPhone: string | null;
+  propertyAddress: string | null;
+  propertyCity: string | null;
+  estimatedValue: number | null;
+  /** Distance to the nearest agent, miles (null if unknown). */
+  nearestAgentMiles: number | null;
+  adminLeadUrl: string;
+  relatedLeadId?: number;
+}
+
+/**
+ * Sent when a submitted lead falls outside the service radius of every active
+ * agent. The lead is intentionally left UNASSIGNED (no offer created); the admin
+ * assigns it manually from the linked lead page.
+ */
+export function leadOutsideAreaEmail(d: LeadOutsideAreaEmailData): SendEmailArgs {
+  const est = d.estimatedValue != null ? `$${d.estimatedValue.toLocaleString('en-US')}` : '—';
+  const nearest = d.nearestAgentMiles != null ? `${Math.round(d.nearestAgentMiles)} mi away` : '—';
+  const property = [d.propertyAddress, d.propertyCity].filter(Boolean).join(', ') || '—';
+  const html = shell(
+    'Lead outside agent coverage area',
+    `<h1 style="margin:0 0 12px;font-size:22px;color:${BRAND_BLUE};">Lead outside agent coverage area</h1>
+     <p style="font-size:15px;line-height:1.5;">A new lead was submitted, but it is outside the service area of every active agent, so it was <strong>left unassigned</strong>. Please review and assign it manually.</p>
+     <table style="font-size:15px;line-height:1.8;margin:12px 0;">
+       <tr><td style="color:#64748b;padding-right:12px;">Name</td><td>${escapeHtml(d.leadName)}</td></tr>
+       <tr><td style="color:#64748b;padding-right:12px;">Email</td><td>${escapeHtml(d.leadEmail ?? '—')}</td></tr>
+       <tr><td style="color:#64748b;padding-right:12px;">Phone</td><td>${escapeHtml(d.leadPhone ?? '—')}</td></tr>
+       <tr><td style="color:#64748b;padding-right:12px;">Property</td><td>${escapeHtml(property)}</td></tr>
+       <tr><td style="color:#64748b;padding-right:12px;">Est. value</td><td>${escapeHtml(est)}</td></tr>
+       <tr><td style="color:#64748b;padding-right:12px;">Nearest agent</td><td>${escapeHtml(nearest)}</td></tr>
+     </table>
+     <p style="margin:24px 0;">${button(d.adminLeadUrl, 'Assign this lead')}</p>`,
+  );
+  const text = `Lead outside agent coverage area — left unassigned.
+Name: ${d.leadName}
+Email: ${d.leadEmail ?? '—'}
+Phone: ${d.leadPhone ?? '—'}
+Property: ${property}
+Est. value: ${est}
+Nearest agent: ${nearest}
+Assign: ${d.adminLeadUrl}`;
+  return {
+    to: adminEmail(),
+    subject: `Lead needs manual assignment — outside agent area${d.propertyCity ? ` (${d.propertyCity})` : ''}`,
+    html,
+    text,
+    templateName: 'lead_outside_area',
+    relatedLeadId: d.relatedLeadId,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // 8. Lead resubmitted — to the agent working the lead (v1.6 §D.2)
 // ---------------------------------------------------------------------------
 export interface LeadResubmittedEmailData {

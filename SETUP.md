@@ -251,9 +251,13 @@ forwarded to the owner by email as unrecognized):
 
 - **Routing engine** (`lib/routing.ts`): proximity-first weighted round-robin. The
   "Dearborn bug" is fixed — the proximity pool is built **before** walking the queue,
-  so a far agent is never offered a lead ahead of a nearer one. Falls back to the full
-  queue when no agent is in radius, and to all active agents when the lead has no
-  coordinates. Covered by `tests/routing.test.ts`.
+  so a far agent is never offered a lead ahead of a nearer one. If the lead has
+  coordinates and at least one agent is geocoded but the lead is outside **every**
+  agent's service radius, it is **left unassigned** and the admin is emailed the
+  details (`leadOutsideAreaEmail`) to handle directly — it is NOT offered to a far
+  agent. The global-queue fallback only applies when proximity can't be evaluated at
+  all (the lead has no coordinates, or no agent is geocoded). Covered by
+  `tests/routing.test.ts`.
 - **Offer window** (`lib/offerWindow.ts`): 7am–8pm ET. The 3-hour acceptance timer
   starts when the offer email is **sent**, not when the lead arrives.
 - **Caching/ISR**: city pages are ISR (revalidate 1h), homepage 24h. Editing

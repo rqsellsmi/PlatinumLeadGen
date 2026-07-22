@@ -16,7 +16,7 @@ import {
 import { recommendAgents, type RoutingAgent } from './routing';
 import { getRoutingQueue, persistQueue } from './queue';
 import { isWithinOfferWindow } from './offerWindow';
-import { sendEmail, agentLeadOfferEmail, agentAcceptanceEmail, adminAlertEmail } from './email';
+import { sendEmail, agentLeadOfferEmail, agentAcceptanceEmail, adminAlertEmail, leadOutsideAreaEmail } from './email';
 import { sendAgentSms } from './agentSms';
 import { sendClientInfoSms } from './clientInfoSms';
 import { offerText } from './smsTemplates';
@@ -135,6 +135,28 @@ export async function autoOfferLead(
   });
 
   if (result.agentId == null) {
+    // Lead is outside every geocoded agent's service area — deliberately leave it
+    // UNASSIGNED (no global fallback) and notify the admin with the details so
+    // they can handle it directly (owner decision).
+    if (result.outcome === 'outside-area') {
+      console.warn(`[autoOffer] Lead ${leadId} is outside every active agent's area — left unassigned`);
+      const leadName = `${lead.firstName ?? ''} ${lead.lastName ?? ''}`.trim() || 'New lead';
+      await sendEmail(
+        leadOutsideAreaEmail({
+          leadName,
+          leadEmail: lead.email,
+          leadPhone: lead.phone,
+          propertyAddress: lead.propertyAddress,
+          propertyCity: lead.propertyCity,
+          estimatedValue: lead.estimatedValue,
+          nearestAgentMiles: result.distanceMiles,
+          adminLeadUrl: `${siteUrl()}/admin/leads/${leadId}`,
+          relatedLeadId: leadId,
+        }),
+      );
+      return { ok: false, sent: false, reason: 'outside-area' };
+    }
+
     console.warn(`[autoOffer] No agent found for lead ${leadId}`);
     const msg = `No eligible agent was found for lead #${leadId}${
       lead.propertyAddress ? ` (${lead.propertyAddress})` : ''

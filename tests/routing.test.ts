@@ -152,14 +152,15 @@ describe('recommendAgents', () => {
     expect(r.rotationList).toEqual([2, 1]); // 1 served -> moved to back
   });
 
-  it('per-agent radius: an own radius smaller than the distance drops the proximity match', () => {
+  it('per-agent radius: an own radius smaller than the distance leaves the lead outside all areas', () => {
     const r = recommendAgents({
       agents: [{ ...far, radiusMiles: 10 }], // ~35mi away but only willing to go 10
       propertyLat: 42.5295,
       propertyLng: -83.7799,
       radiusMiles: 100, // global default would have included them
     });
-    expect(r.agentId).toBe(2); // still served via fallback
+    expect(r.agentId).toBeNull(); // NOT dumped on the out-of-range agent
+    expect(r.outcome).toBe('outside-area');
     expect(r.usedProximity).toBe(false);
   });
 
@@ -174,15 +175,17 @@ describe('recommendAgents', () => {
     expect(r.usedProximity).toBe(true);
   });
 
-  it('proximity fallback: empty pool -> serves the front slot', () => {
+  it('outside area: lead has coords + agent geocoded but out of range -> unassigned (no global fallback)', () => {
     const r = recommendAgents({
       agents: [far],
       propertyLat: 42.5295,
       propertyLng: -83.7799,
       radiusMiles: 5, // far agent is outside -> empty proximity pool
     });
-    expect(r.agentId).toBe(2);
+    expect(r.agentId).toBeNull(); // left for the admin, NOT served to the far agent
+    expect(r.outcome).toBe('outside-area');
     expect(r.usedProximity).toBe(false);
+    expect(r.distanceMiles).toBeGreaterThan(5); // nearest-agent distance, for admin context
   });
 
   it('global fallback: lead has no coordinates -> uses all active agents', () => {
@@ -193,7 +196,33 @@ describe('recommendAgents', () => {
       radiusMiles: 20,
     });
     expect(r.agentId).not.toBeNull();
+    expect(r.outcome).toBe('assigned');
     expect(r.usedProximity).toBe(false);
+  });
+
+  it('global fallback: no agent is geocoded -> assigns (proximity not evaluable, not outside-area)', () => {
+    const ungeocoded: RoutingAgent = { id: 3, lat: null, lng: null, score: 0 };
+    const r = recommendAgents({
+      agents: [ungeocoded],
+      propertyLat: 42.5295,
+      propertyLng: -83.7799,
+      radiusMiles: 20,
+    });
+    expect(r.agentId).toBe(3); // assigned via global fallback rather than sent to admin
+    expect(r.outcome).toBe('assigned');
+    expect(r.usedProximity).toBe(false);
+  });
+
+  it('proximity match reports outcome "assigned"', () => {
+    const r = recommendAgents({
+      agents: [near, far],
+      propertyLat: 42.5295,
+      propertyLng: -83.7799,
+      radiusMiles: 20,
+    });
+    expect(r.agentId).toBe(1);
+    expect(r.outcome).toBe('assigned');
+    expect(r.usedProximity).toBe(true);
   });
 
   it('excluded agent ids are never selected (reassignment)', () => {
@@ -216,5 +245,6 @@ describe('recommendAgents', () => {
       excludedAgentIds: [1],
     });
     expect(r.agentId).toBeNull();
+    expect(r.outcome).toBe('no-agents');
   });
 });
