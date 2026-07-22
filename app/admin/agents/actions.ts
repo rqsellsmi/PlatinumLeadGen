@@ -6,6 +6,7 @@ import { db } from '@/lib/db';
 import { agents } from '@/drizzle/schema';
 import { requireAdmin } from '@/components/admin/requireAdmin';
 import { toE164 } from '@/lib/sms';
+import { setAgentAvailability } from '@/lib/agentAvailability';
 
 function num(v: FormDataEntryValue | null): number | null {
   if (v == null || v === '') return null;
@@ -44,6 +45,20 @@ export async function toggleAgentActive(formData: FormData) {
     .update(agents)
     .set({ isActive: !isActive, updatedAt: new Date() })
     .where(eq(agents.id, id));
+  revalidatePath('/admin/agents');
+  revalidatePath(`/admin/agents/${id}`);
+}
+
+/**
+ * Flip an agent's availability from the admin — identical to the agent doing it
+ * in their own portal (`setAgentAvailability`, incl. the first-activation credit).
+ */
+export async function toggleAgentAvailable(formData: FormData) {
+  await requireAdmin();
+  const id = Number(formData.get('agentId'));
+  const isAvailable = String(formData.get('isAvailable')) === 'true';
+  if (!id) throw new Error('Invalid agent');
+  await setAgentAvailability(id, !isAvailable);
   revalidatePath('/admin/agents');
   revalidatePath(`/admin/agents/${id}`);
 }

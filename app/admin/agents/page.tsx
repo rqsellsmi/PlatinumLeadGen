@@ -69,6 +69,7 @@ export default async function AgentsPage() {
       officeName: officeName ?? null,
       officeCity: officeCity ?? null,
       isActive: agent.isActive,
+      isAvailable: agent.isAvailable,
       score: agent.scoreLifetime, // directory shows lifetime + its cohort tier (spec v2 §6)
       tierLabel: tierFor(agent.scoreLifetime, tierCtx).label,
       tierColor: tierFor(agent.scoreLifetime, tierCtx).color,

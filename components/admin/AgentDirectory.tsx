@@ -3,7 +3,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { Button, Input, Select, Badge } from '@/components/ui';
-import { toggleAgentActive } from '@/app/admin/agents/actions';
+import { toggleAgentActive, toggleAgentAvailable } from '@/app/admin/agents/actions';
 
 export interface AgentRow {
   id: number;
@@ -13,6 +13,8 @@ export interface AgentRow {
   officeName: string | null;
   officeCity: string | null;
   isActive: boolean;
+  /** Self/admin availability — receiving new leads (independent of isActive). */
+  isAvailable: boolean;
   score: number;
   /** Cohort-relative tier (computed server-side from lifetime percentiles). */
   tierLabel: string;
@@ -44,7 +46,7 @@ type SortKey = 'default' | 'name' | 'score' | 'activeLeads' | 'conversion' | 're
 type StatusFilter = 'all' | 'active' | 'inactive';
 
 const SORTS: { key: SortKey; label: string }[] = [
-  { key: 'default', label: 'Default (active first)' },
+  { key: 'default', label: 'Default (available first)' },
   { key: 'name', label: 'Name (A–Z)' },
   { key: 'score', label: 'Score (high→low)' },
   { key: 'activeLeads', label: 'Active leads (high→low)' },
@@ -56,7 +58,8 @@ export default function AgentDirectory({ agents }: { agents: AgentRow[] }) {
   const [view, setView] = React.useState<'tiles' | 'list'>('tiles');
   const [search, setSearch] = React.useState('');
   const [office, setOffice] = React.useState('');
-  const [status, setStatus] = React.useState<StatusFilter>('all');
+  // Default view: active roster only (leavers are deactivated), available first.
+  const [status, setStatus] = React.useState<StatusFilter>('active');
   const [sort, setSort] = React.useState<SortKey>('default');
 
   const offices = React.useMemo(
@@ -99,8 +102,13 @@ export default function AgentDirectory({ agents }: { agents: AgentRow[] }) {
           (a, b) => (a.avgResponseMins ?? Infinity) - (b.avgResponseMins ?? Infinity) || byName(a, b),
         );
         break;
-      default: // active first, then name
-        sorted.sort((a, b) => Number(b.isActive) - Number(a.isActive) || byName(a, b));
+      default: // available first, then active, then name
+        sorted.sort(
+          (a, b) =>
+            Number(b.isAvailable) - Number(a.isAvailable) ||
+            Number(b.isActive) - Number(a.isActive) ||
+            byName(a, b),
+        );
     }
     return sorted;
   }, [agents, search, office, status, sort]);
@@ -189,9 +197,16 @@ export default function AgentDirectory({ agents }: { agents: AgentRow[] }) {
                       {[agent.officeName, agent.officeCity].filter(Boolean).join(' · ') || agent.email}
                     </p>
                   </div>
-                  <Badge tone={agent.isActive ? 'success' : 'neutral'}>
-                    {agent.isActive ? 'Active' : 'Inactive'}
-                  </Badge>
+                  <div className="flex flex-col items-end gap-1">
+                    <Badge tone={agent.isActive ? 'success' : 'neutral'}>
+                      {agent.isActive ? 'Active' : 'Inactive'}
+                    </Badge>
+                    {agent.isActive && (
+                      <Badge tone={agent.isAvailable ? 'success' : 'warning'}>
+                        {agent.isAvailable ? 'Available' : 'Paused'}
+                      </Badge>
+                    )}
+                  </div>
                 </div>
 
                 <div className="mt-4 grid grid-cols-3 gap-2.5">
@@ -205,19 +220,33 @@ export default function AgentDirectory({ agents }: { agents: AgentRow[] }) {
                   <span className={`font-bold ${tier.color}`}>{tier.label}</span>
                 </p>
 
-                <div className="mt-4 flex gap-2.5">
-                  <form action={toggleAgentActive} className="flex-1">
+                <div className="mt-4 space-y-2.5">
+                  <form action={toggleAgentAvailable}>
                     <input type="hidden" name="agentId" value={agent.id} />
-                    <input type="hidden" name="isActive" value={String(agent.isActive)} />
-                    <Button type="submit" size="sm" variant="outline" className="w-full">
-                      {agent.isActive ? 'Deactivate' : 'Activate'}
+                    <input type="hidden" name="isAvailable" value={String(agent.isAvailable)} />
+                    <Button
+                      type="submit"
+                      size="sm"
+                      variant={agent.isAvailable ? 'outline' : 'primary'}
+                      className="w-full"
+                    >
+                      {agent.isAvailable ? 'Pause new leads' : 'Resume new leads'}
                     </Button>
                   </form>
-                  <Link href={`/admin/agents/${agent.id}`} className="flex-1">
-                    <Button type="button" variant="secondary" size="sm" className="w-full">
-                      View profile
-                    </Button>
-                  </Link>
+                  <div className="flex gap-2.5">
+                    <form action={toggleAgentActive} className="flex-1">
+                      <input type="hidden" name="agentId" value={agent.id} />
+                      <input type="hidden" name="isActive" value={String(agent.isActive)} />
+                      <Button type="submit" size="sm" variant="outline" className="w-full">
+                        {agent.isActive ? 'Deactivate' : 'Activate'}
+                      </Button>
+                    </form>
+                    <Link href={`/admin/agents/${agent.id}`} className="flex-1">
+                      <Button type="button" variant="secondary" size="sm" className="w-full">
+                        View profile
+                      </Button>
+                    </Link>
+                  </div>
                 </div>
               </div>
             );
@@ -256,9 +285,16 @@ export default function AgentDirectory({ agents }: { agents: AgentRow[] }) {
                       {[agent.officeName, agent.officeCity].filter(Boolean).join(' · ') || '—'}
                     </td>
                     <td className="px-4 py-2.5">
-                      <Badge tone={agent.isActive ? 'success' : 'neutral'}>
-                        {agent.isActive ? 'Active' : 'Inactive'}
-                      </Badge>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Badge tone={agent.isActive ? 'success' : 'neutral'}>
+                          {agent.isActive ? 'Active' : 'Inactive'}
+                        </Badge>
+                        {agent.isActive && (
+                          <Badge tone={agent.isAvailable ? 'success' : 'warning'}>
+                            {agent.isAvailable ? 'Available' : 'Paused'}
+                          </Badge>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-2.5 text-right font-numeric">
                       {Math.round(agent.score)}
@@ -273,6 +309,17 @@ export default function AgentDirectory({ agents }: { agents: AgentRow[] }) {
                     </td>
                     <td className="px-4 py-2.5 text-right">
                       <div className="flex justify-end gap-2">
+                        <form action={toggleAgentAvailable}>
+                          <input type="hidden" name="agentId" value={agent.id} />
+                          <input type="hidden" name="isAvailable" value={String(agent.isAvailable)} />
+                          <Button
+                            type="submit"
+                            size="sm"
+                            variant={agent.isAvailable ? 'outline' : 'primary'}
+                          >
+                            {agent.isAvailable ? 'Pause' : 'Resume'}
+                          </Button>
+                        </form>
                         <form action={toggleAgentActive}>
                           <input type="hidden" name="agentId" value={agent.id} />
                           <input type="hidden" name="isActive" value={String(agent.isActive)} />

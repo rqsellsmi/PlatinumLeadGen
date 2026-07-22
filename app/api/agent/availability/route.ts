@@ -3,11 +3,8 @@
  * (Section 16.5)  Body: { available: boolean }. Auth: agent session cookie.
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { eq } from 'drizzle-orm';
-import { db } from '@/lib/db';
-import { agents } from '@/drizzle/schema';
 import { getCurrentAgent } from '@/lib/agentSession';
-import { grantStartingCreditIfFirstActivation } from '@/lib/scoring';
+import { setAgentAvailability } from '@/lib/agentAvailability';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -21,20 +18,7 @@ export async function POST(req: NextRequest) {
   if (typeof body?.available !== 'boolean') {
     return NextResponse.json({ error: 'invalid_request' }, { status: 400 });
   }
-  await db
-    .update(agents)
-    .set({ isAvailable: body.available, updatedAt: new Date() })
-    .where(eq(agents.id, agent.id));
-
-  if (body.available === true) {
-    // One-time queue head start (rolling-365 only) — best-effort, must never
-    // break the availability toggle itself.
-    try {
-      await grantStartingCreditIfFirstActivation(agent.id);
-    } catch (err) {
-      console.error('grantStartingCreditIfFirstActivation threw', { agentId: agent.id, err });
-    }
-  }
-
+  // Same shared path the admin toggle uses.
+  await setAgentAvailability(agent.id, body.available);
   return NextResponse.json({ success: true, isAvailable: body.available });
 }
