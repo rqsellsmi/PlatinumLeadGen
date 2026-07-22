@@ -37,10 +37,10 @@ export async function POST(req: NextRequest) {
     switch (r.reason) {
       case 'invalid-status':
         return NextResponse.json({ error: 'invalid_request' }, { status: 400 });
+      case 'invalid-transition':
+        return NextResponse.json({ error: 'invalid_transition' }, { status: 400 });
       case 'offer-not-found':
         return NextResponse.json({ error: 'offer_not_found' }, { status: 404 });
-      case 'lost-gated':
-        return NextResponse.json({ error: 'must_contact_before_lost' }, { status: 400 });
       case 'lost-reason-required':
         return NextResponse.json({ error: 'lost_reason_required' }, { status: 400 });
       default:

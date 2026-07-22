@@ -207,8 +207,10 @@ function statusReply(
   switch (r.reason) {
     case 'invalid-status':
       return "That status can't be set by text.";
-    case 'lost-gated':
-      return `Can't mark #${leadId} lost yet — reach or attempt contact first.`;
+    case 'invalid-transition':
+      return `That move isn't allowed for lead #${leadId} from its current stage.`;
+    case 'lost-reason-required':
+      return `To mark #${leadId} lost, include a valid reason for its current stage.`;
     case 'offer-not-found':
       return 'That lead is no longer active.';
     default:

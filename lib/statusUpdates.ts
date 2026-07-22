@@ -1,36 +1,46 @@
 /**
- * Shared agent status-update domain logic (Section 9). Extracted from the
- * portal route (app/api/agent/status-update/route.ts) so the SMS webhook can
- * reuse the exact same behavior. Validates the request, loads the offer,
- * enforces the Lost precondition, inserts a status_updates row, updates the
- * lead's lifecycle timestamps, logs the event, marks firstUpdateSubmittedAt,
- * and applies pipeline scoring.
+ * Shared agent status-update domain logic — Scoring v4 (Seller Track).
+ * See docs/superpowers/specs/2026-07-22-agent-scoring-v4-design.md.
+ *
+ * One entry point for the agent portal, the status-update API, and the SMS
+ * webhook. Validates the transition against the v4 flow, awards once-only
+ * milestone points + the fast-engagement bonus, resets the unified update
+ * clock, records backward moves (no points), and enforces origin-scoped Lost
+ * reasons.
  */
 import { and, eq, sql } from 'drizzle-orm';
 import { db } from './db';
 import { leadOffers, leads, statusUpdates } from '../drizzle/schema';
-import { applyScore } from './scoring';
+import { applyScore, claimLeadMilestone, fastEngagementDelta } from './scoring';
 import { logLeadEvent } from './leadEvents';
-import { isLostReason, canMarkLost } from './leadLifecycle';
+import {
+  AGENT_SETTABLE_STATUSES_V4,
+  isValidTransition,
+  isBackwardMove,
+  isValidLostReasonForOrigin,
+  v4LostReasonLabel,
+} from './leadLifecycle';
 
-// Agents move a lead through these; 'reopened' is set by intake, never here.
-export const AGENT_SETTABLE_STATUSES = [
-  'new',
-  'attempted_contact',
-  'contacted',
-  'qualified',
-  'working',
-  'closed',
-  'lost',
-] as const;
-export type AgentSettableStatus = (typeof AGENT_SETTABLE_STATUSES)[number];
+export const AGENT_SETTABLE_STATUSES = AGENT_SETTABLE_STATUSES_V4;
+export type AgentSettableStatus = (typeof AGENT_SETTABLE_STATUSES_V4)[number];
 
 export type RecordStatusResult = {
   ok: boolean;
-  reason?: 'invalid-status' | 'offer-not-found' | 'lost-gated' | 'lost-reason-required';
+  reason?: 'invalid-status' | 'invalid-transition' | 'offer-not-found' | 'lost-reason-required';
+  /** True when this move was a backward reactivation to Nurturing (no points). */
+  backward?: boolean;
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const WEEK_MS = 7 * DAY_MS;
+const SIGNED_WINDOW_MS = 14 * DAY_MS;
+
+/** The v4 update-clock deadline for a status the lead just moved to (§5). */
+function nextUpdateDeadline(status: string, now: Date): Date | null {
+  if (status === 'closed' || status === 'lost') return null; // clock stops
+  if (status === 'signed') return new Date(now.getTime() + SIGNED_WINDOW_MS);
+  return new Date(now.getTime() + WEEK_MS); // everything else incl. backward-to-nurturing
+}
 
 export async function recordStatusUpdate(o: {
   agentId: number;
@@ -39,7 +49,7 @@ export async function recordStatusUpdate(o: {
   note?: string | null;
   lostReason?: string | null;
 }): Promise<RecordStatusResult> {
-  if (!AGENT_SETTABLE_STATUSES.includes(o.newStatus as AgentSettableStatus)) {
+  if (!(AGENT_SETTABLE_STATUSES_V4 as readonly string[]).includes(o.newStatus)) {
     return { ok: false, reason: 'invalid-status' };
   }
   const newStatus = o.newStatus as AgentSettableStatus;
@@ -55,38 +65,35 @@ export async function recordStatusUpdate(o: {
   }
 
   const leadRows = await db
-    .select({ acceptedAt: leads.acceptedAt, contactedAt: leads.contactedAt })
+    .select({ status: leads.status, acceptedAt: leads.acceptedAt, contactedAt: leads.contactedAt })
     .from(leads)
     .where(eq(leads.id, offer.leadId))
     .limit(1);
   const leadRow = leadRows[0];
+  const fromStatus = leadRow?.status ?? 'new';
 
-  // Lost precondition (spec v2 §4.2): a lead can only be marked Lost after it
-  // has been Contacted, OR after enough genuine Attempted-Contact updates
-  // (agent tried repeatedly but never reached the seller). Requires a reason.
+  // The move must be legal in the v4 flow (§3).
+  if (!isValidTransition(fromStatus, newStatus)) {
+    return { ok: false, reason: 'invalid-transition' };
+  }
+
+  // Lost is reason-gated by the origin status (§6); Lost A2 needs ≥6 attempts.
   if (newStatus === 'lost') {
     let attemptedCount = 0;
-    if (!leadRow?.contactedAt) {
-      const attemptedRows = await db
-        .select({ n: sql<number>`count(*)::int` })
-        .from(statusUpdates)
-        .where(
-          and(
-            eq(statusUpdates.leadId, offer.leadId),
-            eq(statusUpdates.newStatus, 'attempted_contact'),
-          ),
-        );
-      attemptedCount = Number(attemptedRows[0]?.n ?? 0);
-    }
-    if (!canMarkLost({ contactedAt: leadRow?.contactedAt, attemptedContactCount: attemptedCount })) {
-      return { ok: false, reason: 'lost-gated' };
-    }
-    if (!isLostReason(o.lostReason)) {
+    const attemptedRows = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(statusUpdates)
+      .where(
+        and(eq(statusUpdates.leadId, offer.leadId), eq(statusUpdates.newStatus, 'attempted_contact')),
+      );
+    attemptedCount = Number(attemptedRows[0]?.n ?? 0);
+    if (!isValidLostReasonForOrigin(fromStatus, o.lostReason, attemptedCount)) {
       return { ok: false, reason: 'lost-reason-required' };
     }
   }
 
   const now = new Date();
+  const backward = isBackwardMove(fromStatus, newStatus);
 
   await db.insert(statusUpdates).values({
     leadOfferId: offer.id,
@@ -96,83 +103,94 @@ export async function recordStatusUpdate(o: {
     note: o.note ?? null,
   });
 
-  // Lifecycle timestamps: stamp contactedAt on first Contacted; record the Lost
-  // reason/time. lastStatusChangedAt is the stall-clock reference.
+  // Lead row: status, stall/clock reference, unified update deadline (§5), and
+  // Connected/Lost bookkeeping.
   const leadUpdate: Record<string, unknown> = {
     status: newStatus,
     lastStatusChangedAt: now,
+    updateDeadline: nextUpdateDeadline(newStatus, now),
     updatedAt: now,
   };
-  if (newStatus === 'contacted' && !leadRow?.contactedAt) leadUpdate.contactedAt = now;
+  if (newStatus === 'connected' && !leadRow?.contactedAt) leadUpdate.contactedAt = now;
   if (newStatus === 'lost') {
     leadUpdate.lostReason = o.lostReason;
     leadUpdate.lostAt = now;
   }
   await db.update(leads).set(leadUpdate).where(eq(leads.id, offer.leadId));
 
-  await logLeadEvent(
-    offer.leadId,
-    newStatus === 'lost' ? 'marked_lost' : 'status_updated',
-    newStatus === 'lost'
-      ? `Lost — ${o.lostReason}${o.note ? ` · ${o.note}` : ''}`
-      : o.note
-        ? `${newStatus} — ${o.note}`
-        : newStatus,
-  );
-
-  // Mark first update if this is the agent's first one for this offer.
-  const isFirstUpdate = offer.firstUpdateSubmittedAt == null;
-  if (isFirstUpdate) {
+  // First-update stamp drives the 48h escalation email (kept in v4, §7).
+  if (offer.firstUpdateSubmittedAt == null) {
     await db
       .update(leadOffers)
       .set({ firstUpdateSubmittedAt: now, updatedAt: now })
       .where(eq(leadOffers.id, offer.id));
   }
 
-  // Pipeline scoring.
-  const acceptedAt = leadRow?.acceptedAt ?? offer.acceptedAt ?? null;
+  // Timeline.
+  await logLeadEvent(
+    offer.leadId,
+    newStatus === 'lost' ? 'marked_lost' : 'status_updated',
+    newStatus === 'lost'
+      ? `Lost — ${v4LostReasonLabel(o.lostReason ?? '')}${o.note ? ` · ${o.note}` : ''}`
+      : backward
+        ? `Reactivated to Nurturing (from ${fromStatus})${o.note ? ` · ${o.note}` : ''}`
+        : o.note
+          ? `${newStatus} — ${o.note}`
+          : newStatus,
+  );
 
+  // ===== Scoring (v4) =====
+  const acceptedAt = leadRow?.acceptedAt ?? offer.acceptedAt ?? null;
   try {
-    if (newStatus === 'attempted_contact') {
-      await applyScore({
-        agentId: o.agentId,
-        reason: 'pipeline_attempted',
-        leadId: offer.leadId,
-        leadOfferId: offer.id,
-      });
-    } else if (newStatus === 'contacted') {
-      await applyScore({
-        agentId: o.agentId,
-        reason: 'pipeline_contacted',
-        leadId: offer.leadId,
-        leadOfferId: offer.id,
-      });
-      if (acceptedAt && now.getTime() - acceptedAt.getTime() <= DAY_MS) {
-        await applyScore({
-          agentId: o.agentId,
-          reason: 'fast_contact_bonus',
-          leadId: offer.leadId,
-          leadOfferId: offer.id,
-        });
+    // Fast-engagement bonus — once per lead, on the first Attempted/Connected log,
+    // measured from accept (§4.2). Atomic claim so it never double-fires.
+    if (newStatus === 'attempted_contact' || newStatus === 'connected') {
+      const claimedEngagement = await db
+        .update(leads)
+        .set({ firstEngagementLogged: true, updatedAt: now })
+        .where(and(eq(leads.id, offer.leadId), eq(leads.firstEngagementLogged, false)))
+        .returning({ id: leads.id });
+      if (claimedEngagement.length > 0 && acceptedAt) {
+        const bonus = fastEngagementDelta(now.getTime() - acceptedAt.getTime());
+        if (bonus > 0) {
+          await applyScore({
+            agentId: o.agentId,
+            reason: 'fast_engagement',
+            delta: bonus,
+            leadId: offer.leadId,
+            leadOfferId: offer.id,
+          });
+        }
       }
-    } else if (newStatus === 'qualified') {
-      await applyScore({
-        agentId: o.agentId,
-        reason: 'pipeline_qualified',
-        leadId: offer.leadId,
-        leadOfferId: offer.id,
-      });
-    } else if (newStatus === 'closed') {
-      await applyScore({
-        agentId: o.agentId,
-        reason: 'system_closing',
-        leadId: offer.leadId,
-        leadOfferId: offer.id,
-      });
+    }
+
+    // Status milestones — once per lead (§4.3). Backward moves pay nothing (D3).
+    if (!backward) {
+      if (newStatus === 'attempted_contact') {
+        if (await claimLeadMilestone(offer.leadId, 'attempted_contact', now)) {
+          await applyScore({ agentId: o.agentId, reason: 'pipeline_attempted', leadId: offer.leadId, leadOfferId: offer.id });
+        }
+      } else if (newStatus === 'connected') {
+        if (await claimLeadMilestone(offer.leadId, 'connected', now)) {
+          await applyScore({ agentId: o.agentId, reason: 'pipeline_contacted', leadId: offer.leadId, leadOfferId: offer.id });
+        }
+      } else if (newStatus === 'appointment_set') {
+        if (await claimLeadMilestone(offer.leadId, 'appointment_set', now)) {
+          await applyScore({ agentId: o.agentId, reason: 'milestone_appointment_set', leadId: offer.leadId, leadOfferId: offer.id });
+        }
+      } else if (newStatus === 'signed') {
+        if (await claimLeadMilestone(offer.leadId, 'signed', now)) {
+          await applyScore({ agentId: o.agentId, reason: 'milestone_signed', leadId: offer.leadId, leadOfferId: offer.id });
+        }
+      } else if (newStatus === 'closed') {
+        // Closed Won is terminal (reached once); +25.
+        await applyScore({ agentId: o.agentId, reason: 'system_closing', leadId: offer.leadId, leadOfferId: offer.id });
+      }
+      // nurturing / lost → 0 points.
     }
   } catch (err) {
-    console.error('[lib/statusUpdates] applyScore failed:', err);
+    console.error('[lib/statusUpdates] scoring failed:', err);
   }
 
-  return { ok: true };
+  return { ok: true, backward };
 }
