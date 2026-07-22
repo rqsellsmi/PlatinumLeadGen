@@ -90,6 +90,32 @@ export const webhookLeadSchema = leadSubmitSchema.extend({
   source: z.string().max(80).optional().nullable(),
 });
 
+/**
+ * An agent editing the contact details on a lead they own. Names use the
+ * shared letter/no-number rule; first name and email are required (they're the
+ * lead's primary handles), last name and phone are optional.
+ */
+export const agentLeadContactSchema = z.object({
+  leadOfferId: z.number().int().positive(),
+  firstName: z
+    .string()
+    .trim()
+    .min(1, { message: 'Enter a first name.' })
+    .max(120)
+    .refine(isValidPersonName, { message: INVALID_NAME_MESSAGE }),
+  lastName: z
+    .string()
+    .trim()
+    .max(120)
+    .refine(isValidPersonName, { message: INVALID_NAME_MESSAGE })
+    .optional()
+    .nullable(),
+  email: z.string().trim().email().max(200),
+  phone: z.string().trim().max(40).optional().nullable(),
+});
+
+export type AgentLeadContactInput = z.infer<typeof agentLeadContactSchema>;
+
 export const valuationSchema = z.object({
   address: z.string().min(3).max(300),
   propertyLat: z.number().optional().nullable(),

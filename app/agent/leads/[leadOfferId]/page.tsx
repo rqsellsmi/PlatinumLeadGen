@@ -11,6 +11,7 @@ import LocalTime from '@/components/LocalTime';
 import PropertyDetails from '@/components/PropertyDetails';
 import { getPropertyRecord } from '@/lib/propertyRecords';
 import { StatusUpdateForm } from '@/components/agent/StatusUpdateForm';
+import { EditContactForm } from '@/components/agent/EditContactForm';
 import { lostReasonsForOrigin, leadStatusLabel } from '@/lib/leadLifecycle';
 
 export const dynamic = 'force-dynamic';
@@ -105,22 +106,30 @@ export default async function AgentLeadDetailPage({
             </div>
           ) : null}
 
-          {/* Contact + property */}
+          {/* Contact + property (name/email/phone editable by the owning agent) */}
           <div className="rounded-card border border-line bg-white">
-            <div className="border-b border-line px-5 py-4">
-              <h2 className="font-bold text-charcoal">Contact &amp; property</h2>
-            </div>
-            <dl className="grid grid-cols-1 gap-x-6 gap-y-4 px-5 py-5 text-sm sm:grid-cols-2">
-              <Field label="Email" value={lead.email} href={lead.email ? `mailto:${lead.email}` : undefined} />
-              <Field label="Phone" value={lead.phone} href={lead.phone ? `tel:${lead.phone}` : undefined} />
-              <Field label="Property address" value={address} />
-              <Field label="Timeframe" value={lead.timeframe} />
-              <Field label="Source" value={lead.source} />
-              <Field
-                label="Accepted"
-                value={offer.acceptedAt ? <LocalTime value={offer.acceptedAt} /> : null}
-              />
-            </dl>
+            <EditContactForm
+              leadOfferId={offer.id}
+              initial={{
+                firstName: lead.firstName ?? '',
+                lastName: lead.lastName ?? '',
+                email: lead.email ?? '',
+                phone: lead.phone ?? '',
+              }}
+            >
+              <dl className="grid grid-cols-1 gap-x-6 gap-y-4 px-5 py-5 text-sm sm:grid-cols-2">
+                <Field label="Name" value={fullName === 'Unnamed lead' ? null : fullName} />
+                <Field label="Email" value={lead.email} href={lead.email ? `mailto:${lead.email}` : undefined} />
+                <Field label="Phone" value={lead.phone} href={lead.phone ? `tel:${lead.phone}` : undefined} />
+                <Field label="Property address" value={address} />
+                <Field label="Timeframe" value={lead.timeframe} />
+                <Field label="Source" value={lead.source} />
+                <Field
+                  label="Accepted"
+                  value={offer.acceptedAt ? <LocalTime value={offer.acceptedAt} /> : null}
+                />
+              </dl>
+            </EditContactForm>
           </div>
 
           {/* Full property record from the AVM provider */}

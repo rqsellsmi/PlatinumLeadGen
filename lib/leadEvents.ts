@@ -15,6 +15,7 @@ export type LeadEventType =
   | 'offer_expired'
   | 'manually_assigned'
   | 'status_updated'
+  | 'contact_updated'
   | 'marked_lost'
   | 'pipeline_stalled'
   | 'reopened';
