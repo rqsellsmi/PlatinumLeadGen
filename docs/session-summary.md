@@ -1,3 +1,49 @@
+# Session Summary — Agent Scoring v4 (Seller Track)
+
+Branch: `refinements-v1`. Migrations added: **0027–0028**. Design +
+decisions: `docs/superpowers/specs/2026-07-22-agent-scoring-v4-design.md`;
+plan: `docs/superpowers/plans/2026-07-22-agent-scoring-v4.md`.
+
+Rebuilt the agent point system around the new **Seller Track** status flow and
+replaced the three stale-lead penalties with one unified update clock. Built in
+8 phases (typecheck + tests green after each); final gate: typecheck clean,
+build compiles, **155 tests across 17 files**.
+
+## What shipped
+- **Status flow:** `new`→`attempted_contact`→`connected`→`nurturing`→
+  `appointment_set`→`signed`→`closed` (+ `lost`/`reopened`), with an enforced
+  transition map (`ALLOWED_TRANSITIONS`) and manual reason-free backward moves
+  to Nurturing. v2 statuses (`contacted`/`qualified`/`working`) retired but kept
+  in the enum (Postgres can't drop values); data mapped in `0028`.
+- **Points:** accept reduced to 4/3/2/1; new **fast-engagement** bonus 4/3/2/1
+  (once, on first Attempted/Connected from accept); **once-only milestones**
+  (Attempted +1, Connected +2, Nurturing 0, Appt +4, Signed +10, Closed +25)
+  guarded by atomic `leads.milestone_*` claims; worked example = 50 (tested).
+- **Unified update clock:** `update_deadline` (24h → 7d → 14d Signed → null at
+  Closed/Lost); overdue → flat −2 `missed_update_checkin`, recurring; a
+  pre-deadline warning email; escalation/weekly/digest kept.
+- **Lost:** single status, origin-scoped reason lists (Lost A/A2/B/C/D), A2
+  gated at 6 attempts, 0 points. SMS `LOST` redirects to the portal (reason is
+  stage-gated).
+- **Reopen (D2/D4):** `reopened` behaves like New, bumps `reactivation_count`
+  (Lost→Reopened, reporting-only, shown as an admin badge), restarts the clock,
+  preserves milestones (no re-pay).
+- **Surfaces:** `lib/scoring.ts`, `lib/statusUpdates.ts` (the engine),
+  `lib/offerActions.ts`, `followup-check` cron, `leads/submit` reopen,
+  `lib/smsCommands.ts` (v4 vocabulary), agent StatusUpdateForm/PipelineBoard/
+  dashboard, admin status pickers + filters, `scoreReasonLabel`/`statusTone`.
+
+## What still needs to be done (owner)
+- **Apply migrations 0027 + 0028** on every Neon branch the app + GitHub Actions
+  use (several admin pages `select` whole lead rows, so the columns must exist).
+- No env changes; routing slots + four-track aggregation unchanged.
+- Buyer Track is a future, separate design (blue boxes are placeholders).
+
+## Lessons
+See `docs/lessons-learned.md` §19.
+
+---
+
 # Session Summary — Telnyx Agent Texting (Phase 1) + Queue Head Start & Portal Score
 
 Branch: `claude/texting-telnyx-requirements-ktc9fo`. Migrations added:

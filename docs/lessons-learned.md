@@ -788,3 +788,50 @@ both:
   the two are independent layers (authenticity of the sender vs. identifying
   *which* agent it is), and fixing an identity-matching bug is not a license
   to relax the boundary that gates whether the request is trusted at all.
+
+## 19. Agent Scoring v4 (Seller Track) — status-model rebuild
+
+Rebuilt the point system around a new status flow and replaced three stale
+penalties with one clock. Built in 8 phases, typecheck+tests green after each.
+
+- **Postgres can't drop enum values, so "retire" means "stop writing," not
+  "remove."** Adding the v4 statuses (`connected`/`nurturing`/`appointment_set`/
+  `signed`) alongside the retired v2 ones (`contacted`/`qualified`/`working`),
+  and keeping ALL of them in the `schema.ts` `pgEnum`, kept typecheck green
+  because every status literal in not-yet-migrated code stayed valid. The
+  retirement lives in the app layer (`ALLOWED_TRANSITIONS`,
+  `AGENT_SETTABLE_STATUSES`), not the enum. Same pattern for `score_reason`.
+- **`ALTER TYPE … ADD VALUE` can't be used in the same transaction that adds
+  it.** The new statuses are added in `0027`; the data backfill that *uses* them
+  (`UPDATE … SET status='connected'`) is a separate `0028` that runs after
+  `0027` commits. Splitting the migration is mandatory, not stylistic.
+- **Once-only milestones need an atomic claim, not a read-then-write.**
+  `claimLeadMilestone` flips a `leads.milestone_*` boolean true only if it was
+  false (`UPDATE … WHERE milestone_x=false RETURNING id`) — the exact
+  concurrency-safe pattern proven by `grantStartingCreditIfFirstActivation`. A
+  backward/forward reactivation cycle (Signed→Nurturing→Signed) then physically
+  can't re-pay, even under a double submit. The anti-farming guarantee is
+  structural, not a convention.
+- **A widened DB enum surfaces every narrow local union.** Adding 4 statuses
+  broke a chain of hand-maintained `type LeadStatus`/`AgentLeadStatus` unions in
+  the UI (StatusUpdateForm, PipelineBoard, AgentDashboard, LeadList,
+  `lib/agentLeads`) — typecheck walked me to each one. Cheap to fix, but a
+  reminder that duplicating an enum as a hand-written union means N places to
+  update; deriving from the schema enum would have localized it.
+- **Phase the rewrite so typecheck stays green throughout.** Schema + additive
+  constants first (Phase 1), then the point table (2), then the engine rewrite
+  (3), then cron/reopen/SMS/UI (4–7), docs last (8). Changing the shared
+  `RecordStatusResult` reason union meant updating its two callers
+  (status-update route + telnyx `statusReply`) in the same phase — a result-type
+  change ripples to every switch on it.
+- **A multi-word command alias can collide with a single-word keyword.** The SMS
+  status alias `no answer` (→ attempted_contact) was silently caught by the `NO`
+  decline keyword (first token `no`), because accept/decline is checked before
+  status phrases. Dropped the alias. Any command grammar that layers keyword
+  sets needs to check for first-token collisions between them.
+- **"Keep all emails, only swap the penalty" still needs a mapping decision.**
+  The old stale *warning* emails were anchored to `offerSentAt`/`lastPenaltyAt`,
+  which v4 retires. Keeping a warning email meant re-pointing it to the new
+  `update_deadline` (fire ~24h out, dedup via `staleWarningSentAt <
+  lastStatusChangedAt`). "Keep the emails" is not automatically "keep the exact
+  triggers" — confirm the anchor when the underlying clock changes.
