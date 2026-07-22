@@ -1,6 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
 import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { agents } from '@/drizzle/schema';
@@ -34,6 +35,7 @@ export async function createAgent(formData: FormData) {
     longitude: num(formData.get('lng')),
   });
   revalidatePath('/admin/agents');
+  redirect('/admin/agents');
 }
 
 export async function toggleAgentActive(formData: FormData) {
