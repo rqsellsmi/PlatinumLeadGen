@@ -40,7 +40,7 @@ describe('clientInfoText', () => {
   it('includes the lead URL when provided, before the reply hint', () => {
     const t = clientInfoText({ leadId: 5739, firstName: 'Jane', lastName: 'Doe', phone: null, email: null, address: null, city: null, estimate: null, leadUrl: 'https://remax-platinumonline.com/agent/leads/17' });
     expect(t).toContain('View: https://remax-platinumonline.com/agent/leads/17');
-    expect(t.indexOf('View:')).toBeLessThan(t.indexOf('Reply CONTACTED'));
+    expect(t.indexOf('View:')).toBeLessThan(t.indexOf('Reply CONNECTED'));
   });
   it('omits the lead URL cleanly when not provided', () => {
     const t = clientInfoText({ leadId: 2, firstName: 'Sam', lastName: null, phone: null, email: null, address: null, city: null, estimate: null });

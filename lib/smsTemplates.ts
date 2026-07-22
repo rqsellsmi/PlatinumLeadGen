@@ -38,7 +38,7 @@ export function clientInfoText(p: {
     property ? `Property: ${property}.` : '',
     est ? `Est. ${est}.` : '',
     p.leadUrl ? `View: ${p.leadUrl}.` : '',
-    `Reply CONTACTED ${p.leadId} <notes> to log updates.`,
+    `Reply CONNECTED ${p.leadId} <notes> to log updates.`,
   ].filter(Boolean);
   return parts.join(' ');
 }
@@ -51,11 +51,11 @@ export function updateReminderText(p: {
   const at = p.address ? `, ${p.address}` : '';
   const view = p.leadUrl ? ` View: ${p.leadUrl}.` : '';
   return `Lead #${p.leadId} — ${name}${at} needs a status update.${view} ` +
-    `Reply e.g. CONTACTED ${p.leadId} left a voicemail.`;
+    `Reply e.g. CONNECTED ${p.leadId} left a voicemail.`;
 }
 
 export function helpText(): string {
-  return 'RE/MAX Platinum lead texts. Reply e.g. YES <id>, NO <id>, or CONTACTED <id> notes. ' +
+  return 'RE/MAX Platinum lead texts. Reply e.g. YES <id>, NO <id>, or CONNECTED <id> notes. ' +
     'Reply STOP to opt out, START to resume.';
 }
 

@@ -69,11 +69,18 @@ async function reopenLostLead(lead: Lead, email: string | null, phone: string | 
   await db
     .update(leads)
     .set({
-      status: 'reopened',
+      status: 'reopened', // behaves like New Lead in v4 (re-runs the track)
       reopenedAt: now,
       lastStatusChangedAt: now,
+      reactivationCount: sql`${leads.reactivationCount} + 1`, // Lost→Reopened count (v4 §3 / D4)
+      // Restart the unified update clock; the fast-engagement bonus can fire
+      // again for the fresh working cycle.
+      updateDeadline: new Date(now.getTime() + 24 * 60 * 60 * 1000),
+      firstEngagementLogged: false,
       stallPenaltyAt: null,
-      contactedAt: null, // Lost again requires a fresh Contacted
+      contactedAt: null, // Lost again requires a fresh Connected
+      // NOTE: milestone_* flags are intentionally NOT reset — a reopened lead
+      // walked back up to Signed/Closed does not re-pay milestones (v4 §3 / D2).
       updatedAt: now,
     })
     .where(eq(leads.id, lead.id));

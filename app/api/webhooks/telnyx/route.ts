@@ -172,6 +172,9 @@ async function handle(raw: string): Promise<NextResponse> {
       agent,
       r.ok ? `Declined lead #${leadId}. Reassigning.` : 'That lead is no longer available.',
     );
+  } else if (cmd.status === 'lost') {
+    // Lost needs a stage-specific reason (v4 §6) that can't be chosen by text.
+    await reply(agent, `To mark lead #${leadId} lost, open it in the portal — a reason is required.`);
   } else {
     // cmd.kind === 'status'
     const r = await recordStatusUpdate({
@@ -179,7 +182,6 @@ async function handle(raw: string): Promise<NextResponse> {
       leadOfferId: offerId,
       newStatus: cmd.status,
       note: cmd.notes || null,
-      lostReason: cmd.status === 'lost' ? 'other' : null,
     });
     await reply(agent, statusReply(r, leadId, cmd.status));
   }

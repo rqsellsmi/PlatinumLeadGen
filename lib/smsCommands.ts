@@ -7,8 +7,8 @@
  */
 
 export type LeadStatus =
-  | 'new' | 'attempted_contact' | 'contacted' | 'qualified'
-  | 'working' | 'closed' | 'lost' | 'reopened';
+  | 'new' | 'attempted_contact' | 'connected' | 'nurturing'
+  | 'appointment_set' | 'signed' | 'closed' | 'lost' | 'reopened';
 
 export type ParsedCommand =
   | { kind: 'accept'; code: number | null; notes: string }
@@ -25,18 +25,25 @@ const STOP = new Set(['stop', 'unsubscribe', 'cancel', 'end', 'quit']);
 const START = new Set(['start', 'unstop']);
 const HELP = new Set(['help', 'info']);
 
-/** Command phrase (lowercased) → status. Longest phrases first at match time. */
+/** Command phrase (lowercased) → v4 status. Longest phrases first at match time. */
 const STATUS_PHRASES: Array<[string, LeadStatus]> = [
+  ['appointment set', 'appointment_set'],
+  ['appt set', 'appointment_set'],
   ['left vm', 'attempted_contact'],
-  ['contacted', 'contacted'],
-  ['spoke', 'contacted'],
+  ['closed won', 'closed'],
+  ['appointment', 'appointment_set'],
+  ['appt', 'appointment_set'],
+  ['connected', 'connected'],
+  ['spoke', 'connected'],
+  ['reached', 'connected'],
   ['called', 'attempted_contact'],
   ['attempted', 'attempted_contact'],
-  ['qualified', 'qualified'],
-  ['working', 'working'],
+  ['nurturing', 'nurturing'],
+  ['nurture', 'nurturing'],
+  ['signed', 'signed'],
   ['closed', 'closed'],
+  ['won', 'closed'],
   ['lost', 'lost'],
-  ['reopened', 'reopened'],
 ];
 // Match multi-word phrases before single words.
 const STATUS_SORTED = [...STATUS_PHRASES].sort((a, b) => b[0].split(' ').length - a[0].split(' ').length);

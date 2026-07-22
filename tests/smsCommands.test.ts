@@ -24,14 +24,15 @@ describe('parseCommand — accept/decline', () => {
   });
 });
 
-describe('parseCommand — status', () => {
-  it('CONTACTED with code and notes', () => {
-    expect(parseCommand('CONTACTED 5739 left a voicemail, retry tmrw')).toEqual({
-      kind: 'status', status: 'contacted', code: 5739, notes: 'left a voicemail, retry tmrw',
+describe('parseCommand — status (v4 vocabulary)', () => {
+  it('CONNECTED with code and notes', () => {
+    expect(parseCommand('CONNECTED 5739 left a voicemail, retry tmrw')).toEqual({
+      kind: 'status', status: 'connected', code: 5739, notes: 'left a voicemail, retry tmrw',
     });
   });
-  it('SPOKE maps to contacted', () => {
-    expect(parseCommand('spoke 5739')).toMatchObject({ kind: 'status', status: 'contacted', code: 5739 });
+  it('SPOKE / REACHED map to connected', () => {
+    expect(parseCommand('spoke 5739')).toMatchObject({ kind: 'status', status: 'connected', code: 5739 });
+    expect(parseCommand('reached 5739')).toMatchObject({ kind: 'status', status: 'connected' });
   });
   it('multi-word LEFT VM maps to attempted_contact', () => {
     expect(parseCommand('left vm 5739 no answer')).toEqual({
@@ -42,16 +43,18 @@ describe('parseCommand — status', () => {
     expect(parseCommand('called 1')).toMatchObject({ kind: 'status', status: 'attempted_contact' });
     expect(parseCommand('attempted 1')).toMatchObject({ kind: 'status', status: 'attempted_contact' });
   });
-  it('WORKING/QUALIFIED/CLOSED/LOST/REOPENED map through', () => {
-    expect(parseCommand('working 1')).toMatchObject({ kind: 'status', status: 'working' });
-    expect(parseCommand('qualified 1')).toMatchObject({ kind: 'status', status: 'qualified' });
+  it('NURTURING / APPOINTMENT SET / SIGNED / CLOSED / LOST map through', () => {
+    expect(parseCommand('nurturing 1')).toMatchObject({ kind: 'status', status: 'nurturing' });
+    expect(parseCommand('appointment set 1')).toMatchObject({ kind: 'status', status: 'appointment_set' });
+    expect(parseCommand('appt 1')).toMatchObject({ kind: 'status', status: 'appointment_set' });
+    expect(parseCommand('signed 1')).toMatchObject({ kind: 'status', status: 'signed' });
+    expect(parseCommand('closed won 1')).toMatchObject({ kind: 'status', status: 'closed' });
     expect(parseCommand('closed 1')).toMatchObject({ kind: 'status', status: 'closed' });
     expect(parseCommand('lost 1')).toMatchObject({ kind: 'status', status: 'lost' });
-    expect(parseCommand('reopened 1')).toMatchObject({ kind: 'status', status: 'reopened' });
   });
   it('status with no code → code null, remainder is notes', () => {
-    expect(parseCommand('CONTACTED left a message')).toEqual({
-      kind: 'status', status: 'contacted', code: null, notes: 'left a message',
+    expect(parseCommand('CONNECTED left a message')).toEqual({
+      kind: 'status', status: 'connected', code: null, notes: 'left a message',
     });
   });
 });
