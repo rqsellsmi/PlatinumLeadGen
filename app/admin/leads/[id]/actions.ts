@@ -9,6 +9,7 @@ import { reassignLead } from '@/lib/autoOffer';
 import { applyScore } from '@/lib/scoring';
 import { sendEmail, leadDeletedNotificationEmail } from '@/lib/email';
 import { requireAdmin } from '@/components/admin/requireAdmin';
+import { isLeadIntent, type LeadIntent } from '@/lib/leadIntent';
 
 const STATUSES = [
   'new',
@@ -32,6 +33,21 @@ export async function updateLeadStatus(formData: FormData) {
   await db
     .update(leads)
     .set({ status: status as LeadStatus, lastStatusChangedAt: now, updatedAt: now })
+    .where(eq(leads.id, id));
+  revalidatePath(`/admin/leads/${id}`);
+  revalidatePath('/admin/leads');
+}
+
+export async function updateLeadIntent(formData: FormData) {
+  await requireAdmin();
+  const id = Number(formData.get('leadId'));
+  const intent = String(formData.get('intent') ?? '');
+  if (!id || !isLeadIntent(intent)) {
+    throw new Error('Invalid classification');
+  }
+  await db
+    .update(leads)
+    .set({ intent: intent as LeadIntent, updatedAt: new Date() })
     .where(eq(leads.id, id));
   revalidatePath(`/admin/leads/${id}`);
   revalidatePath('/admin/leads');

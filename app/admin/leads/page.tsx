@@ -7,6 +7,7 @@ import { requireAdmin } from '@/components/admin/requireAdmin';
 import LocalTime from '@/components/LocalTime';
 import { formatPriceRange, relativeTime } from '@/lib/utils';
 import { leadStatusLabel } from '@/lib/leadLifecycle';
+import { LEAD_INTENTS, isLeadIntent, leadIntentLabel, leadIntentTone } from '@/lib/leadIntent';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,6 +34,7 @@ interface SearchParams {
   page?: string;
   status?: string;
   type?: string;
+  intent?: string;
   q?: string;
   from?: string;
   to?: string;
@@ -48,6 +50,7 @@ export default async function LeadsPage({
   const page = Math.max(1, parseInt(searchParams.page ?? '1', 10) || 1);
   const status = searchParams.status;
   const type = searchParams.type;
+  const intent = searchParams.intent;
   const q = (searchParams.q ?? '').trim();
   const from = searchParams.from;
   const to = searchParams.to;
@@ -55,6 +58,7 @@ export default async function LeadsPage({
   const conditions: SQL[] = [eq(leads.isDeleted, false)];
   if (isStatus(status)) conditions.push(eq(leads.status, status));
   if (isType(type)) conditions.push(eq(leads.leadType, type));
+  if (isLeadIntent(intent)) conditions.push(eq(leads.intent, intent));
   if (q) {
     const pattern = `%${q}%`;
     const search = or(
@@ -97,6 +101,7 @@ export default async function LeadsPage({
     const params = new URLSearchParams();
     if (status) params.set('status', status);
     if (type) params.set('type', type);
+    if (intent) params.set('intent', intent);
     if (q) params.set('q', q);
     if (from) params.set('from', from);
     if (to) params.set('to', to);
@@ -118,7 +123,7 @@ export default async function LeadsPage({
 
       <Card>
         <CardBody>
-          <form method="get" className="grid grid-cols-1 gap-4 md:grid-cols-6">
+          <form method="get" className="grid grid-cols-1 gap-4 md:grid-cols-7">
             <div className="md:col-span-2">
               <Label htmlFor="q">Search</Label>
               <Input id="q" name="q" defaultValue={q} placeholder="Name, address, email" />
@@ -146,6 +151,17 @@ export default async function LeadsPage({
               </Select>
             </div>
             <div>
+              <Label htmlFor="intent">Buyer/Seller</Label>
+              <Select id="intent" name="intent" defaultValue={intent ?? ''}>
+                <option value="">All</option>
+                {LEAD_INTENTS.map((i) => (
+                  <option key={i} value={i}>
+                    {leadIntentLabel(i)}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div>
               <Label htmlFor="from">From</Label>
               <Input id="from" name="from" type="date" defaultValue={from ?? ''} />
             </div>
@@ -153,7 +169,7 @@ export default async function LeadsPage({
               <Label htmlFor="to">To</Label>
               <Input id="to" name="to" type="date" defaultValue={to ?? ''} />
             </div>
-            <div className="flex items-end gap-2 md:col-span-6">
+            <div className="flex items-end gap-2 md:col-span-7">
               <Button type="submit">Filter</Button>
               <Link href="/admin/leads">
                 <Button type="button" variant="outline">
@@ -173,6 +189,7 @@ export default async function LeadsPage({
                 <th className="px-5 py-3 text-left">Lead</th>
                 <th className="px-5 py-3 text-left">Est. value</th>
                 <th className="px-5 py-3 text-left">Type</th>
+                <th className="px-5 py-3 text-left">Buyer/Seller</th>
                 <th className="px-5 py-3 text-left">Status</th>
                 <th className="px-5 py-3 text-left">Created</th>
               </tr>
@@ -180,7 +197,7 @@ export default async function LeadsPage({
             <tbody>
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-5 py-12 text-center text-mute">
+                  <td colSpan={6} className="px-5 py-12 text-center text-mute">
                     No leads found.
                   </td>
                 </tr>
@@ -205,6 +222,9 @@ export default async function LeadsPage({
                   </td>
                   <td className="px-5 py-3.5">
                     <Badge tone="info">{lead.leadType}</Badge>
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <Badge tone={leadIntentTone(lead.intent)}>{leadIntentLabel(lead.intent)}</Badge>
                   </td>
                   <td className="px-5 py-3.5">
                     <Badge tone={statusTone(lead.status)}>{leadStatusLabel(lead.status)}</Badge>

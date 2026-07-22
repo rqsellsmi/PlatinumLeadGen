@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { locations } from '@/drizzle/schema';
 import { Card, CardBody, CardHeader, Input, Label, Select, Button } from '@/components/ui';
 import { requireAdmin } from '@/components/admin/requireAdmin';
+import { LEAD_INTENTS, leadIntentLabel } from '@/lib/leadIntent';
 import { createManualLead } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -82,15 +83,27 @@ export default async function NewLeadPage() {
                 </Select>
               </div>
             </div>
-            <div>
-              <Label htmlFor="timeframe">Timeframe</Label>
-              <Select id="timeframe" name="timeframe" defaultValue={TIMEFRAMES[0]}>
-                {TIMEFRAMES.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </Select>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="timeframe">Timeframe</Label>
+                <Select id="timeframe" name="timeframe" defaultValue={TIMEFRAMES[0]}>
+                  {TIMEFRAMES.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="intent">Buyer/Seller</Label>
+                <Select id="intent" name="intent" defaultValue="seller">
+                  {LEAD_INTENTS.map((i) => (
+                    <option key={i} value={i}>
+                      {leadIntentLabel(i)}
+                    </option>
+                  ))}
+                </Select>
+              </div>
             </div>
             <Button type="submit" className="w-full">
               Create lead &amp; route

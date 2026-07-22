@@ -6,6 +6,7 @@ import { db } from '@/lib/db';
 import { leads, locations } from '@/drizzle/schema';
 import { autoOfferLead } from '@/lib/autoOffer';
 import { requireAdmin } from '@/components/admin/requireAdmin';
+import { isLeadIntent, type LeadIntent } from '@/lib/leadIntent';
 
 function str(v: FormDataEntryValue | null): string | null {
   const s = String(v ?? '').trim();
@@ -26,11 +27,15 @@ export async function createManualLead(formData: FormData): Promise<void> {
     locationId = rows[0]?.id ?? null;
   }
 
+  const intentRaw = String(formData.get('intent') ?? '');
+  const intent: LeadIntent = isLeadIntent(intentRaw) ? intentRaw : 'seller';
+
   const now = new Date();
   const inserted = await db
     .insert(leads)
     .values({
       leadType: 'valuation',
+      intent,
       status: 'new',
       source: 'manual',
       pageVariant: 'seo',

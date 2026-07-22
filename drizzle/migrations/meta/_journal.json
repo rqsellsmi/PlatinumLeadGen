@@ -183,6 +183,13 @@
       "when": 1785200000000,
       "tag": "0025_agent_starting_credit",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1785300000000,
+      "tag": "0026_lead_intent",
+      "breakpoints": true
     }
   ]
 }

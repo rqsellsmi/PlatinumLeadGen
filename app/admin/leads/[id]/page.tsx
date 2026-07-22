@@ -12,7 +12,8 @@ import LocalTime from '@/components/LocalTime';
 import PropertyDetails from '@/components/PropertyDetails';
 import { getPropertyRecord } from '@/lib/propertyRecords';
 import { leadStatusLabel } from '@/lib/leadLifecycle';
-import { updateLeadStatus, softDeleteLead, reassignLeadAction } from './actions';
+import { LEAD_INTENTS, leadIntentLabel, leadIntentTone } from '@/lib/leadIntent';
+import { updateLeadStatus, updateLeadIntent, softDeleteLead, reassignLeadAction } from './actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -121,6 +122,7 @@ export default async function LeadDetailPage({ params }: { params: { id: string 
         </div>
         <div className="flex items-center gap-2">
           <Badge tone="info">{lead.leadType}</Badge>
+          <Badge tone={leadIntentTone(lead.intent)}>{leadIntentLabel(lead.intent)}</Badge>
           {lead.pageVariant && <Badge tone="neutral">{lead.pageVariant}</Badge>}
           <Badge tone={statusTone(lead.status)}>{leadStatusLabel(lead.status)}</Badge>
           {lead.isDeleted && <Badge tone="danger">Deleted</Badge>}
@@ -142,6 +144,7 @@ export default async function LeadDetailPage({ params }: { params: { id: string 
                 value={[lead.propertyCity, lead.propertyState, lead.propertyZip].filter(Boolean).join(', ')}
               />
               <Field label="Timeframe" value={lead.timeframe} />
+              <Field label="Buyer/Seller" value={leadIntentLabel(lead.intent)} />
               <Field label="Source" value={lead.source} />
               <Field label="Page variant" value={lead.pageVariant} />
               <Field
@@ -178,6 +181,21 @@ export default async function LeadDetailPage({ params }: { params: { id: string 
               </Select>
               <Button type="submit" className="w-full">
                 Save status
+              </Button>
+            </form>
+
+            <form action={updateLeadIntent} className="space-y-2">
+              <input type="hidden" name="leadId" value={lead.id} />
+              <Label htmlFor="intent">Classification (buyer / seller)</Label>
+              <Select id="intent" name="intent" defaultValue={lead.intent}>
+                {LEAD_INTENTS.map((i) => (
+                  <option key={i} value={i}>
+                    {leadIntentLabel(i)}
+                  </option>
+                ))}
+              </Select>
+              <Button type="submit" variant="secondary" className="w-full">
+                Save classification
               </Button>
             </form>
 

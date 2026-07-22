@@ -29,6 +29,11 @@ import {
 // ---------------------------------------------------------------------------
 export const leadTypeEnum = pgEnum('lead_type', ['valuation', 'seller_guide', 'webhook']);
 
+// Buyer/Seller classification (migration 0026). Label only — no routing impact.
+// All current capture flows are seller-side, so this defaults to 'seller';
+// 'unknown' is for leads whose intent isn't known.
+export const leadIntentEnum = pgEnum('lead_intent', ['seller', 'buyer', 'unknown']);
+
 export const leadStatusEnum = pgEnum('lead_status', [
   'new',
   'attempted_contact', // reached out, no live conversation yet
@@ -372,6 +377,8 @@ export const leads = pgTable(
     id: serial('id').primaryKey(),
     sessionId: varchar('session_id', { length: 128 }), // upsert key for partial->complete
     leadType: leadTypeEnum('lead_type').notNull().default('valuation'),
+    // Buyer/Seller classification (migration 0026) — label only, no routing impact.
+    intent: leadIntentEnum('intent').notNull().default('seller'),
     status: leadStatusEnum('status').notNull().default('new'),
     firstName: varchar('first_name', { length: 120 }),
     lastName: varchar('last_name', { length: 120 }),
