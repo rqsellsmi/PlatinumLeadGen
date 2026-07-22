@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { and, count, desc, eq, gte, ilike, lte, or, type SQL } from 'drizzle-orm';
+import { and, count, desc, eq, gte, ilike, isNotNull, isNull, lte, or, type SQL } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { leads } from '@/drizzle/schema';
 import { Card, CardBody, Button, Input, Select, Label, Badge, statusTone } from '@/components/ui';
@@ -23,6 +23,9 @@ const STATUSES = [
   'lost',
 ] as const;
 const TYPES = ['valuation', 'seller_guide', 'webhook'] as const;
+// Partial = address-only capture with no contact yet (email IS NULL — the same
+// "unnamed lead" discriminator used across dedup/adoption). Full = has contact.
+const COMPLETENESS = ['full', 'partial'] as const;
 
 function isStatus(v: string | undefined): v is (typeof STATUSES)[number] {
   return !!v && (STATUSES as readonly string[]).includes(v);
@@ -30,12 +33,16 @@ function isStatus(v: string | undefined): v is (typeof STATUSES)[number] {
 function isType(v: string | undefined): v is (typeof TYPES)[number] {
   return !!v && (TYPES as readonly string[]).includes(v);
 }
+function isCompleteness(v: string | undefined): v is (typeof COMPLETENESS)[number] {
+  return v === 'full' || v === 'partial';
+}
 
 interface SearchParams {
   page?: string;
   status?: string;
   type?: string;
   intent?: string;
+  completeness?: string;
   q?: string;
   from?: string;
   to?: string;
@@ -52,6 +59,7 @@ export default async function LeadsPage({
   const status = searchParams.status;
   const type = searchParams.type;
   const intent = searchParams.intent;
+  const completeness = searchParams.completeness;
   const q = (searchParams.q ?? '').trim();
   const from = searchParams.from;
   const to = searchParams.to;
@@ -60,6 +68,9 @@ export default async function LeadsPage({
   if (isStatus(status)) conditions.push(eq(leads.status, status));
   if (isType(type)) conditions.push(eq(leads.leadType, type));
   if (isLeadIntent(intent)) conditions.push(eq(leads.intent, intent));
+  if (isCompleteness(completeness)) {
+    conditions.push(completeness === 'partial' ? isNull(leads.email) : isNotNull(leads.email));
+  }
   if (q) {
     const pattern = `%${q}%`;
     const search = or(
@@ -103,6 +114,7 @@ export default async function LeadsPage({
     if (status) params.set('status', status);
     if (type) params.set('type', type);
     if (intent) params.set('intent', intent);
+    if (completeness) params.set('completeness', completeness);
     if (q) params.set('q', q);
     if (from) params.set('from', from);
     if (to) params.set('to', to);
@@ -124,7 +136,7 @@ export default async function LeadsPage({
 
       <Card>
         <CardBody>
-          <form method="get" className="grid grid-cols-1 gap-4 md:grid-cols-7">
+          <form method="get" className="grid grid-cols-1 gap-4 md:grid-cols-8">
             <div className="md:col-span-2">
               <Label htmlFor="q">Search</Label>
               <Input id="q" name="q" defaultValue={q} placeholder="Name, address, email" />
@@ -163,6 +175,14 @@ export default async function LeadsPage({
               </Select>
             </div>
             <div>
+              <Label htmlFor="completeness">Completeness</Label>
+              <Select id="completeness" name="completeness" defaultValue={completeness ?? ''}>
+                <option value="">All</option>
+                <option value="full">Full lead</option>
+                <option value="partial">Partial (address only)</option>
+              </Select>
+            </div>
+            <div>
               <Label htmlFor="from">From</Label>
               <Input id="from" name="from" type="date" defaultValue={from ?? ''} />
             </div>
@@ -170,7 +190,7 @@ export default async function LeadsPage({
               <Label htmlFor="to">To</Label>
               <Input id="to" name="to" type="date" defaultValue={to ?? ''} />
             </div>
-            <div className="flex items-end gap-2 md:col-span-7">
+            <div className="flex items-end gap-2 md:col-span-8">
               <Button type="submit">Filter</Button>
               <Link href="/admin/leads">
                 <Button type="button" variant="outline">
@@ -214,7 +234,9 @@ export default async function LeadsPage({
                         {lead.propertyAddress ?? '—'}
                       </span>
                       <span className="mt-0.5 block text-[11px] font-semibold text-mute-lighter">
-                        {[lead.source, relativeTime(lead.createdAt)].filter(Boolean).join(' · ')}
+                        {[lead.email ? null : 'Partial', lead.source, relativeTime(lead.createdAt)]
+                          .filter(Boolean)
+                          .join(' · ')}
                       </span>
                     </Link>
                   </td>
