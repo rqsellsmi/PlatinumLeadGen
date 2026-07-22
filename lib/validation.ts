@@ -4,6 +4,33 @@
  */
 import { z } from 'zod';
 
+/** Shared user-facing message when a name fails the letter/no-number rule. */
+export const INVALID_NAME_MESSAGE = 'Please enter a valid name (letters only, no numbers).';
+
+/**
+ * A person's name must contain at least one letter and no digits. Spaces,
+ * apostrophes, hyphens, periods, and accented/unicode letters are allowed so
+ * real names pass (O'Brien, Anne-Marie, José, Jr.). Blank/nullish is treated as
+ * "not provided" and left to the field's own required check — this validates
+ * FORMAT only, not presence.
+ */
+export function isValidPersonName(value: string | null | undefined): boolean {
+  if (value == null) return true; // presence is enforced separately
+  const v = value.trim();
+  if (v === '') return true; // blank → "not provided"; not a format error
+  if (/\d/.test(v)) return false; // no digits
+  return /\p{L}/u.test(v); // must contain at least one letter
+}
+
+/** Zod field for an optional person name: length-bounded + letter/no-number format. */
+const personNameField = () =>
+  z
+    .string()
+    .max(120)
+    .optional()
+    .nullable()
+    .refine(isValidPersonName, { message: INVALID_NAME_MESSAGE });
+
 /** Attribution fields (v1.6 §C) — all optional, captured client-side. */
 export const attributionFields = {
   utmSource: z.string().max(200).optional().nullable(),
@@ -37,8 +64,8 @@ export const partialLeadSchema = z.object({
 export const leadSubmitSchema = z.object({
   sessionId: z.string().min(1).max(128),
   leadType: z.enum(['valuation', 'seller_guide', 'webhook']).default('valuation'),
-  firstName: z.string().max(120).optional().nullable(),
-  lastName: z.string().max(120).optional().nullable(),
+  firstName: personNameField(),
+  lastName: personNameField(),
   email: z.string().email().max(200),
   phone: z.string().max(40).optional().nullable(),
   propertyAddress: z.string().max(300).optional().nullable(),

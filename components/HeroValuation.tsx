@@ -11,6 +11,7 @@ import {
   fireHeroSellerLeadConversion,
 } from '@/lib/googleAdsConversions';
 import { getLeadAttribution } from '@/lib/attribution';
+import { isValidPersonName, INVALID_NAME_MESSAGE } from '@/lib/validation';
 
 /** Fired by the sticky CTA / exit-intent overlay to open this flow. */
 export const OPEN_VALUATION_EVENT = 'open-valuation';
@@ -251,6 +252,10 @@ export default function HeroValuation({
     e.preventDefault();
     if (!firstName.trim() || !lastName.trim()) {
       setError('Please enter your first and last name.');
+      return;
+    }
+    if (!isValidPersonName(firstName) || !isValidPersonName(lastName)) {
+      setError(INVALID_NAME_MESSAGE);
       return;
     }
     if (!email.trim()) {
