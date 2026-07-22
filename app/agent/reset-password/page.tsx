@@ -1,18 +1,17 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { Button, Input, Label, Card, CardBody } from '@/components/ui';
 
 /**
- * Public agent password setup / reset page. One shared URL — the agent enters
- * the brokerage setup code + their (rostered) email + a new password. Serves
- * both first-time setup and self-service reset. Gated server-side by the setup
- * code and a matching agent email (see /api/agent/set-password).
+ * Agent password reset page, reached from the emailed "Forgot password" link
+ * (?token=...). Email-verified: only the inbox owner has the token. Sets a new
+ * password via /api/agent/password/reset, then sends them to sign in.
  */
-export default function SetPasswordPage() {
-  const [code, setCode] = useState('');
-  const [email, setEmail] = useState('');
+function ResetInner() {
+  const token = (useSearchParams().get('token') ?? '').trim();
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [pending, setPending] = useState(false);
@@ -32,10 +31,10 @@ export default function SetPasswordPage() {
     }
     setPending(true);
     try {
-      const res = await fetch('/api/agent/set-password', {
+      const res = await fetch('/api/agent/password/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: code.trim(), email: email.trim(), password }),
+        body: JSON.stringify({ token, password }),
       });
       if (res.ok) {
         setDone(true);
@@ -43,22 +42,16 @@ export default function SetPasswordPage() {
       }
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       setError(
-        data.error === 'invalid_code'
-          ? 'That setup code is not correct. Check with your broker.'
-          : data.error === 'email_not_found'
-            ? 'That email is not on our agent roster. Ask your broker to add you, then try again.'
-            : data.error === 'already_set'
-              ? 'You already have a password. Use “Forgot your password?” on the sign-in page to reset it.'
-              : data.error === 'weak_password'
-                ? 'Choose a password of at least 8 characters.'
-                : data.error === 'setup_closed'
-                  ? 'Password setup is not enabled yet. Ask your broker to set the agent setup code.'
-                  : data.error === 'rate_limited'
-                    ? 'Too many attempts. Please wait a moment and try again.'
-                    : 'Could not set your password. Please try again.',
+        data.error === 'invalid_token'
+          ? 'This reset link is invalid or has expired. Request a new one from the sign-in page.'
+          : data.error === 'weak_password'
+            ? 'Choose a password of at least 8 characters.'
+            : data.error === 'rate_limited'
+              ? 'Too many attempts. Please wait a moment and try again.'
+              : 'Could not reset your password. Please try again.',
       );
     } catch {
-      setError('Could not set your password. Please try again.');
+      setError('Could not reset your password. Please try again.');
     } finally {
       setPending(false);
     }
@@ -70,44 +63,24 @@ export default function SetPasswordPage() {
         <CardBody>
           <div className="mb-6 text-center">
             <h1 className="text-xl font-bold text-brand-blue">RE/MAX Platinum</h1>
-            <p className="text-sm text-slate-500">First-time password setup</p>
+            <p className="text-sm text-slate-500">Choose a new password</p>
           </div>
 
           {done ? (
             <div className="space-y-4">
               <p className="rounded-md bg-brand-light px-3 py-2 text-sm text-brand-blue">
-                Your password is set. You can now sign in.
+                Your password has been reset. You can now sign in.
               </p>
               <Link href="/agent/login">
                 <Button className="w-full">Go to sign in</Button>
               </Link>
             </div>
+          ) : !token ? (
+            <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-brand-red">
+              This reset link is missing its token. Request a new one from the sign-in page.
+            </p>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
-              <p className="text-sm text-slate-500">
-                Setting up for the first time? Enter the setup code from your broker and the email
-                address on file for you, then choose a password. Already have a password? Use{' '}
-                <Link href="/agent/login" className="font-semibold text-brand-blue hover:underline">
-                  Forgot your password
-                </Link>{' '}
-                on the sign-in page instead.
-              </p>
-              <div>
-                <Label htmlFor="code">Setup code</Label>
-                <Input id="code" name="code" required value={code} onChange={(e) => setCode(e.target.value)} />
-              </div>
-              <div>
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  name="email"
-                  type="email"
-                  autoComplete="username"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              </div>
               <div>
                 <Label htmlFor="password">New password</Label>
                 <Input
@@ -136,7 +109,7 @@ export default function SetPasswordPage() {
                 <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-brand-red">{error}</p>
               )}
               <Button type="submit" className="w-full" disabled={pending}>
-                {pending ? 'Saving…' : 'Set password'}
+                {pending ? 'Saving…' : 'Set new password'}
               </Button>
               <p className="text-center text-sm">
                 <Link href="/agent/login" className="font-semibold text-brand-blue hover:underline">
@@ -148,5 +121,13 @@ export default function SetPasswordPage() {
         </CardBody>
       </Card>
     </div>
+  );
+}
+
+export default function ResetPasswordPage() {
+  return (
+    <Suspense fallback={null}>
+      <ResetInner />
+    </Suspense>
   );
 }

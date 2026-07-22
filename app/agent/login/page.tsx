@@ -4,16 +4,16 @@ import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Button, Input, Label, Card, CardBody } from '@/components/ui';
 
-const MAGIC_SUCCESS = 'If that email matches an agent, a login link is on its way.';
+const RESET_SUCCESS = 'If that email matches an agent, a password reset link is on its way.';
 
 function LoginInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // Magic link request form
-  const [magicEmail, setMagicEmail] = useState('');
-  const [magicMessage, setMagicMessage] = useState<string | null>(null);
-  const [magicPending, setMagicPending] = useState(false);
+  // Forgot-password (email a reset link) form
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetMessage, setResetMessage] = useState<string | null>(null);
+  const [resetPending, setResetPending] = useState(false);
 
   // Email + password form
   const [email, setEmail] = useState('');
@@ -60,21 +60,21 @@ function LoginInner() {
     };
   }, [token, router]);
 
-  async function handleMagicSubmit(e: React.FormEvent) {
+  async function handleResetSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setMagicPending(true);
-    setMagicMessage(null);
+    setResetPending(true);
+    setResetMessage(null);
     try {
-      await fetch('/api/agent/login', {
+      await fetch('/api/agent/password/request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: magicEmail, requestLink: true }),
+        body: JSON.stringify({ email: resetEmail }),
       });
     } catch {
       // Swallow — we always show the same neutral message to avoid enumeration.
     } finally {
-      setMagicMessage(MAGIC_SUCCESS);
-      setMagicPending(false);
+      setResetMessage(RESET_SUCCESS);
+      setResetPending(false);
     }
   }
 
@@ -151,8 +151,9 @@ function LoginInner() {
               {pwPending ? 'Signing in…' : 'Sign in'}
             </Button>
             <p className="text-center text-sm text-slate-500">
+              First time here?{' '}
               <a href="/agent/set-password" className="font-semibold text-brand-blue hover:underline">
-                First time here, or forgot your password?
+                Set up your password
               </a>
             </p>
           </form>
@@ -163,28 +164,28 @@ function LoginInner() {
             <span className="h-px flex-1 bg-slate-200" />
           </div>
 
-          {/* Magic link request */}
-          <form onSubmit={handleMagicSubmit} className="space-y-3">
+          {/* Forgot password — email a reset link (email-verified) */}
+          <form onSubmit={handleResetSubmit} className="space-y-3">
             <div>
-              <Label htmlFor="magic-email">Email me a magic link</Label>
+              <Label htmlFor="reset-email">Forgot your password?</Label>
               <Input
-                id="magic-email"
-                name="magic-email"
+                id="reset-email"
+                name="reset-email"
                 type="email"
                 autoComplete="email"
                 required
-                value={magicEmail}
+                value={resetEmail}
                 placeholder="you@example.com"
-                onChange={(e) => setMagicEmail(e.target.value)}
+                onChange={(e) => setResetEmail(e.target.value)}
               />
             </div>
-            {magicMessage && (
+            {resetMessage && (
               <p className="rounded-md bg-brand-light px-3 py-2 text-sm text-brand-blue">
-                {magicMessage}
+                {resetMessage}
               </p>
             )}
-            <Button type="submit" variant="secondary" className="w-full" disabled={magicPending}>
-              {magicPending ? 'Sending…' : 'Send login link'}
+            <Button type="submit" variant="secondary" className="w-full" disabled={resetPending}>
+              {resetPending ? 'Sending…' : 'Email me a reset link'}
             </Button>
           </form>
         </CardBody>

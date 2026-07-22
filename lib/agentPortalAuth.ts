@@ -33,6 +33,21 @@ export function isTokenExpired(expiresAt: Date | null | undefined, now: Date = n
 }
 
 // ---------------------------------------------------------------------------
+// Password reset tokens (emailed "forgot password" link) — short-lived.
+// ---------------------------------------------------------------------------
+const PASSWORD_RESET_TTL_HOURS = 2;
+
+/** Generate a 64-char hex password-reset token. */
+export function generatePasswordResetToken(): string {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+/** Expiry instant for a freshly-issued reset link (2 hours out). */
+export function passwordResetExpiry(from: Date = new Date()): Date {
+  return new Date(from.getTime() + PASSWORD_RESET_TTL_HOURS * 60 * 60 * 1000);
+}
+
+// ---------------------------------------------------------------------------
 // Signed session cookie (HMAC) — value form: "<agentId>.<expiryMs>.<sig>"
 // ---------------------------------------------------------------------------
 function secret(): string {

@@ -515,6 +515,37 @@ Notes: ${d.notes ?? '—'}`;
   };
 }
 
+// ---------------------------------------------------------------------------
+// Agent password reset — emailed "forgot password" link (email-verified reset)
+// ---------------------------------------------------------------------------
+export interface AgentPasswordResetEmailData {
+  to: string;
+  agentName: string;
+  resetUrl: string;
+  relatedAgentId?: number;
+}
+
+export function agentPasswordResetEmail(d: AgentPasswordResetEmailData): SendEmailArgs {
+  const html = shell(
+    'Reset your agent password',
+    `<h1 style="margin:0 0 12px;font-size:22px;color:${BRAND_BLUE};">Reset your password</h1>
+     <p style="font-size:15px;line-height:1.5;">Hi ${escapeHtml(d.agentName)}, use the button below to choose a new password for your RE/MAX Platinum agent portal. This link expires in 2 hours.</p>
+     <p style="margin:24px 0;">${button(d.resetUrl, 'Set a new password')}</p>
+     <p style="font-size:13px;line-height:1.5;color:#64748b;">If you did not request this, you can ignore this email — your password will not change.</p>`,
+  );
+  const text = `Reset your RE/MAX Platinum agent password.
+Set a new password (link expires in 2 hours): ${d.resetUrl}
+If you did not request this, ignore this email.`;
+  return {
+    to: d.to,
+    subject: 'Reset your RE/MAX Platinum agent password',
+    html,
+    text,
+    templateName: 'agent_password_reset',
+    relatedAgentId: d.relatedAgentId,
+  };
+}
+
 /** Generic admin alert (used when no agent could be found for a lead). */
 export function adminAlertEmail(subject: string, message: string): SendEmailArgs {
   const html = shell(subject, `<p style="font-size:15px;line-height:1.5;">${escapeHtml(message)}</p>`);

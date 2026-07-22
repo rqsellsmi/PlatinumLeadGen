@@ -157,6 +157,7 @@ export const agents = pgTable(
     // Password auth (set by admin only) — Section 3.3 additions.
     passwordHash: varchar('password_hash', { length: 200 }),
     passwordResetToken: varchar('password_reset_token', { length: 128 }),
+    passwordResetExpiresAt: timestamp('password_reset_expires_at'), // emailed reset-link expiry (0030)
     smsOptOut: boolean('sms_opt_out').notNull().default(false),
     smsOptOutAt: timestamp('sms_opt_out_at'),
     // Set the first time this agent activates (isAvailable=true); guards the

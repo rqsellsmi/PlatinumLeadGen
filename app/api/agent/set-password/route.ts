@@ -66,6 +66,12 @@ export async function POST(req: NextRequest) {
     if (!agent) {
       return NextResponse.json({ error: 'email_not_found' }, { status: 404 });
     }
+    // First-time setup ONLY. Once a password exists, this code-gated public page
+    // can't overwrite it — the agent must use the email-verified "Forgot
+    // password" flow so only the inbox owner can reset it.
+    if (agent.passwordHash) {
+      return NextResponse.json({ error: 'already_set' }, { status: 409 });
+    }
 
     const passwordHash = await bcrypt.hash(password, 12);
     await db

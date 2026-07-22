@@ -27,12 +27,12 @@ export async function middleware(req: NextRequest) {
   }
 
   // --- Agent portal: signed session cookie ----------------------------------
-  // /agent/login and /agent/set-password are public (the latter is the shared
-  // first-time-setup / forgot-password page).
+  // Public agent pages: login, first-time setup, and the emailed reset page.
   if (
     pathname.startsWith('/agent') &&
     pathname !== '/agent/login' &&
-    pathname !== '/agent/set-password'
+    pathname !== '/agent/set-password' &&
+    pathname !== '/agent/reset-password'
   ) {
     const cookie = req.cookies.get(AGENT_SESSION_COOKIE)?.value;
     const secret = process.env.NEXTAUTH_SECRET ?? '';

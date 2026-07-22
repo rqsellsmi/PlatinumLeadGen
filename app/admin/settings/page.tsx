@@ -29,6 +29,21 @@ export default async function SettingsPage() {
         </CardHeader>
         <CardBody>
           <form action={saveSettings} className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="md:col-span-2 rounded-lg border border-line bg-offwhite p-3">
+              <Label htmlFor="agentSetupCode">Agent setup code (first-time password setup)</Label>
+              <Input
+                id="agentSetupCode"
+                name="agentSetupCode"
+                defaultValue={settings.agentSetupCode ?? ''}
+                placeholder="e.g. PLATINUM2026"
+              />
+              <p className="mt-1 text-xs text-mute-light">
+                Share this code with your agents along with the link{' '}
+                <span className="font-semibold">/agent/set-password</span> so each can set their{' '}
+                <em>first</em> password (their email must be on the roster). Leave blank to close the
+                setup page. Forgot-password uses an emailed reset link, not this code.
+              </p>
+            </div>
             <div className="md:col-span-2">
               <Label htmlFor="notificationEmail">Notification email</Label>
               <Input
@@ -69,20 +84,6 @@ export default async function SettingsPage() {
                 min={1}
                 defaultValue={settings.proximityRadiusMiles}
               />
-            </div>
-            <div className="md:col-span-2">
-              <Label htmlFor="agentSetupCode">Agent setup code</Label>
-              <Input
-                id="agentSetupCode"
-                name="agentSetupCode"
-                defaultValue={settings.agentSetupCode ?? ''}
-                placeholder="e.g. PLATINUM2026"
-              />
-              <p className="mt-1 text-xs text-mute-light">
-                Share this with your agents along with the link{' '}
-                <span className="font-semibold">/agent/set-password</span> so they can set (or
-                reset) their own password. Leave blank to close the setup page.
-              </p>
             </div>
             <div className="md:col-span-2">
               <Button type="submit">Save settings</Button>
