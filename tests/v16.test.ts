@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SCORE_DELTAS, STARTING_CREDIT, resolveScoreDelta } from '../lib/scoring';
+import { SCORE_DELTAS, STARTING_CREDIT, resolveScoreDelta, fastEngagementDelta } from '../lib/scoring';
 import { tierFor, tierForPercentile, percentileRank, scoreReasonLabel } from '../lib/scoreTiers';
 import {
   parseMoney,
@@ -15,28 +15,51 @@ import {
 } from '../lib/metrics';
 import type { Closing } from '../drizzle/schema';
 
-describe('scoring v2 deltas (spec v2 §2)', () => {
-  it('uses the v2 fixed deltas', () => {
-    expect(SCORE_DELTAS.system_response_fast).toBe(8.0);
-    expect(SCORE_DELTAS.system_response_good).toBe(4.0);
-    expect(SCORE_DELTAS.system_response_slow).toBe(1.0);
-    expect(SCORE_DELTAS.system_decline).toBe(-3.0);
-    expect(SCORE_DELTAS.system_no_response).toBe(-4.0);
-    expect(SCORE_DELTAS.system_closing).toBe(25.0);
-    expect(SCORE_DELTAS.stale_48h).toBe(-2.0);
-    expect(SCORE_DELTAS.stale_7day).toBe(-2.0);
-    expect(SCORE_DELTAS.pipeline_stalled).toBe(-3.0);
-  });
-
-  it('allows an explicit delta override (15–30 min tier = +6)', () => {
-    expect(resolveScoreDelta('system_response_fast', 6)).toBe(6);
-    expect(resolveScoreDelta('system_response_fast')).toBe(8.0);
-  });
-
+describe('scoring v4 deltas', () => {
   it('requires an explicit delta for reversals and manual adjustments', () => {
     expect(() => resolveScoreDelta('lead_deleted_reversal')).toThrow();
     expect(() => resolveScoreDelta('manual_adjustment')).toThrow();
     expect(resolveScoreDelta('lead_deleted_reversal', 1.5)).toBe(1.5);
+  });
+
+  it('uses the v4 accept + milestone point table', () => {
+    // Accept bands reduced 8/6/4/1 -> 4/3/2/1.
+    expect(SCORE_DELTAS.system_response_fast).toBe(4.0); // <15 (15–30 passes explicit +3)
+    expect(resolveScoreDelta('system_response_fast', 3)).toBe(3); // 15–30 min band
+    expect(SCORE_DELTAS.system_response_good).toBe(2.0); // 30–60
+    expect(SCORE_DELTAS.system_response_slow).toBe(1.0); // 1–3h
+    // Milestones.
+    expect(SCORE_DELTAS.pipeline_attempted).toBe(1.0); // Attempted Contact
+    expect(SCORE_DELTAS.pipeline_contacted).toBe(2.0); // Connected
+    expect(SCORE_DELTAS.milestone_appointment_set).toBe(4.0);
+    expect(SCORE_DELTAS.milestone_signed).toBe(10.0);
+    expect(SCORE_DELTAS.system_closing).toBe(25.0);
+    // Unified update-clock penalty.
+    expect(SCORE_DELTAS.missed_update_checkin).toBe(-2.0);
+  });
+
+  it('fast-engagement bonus bands (v4 §4.2)', () => {
+    const min = (m: number) => m * 60_000;
+    expect(fastEngagementDelta(min(12))).toBe(4); // <15
+    expect(fastEngagementDelta(min(25))).toBe(3); // 15–30
+    expect(fastEngagementDelta(min(45))).toBe(2); // 30–60
+    expect(fastEngagementDelta(min(120))).toBe(1); // 1–3h
+    expect(fastEngagementDelta(min(200))).toBe(0); // >3h
+    // fast_engagement is variable — must be given an explicit delta.
+    expect(() => resolveScoreDelta('fast_engagement')).toThrow();
+    expect(resolveScoreDelta('fast_engagement', 4)).toBe(4);
+  });
+
+  it('worked example totals 50 across the full v4 lifecycle (§4.4)', () => {
+    const accept = SCORE_DELTAS.system_response_fast; // 10 min → +4
+    const fastEngagement = fastEngagementDelta(12 * 60_000); // +4
+    const attempted = SCORE_DELTAS.pipeline_attempted; // +1
+    const connected = SCORE_DELTAS.pipeline_contacted; // +2
+    const nurturing = 0; // no milestone
+    const appt = SCORE_DELTAS.milestone_appointment_set; // +4
+    const signed = SCORE_DELTAS.milestone_signed; // +10
+    const closed = SCORE_DELTAS.system_closing; // +25
+    expect(accept + fastEngagement + attempted + connected + nurturing + appt + signed + closed).toBe(50);
   });
 
   it('rejects starting_credit via resolveScoreDelta/applyScore (rolling-365-only grant path)', () => {

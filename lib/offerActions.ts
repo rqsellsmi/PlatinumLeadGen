@@ -86,11 +86,11 @@ export async function applyAccept(offerId: number): Promise<OfferActionResult> {
     let explicitDelta: number | undefined;
     if (offer.offerSentAt) {
       const elapsed = now.getTime() - offer.offerSentAt.getTime();
-      if (elapsed < FIFTEEN_MIN_MS) reason = 'system_response_fast';
+      if (elapsed < FIFTEEN_MIN_MS) reason = 'system_response_fast'; // +4 (v4 §4.1)
       else if (elapsed <= THIRTY_MIN_MS) {
         reason = 'system_response_fast';
-        explicitDelta = 6;
-      } else if (elapsed <= ONE_HOUR_MS) reason = 'system_response_good';
+        explicitDelta = 3; // 15–30 min → +3
+      } else if (elapsed <= ONE_HOUR_MS) reason = 'system_response_good'; // +2
       else reason = 'system_response_slow';
     }
     try {
