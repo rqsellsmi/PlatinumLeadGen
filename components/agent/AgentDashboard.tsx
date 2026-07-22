@@ -9,9 +9,10 @@ import { leadStatusLabel } from '@/lib/leadLifecycle';
 export type LeadStatus =
   | 'new'
   | 'attempted_contact'
-  | 'contacted'
-  | 'qualified'
-  | 'working'
+  | 'connected'
+  | 'nurturing'
+  | 'appointment_set'
+  | 'signed'
   | 'closed'
   | 'lost'
   | 'reopened';
@@ -38,9 +39,10 @@ const TABS: { key: LeadStatus | 'all'; label: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'new', label: 'New' },
   { key: 'attempted_contact', label: 'Attempted' },
-  { key: 'contacted', label: 'Contacted' },
-  { key: 'qualified', label: 'Qualified' },
-  { key: 'working', label: 'Working' },
+  { key: 'connected', label: 'Connected' },
+  { key: 'nurturing', label: 'Nurturing' },
+  { key: 'appointment_set', label: 'Appt Set' },
+  { key: 'signed', label: 'Signed' },
   { key: 'closed', label: 'Closed' },
   { key: 'lost', label: 'Lost' },
 ];

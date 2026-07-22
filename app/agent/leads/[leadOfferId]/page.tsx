@@ -11,7 +11,7 @@ import LocalTime from '@/components/LocalTime';
 import PropertyDetails from '@/components/PropertyDetails';
 import { getPropertyRecord } from '@/lib/propertyRecords';
 import { StatusUpdateForm } from '@/components/agent/StatusUpdateForm';
-import { canMarkLost, leadStatusLabel } from '@/lib/leadLifecycle';
+import { lostReasonsForOrigin, leadStatusLabel } from '@/lib/leadLifecycle';
 
 export const dynamic = 'force-dynamic';
 
@@ -61,9 +61,10 @@ export default async function AgentLeadDetailPage({
   // about the home so the agent is fully briefed. Degrades to nothing on error.
   const propertyRecord = address ? await getPropertyRecord(address).catch(() => null) : null;
 
-  // Lost unlocks once Contacted, or after enough genuine Attempted-Contact updates.
+  // Lost reasons are scoped to the lead's current stage (v4 §6); Lost A2 (no
+  // response after 6) unlocks once there are ≥6 Attempted-Contact logs.
   const attemptedContactCount = history.filter((u) => u.newStatus === 'attempted_contact').length;
-  const lostUnlocked = canMarkLost({ contactedAt: lead.contactedAt, attemptedContactCount });
+  const lostReasons = lostReasonsForOrigin(lead.status, attemptedContactCount);
 
   return (
     <div className="space-y-6">
@@ -171,7 +172,7 @@ export default async function AgentLeadDetailPage({
             <StatusUpdateForm
               leadOfferId={offer.id}
               currentStatus={lead.status}
-              canMarkLost={lostUnlocked}
+              lostReasons={lostReasons}
             />
           </div>
         </div>

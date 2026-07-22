@@ -70,16 +70,23 @@ export function scoreReasonLabel(reason: string): string {
     system_response_slow: 'Slow response',
     system_no_response: 'No response',
     system_decline: 'Declined lead',
-    system_closing: 'Closed deal',
-    pipeline_contacted: 'Contacted lead',
+    system_closing: 'Closed won',
+    // v4 milestones + bonus + clock
+    pipeline_attempted: 'Attempted contact',
+    pipeline_contacted: 'Connected',
+    fast_engagement: 'Fast engagement',
+    milestone_appointment_set: 'Appointment set',
+    milestone_signed: 'Signed listing',
+    missed_update_checkin: 'Missed update',
+    lead_deleted_reversal: 'Penalty reversed',
+    manual_adjustment: 'Admin adjustment',
+    starting_credit: 'New-agent head start',
+    // retired v2 reasons — kept for any historical log rows
     fast_contact_bonus: 'Fast contact bonus',
     pipeline_qualified: 'Qualified lead',
     stale_48h: 'No update (48h)',
     stale_7day: 'No update (weekly)',
     pipeline_stalled: 'Stalled 30 days',
-    lead_deleted_reversal: 'Penalty reversed',
-    manual_adjustment: 'Admin adjustment',
-    starting_credit: 'New-agent head start',
   };
   return map[reason] ?? reason;
 }

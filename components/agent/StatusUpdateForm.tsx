@@ -3,41 +3,41 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button, Select, Textarea, Label } from '@/components/ui';
-import type { LeadStatus } from '@/components/agent/LeadList';
-import { LOST_REASONS, lostReasonLabel, leadStatusLabel } from '@/lib/leadLifecycle';
+import { ALLOWED_TRANSITIONS, leadStatusLabel, v4LostReasonLabel } from '@/lib/leadLifecycle';
 
-// Statuses an agent can set. 'reopened' is set by intake, not here; a lead that
-// is currently 'reopened' can still be moved forward to the others.
-const SETTABLE: LeadStatus[] = [
-  'new',
-  'attempted_contact',
-  'contacted',
-  'qualified',
-  'working',
-  'closed',
-  'lost',
-];
-
+/**
+ * Agent status/activity logger (Scoring v4). The status options are exactly the
+ * moves allowed from the lead's current stage (ALLOWED_TRANSITIONS); the Lost
+ * reason list is the origin-scoped set the server computed for this stage.
+ */
 export function StatusUpdateForm({
   leadOfferId,
   currentStatus,
-  canMarkLost,
+  lostReasons,
 }: {
   leadOfferId: number;
   currentStatus: string;
-  canMarkLost: boolean;
+  /** Valid Lost reasons for the current origin status (server-computed, v4 §6). */
+  lostReasons: string[];
 }) {
   const router = useRouter();
-  const [newStatus, setNewStatus] = useState<LeadStatus>(
-    (SETTABLE as readonly string[]).includes(currentStatus) ? (currentStatus as LeadStatus) : 'contacted',
-  );
-  const [lostReason, setLostReason] = useState<string>('');
+  const options = [...(ALLOWED_TRANSITIONS[currentStatus] ?? [])];
+  const [newStatus, setNewStatus] = useState<string>(options[0] ?? '');
+  const [lostReason, setLostReason] = useState('');
   const [note, setNote] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Lost is only offered once the lead has been contacted (spec v2 §4.2).
-  const statusOptions = SETTABLE.filter((s) => s !== 'lost' || canMarkLost);
+  if (options.length === 0) {
+    return (
+      <p className="text-sm text-mute">
+        This lead is {leadStatusLabel(currentStatus)} — no further updates needed.
+      </p>
+    );
+  }
+
+  const showBackHint =
+    newStatus === 'nurturing' && (currentStatus === 'appointment_set' || currentStatus === 'signed');
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -61,9 +61,11 @@ export function StatusUpdateForm({
       if (!res.ok) {
         const data = (await res.json().catch(() => null)) as { error?: string } | null;
         setError(
-          data?.error === 'must_contact_before_lost'
-            ? 'Log a Contacted update (or 6 Attempted-contact updates) before marking this lead lost.'
-            : 'Could not save the update. Please try again.',
+          data?.error === 'invalid_transition'
+            ? 'That move isn’t allowed from the current stage.'
+            : data?.error === 'lost_reason_required'
+              ? 'Choose a valid reason to mark this lead lost.'
+              : 'Could not save the update. Please try again.',
         );
         return;
       }
@@ -81,28 +83,27 @@ export function StatusUpdateForm({
     <form onSubmit={handleSubmit} className="space-y-4">
       {currentStatus === 'reopened' ? (
         <p className="rounded-lg bg-purple-50 px-3 py-2 text-sm text-purple-800">
-          This lead came back — the client submitted again. Log a fresh Contacted before it can be
-          marked lost again.
+          This lead came back — the client submitted again. Work it like a new lead.
         </p>
       ) : null}
       <div>
-        <Label htmlFor="newStatus">Status</Label>
+        <Label htmlFor="newStatus">Move to</Label>
         <Select
           id="newStatus"
           name="newStatus"
           value={newStatus}
-          onChange={(e) => setNewStatus(e.target.value as LeadStatus)}
+          onChange={(e) => setNewStatus(e.target.value)}
         >
-          {statusOptions.map((s) => (
+          {options.map((s) => (
             <option key={s} value={s}>
               {leadStatusLabel(s)}
             </option>
           ))}
         </Select>
-        {!canMarkLost ? (
+        {showBackHint ? (
           <p className="mt-1 text-xs text-mute-light">
-            &ldquo;Lost&rdquo; unlocks after you log a Contacted update, or 6 Attempted-contact
-            updates.
+            Moving back to Nurturing keeps the lead active (e.g. the appointment or deal fell
+            through).
           </p>
         ) : null}
       </div>
@@ -119,9 +120,9 @@ export function StatusUpdateForm({
             <option value="" disabled>
               Choose a reason…
             </option>
-            {LOST_REASONS.map((r) => (
+            {lostReasons.map((r) => (
               <option key={r} value={r}>
-                {lostReasonLabel(r)}
+                {v4LostReasonLabel(r)}
               </option>
             ))}
           </Select>

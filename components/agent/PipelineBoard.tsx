@@ -8,9 +8,10 @@ import type { AgentLeadRow, AgentLeadStatus } from '@/lib/agentLeads';
 const COLUMNS: { key: AgentLeadStatus; name: string; accent: string; dot: string }[] = [
   { key: 'new', name: 'New', accent: '#0043FF', dot: 'bg-platinum-blue' },
   { key: 'attempted_contact', name: 'Attempted', accent: '#0284C7', dot: 'bg-sky-500' },
-  { key: 'contacted', name: 'Contacted', accent: '#C97A13', dot: 'bg-warning' },
-  { key: 'qualified', name: 'Qualified', accent: '#1F7A4A', dot: 'bg-success' },
-  { key: 'working', name: 'Working', accent: '#0D9488', dot: 'bg-teal-500' },
+  { key: 'connected', name: 'Connected', accent: '#C97A13', dot: 'bg-warning' },
+  { key: 'nurturing', name: 'Nurturing', accent: '#7C3AED', dot: 'bg-purple-500' },
+  { key: 'appointment_set', name: 'Appt Set', accent: '#0D9488', dot: 'bg-teal-500' },
+  { key: 'signed', name: 'Signed', accent: '#1F7A4A', dot: 'bg-success' },
   { key: 'closed', name: 'Closed', accent: '#232323', dot: 'bg-charcoal' },
 ];
 
@@ -55,7 +56,7 @@ export default function PipelineBoard({ initial }: { initial: AgentLeadRow[] }) 
         {saving ? <span className="text-xs font-semibold text-mute-light">Saving…</span> : null}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7">
         {COLUMNS.map((col) => {
           // Reopened leads (came back after Lost) surface in "New" so the agent
           // re-engages them; "Lost" leads stay hidden from the board.

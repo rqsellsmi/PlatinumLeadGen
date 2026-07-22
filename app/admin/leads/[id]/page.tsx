@@ -20,9 +20,10 @@ export const dynamic = 'force-dynamic';
 const STATUSES = [
   'new',
   'attempted_contact',
-  'contacted',
-  'qualified',
-  'working',
+  'connected',
+  'nurturing',
+  'appointment_set',
+  'signed',
   'closed',
   'lost',
 ] as const;
@@ -125,6 +126,9 @@ export default async function LeadDetailPage({ params }: { params: { id: string 
           <Badge tone={leadIntentTone(lead.intent)}>{leadIntentLabel(lead.intent)}</Badge>
           {lead.pageVariant && <Badge tone="neutral">{lead.pageVariant}</Badge>}
           <Badge tone={statusTone(lead.status)}>{leadStatusLabel(lead.status)}</Badge>
+          {lead.reactivationCount > 0 && (
+            <Badge tone="warning">Reactivated ×{lead.reactivationCount}</Badge>
+          )}
           {lead.isDeleted && <Badge tone="danger">Deleted</Badge>}
         </div>
       </div>

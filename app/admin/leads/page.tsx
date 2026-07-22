@@ -15,9 +15,10 @@ const PAGE_SIZE = 25;
 const STATUSES = [
   'new',
   'attempted_contact',
-  'contacted',
-  'qualified',
-  'working',
+  'connected',
+  'nurturing',
+  'appointment_set',
+  'signed',
   'closed',
   'lost',
 ] as const;

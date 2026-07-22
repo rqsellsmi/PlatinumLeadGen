@@ -10,9 +10,10 @@ import { formatPriceRange, relativeTime } from './utils';
 export type AgentLeadStatus =
   | 'new'
   | 'attempted_contact'
-  | 'contacted'
-  | 'qualified'
-  | 'working'
+  | 'connected'
+  | 'nurturing'
+  | 'appointment_set'
+  | 'signed'
   | 'closed'
   | 'lost'
   | 'reopened';

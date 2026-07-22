@@ -9,9 +9,10 @@ import { leadStatusLabel } from '@/lib/leadLifecycle';
 export type LeadStatus =
   | 'new'
   | 'attempted_contact'
-  | 'contacted'
-  | 'qualified'
-  | 'working'
+  | 'connected'
+  | 'nurturing'
+  | 'appointment_set'
+  | 'signed'
   | 'closed'
   | 'lost'
   | 'reopened';
@@ -27,12 +28,13 @@ export interface LeadListItem {
 const statusStyles: Record<LeadStatus, string> = {
   new: 'bg-blue-100 text-blue-800',
   attempted_contact: 'bg-sky-100 text-sky-800',
-  contacted: 'bg-amber-100 text-amber-800',
-  qualified: 'bg-emerald-100 text-emerald-800',
-  working: 'bg-teal-100 text-teal-800',
+  connected: 'bg-amber-100 text-amber-800',
+  nurturing: 'bg-purple-100 text-purple-800',
+  appointment_set: 'bg-teal-100 text-teal-800',
+  signed: 'bg-emerald-100 text-emerald-800',
   closed: 'bg-slate-200 text-slate-700',
   lost: 'bg-red-100 text-brand-red',
-  reopened: 'bg-purple-100 text-purple-800',
+  reopened: 'bg-fuchsia-100 text-fuchsia-800',
 };
 
 function daysLabel(days: number | null): string {

@@ -132,14 +132,16 @@ export function Badge({
 export function statusTone(status: string): PillTone {
   switch (status) {
     case 'accepted':
-    case 'qualified':
+    case 'signed': // v4
     case 'closed':
     case 'listing_signed':
+    case 'qualified': // retired v2
       return 'success';
-    case 'contacted':
+    case 'connected': // v4
     case 'offered':
     case 'pending':
-    case 'working':
+    case 'contacted': // retired v2
+    case 'working': // retired v2
       return 'warning';
     case 'attempted_contact':
       return 'info';
@@ -148,7 +150,8 @@ export function statusTone(status: string): PillTone {
     case 'lost':
     case 'unassigned':
       return 'danger';
-    case 'appointment_set':
+    case 'appointment_set': // v4
+    case 'nurturing': // v4
       return 'purple';
     case 'new':
       return 'info';

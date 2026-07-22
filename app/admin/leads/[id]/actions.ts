@@ -14,9 +14,10 @@ import { isLeadIntent, type LeadIntent } from '@/lib/leadIntent';
 const STATUSES = [
   'new',
   'attempted_contact',
-  'contacted',
-  'qualified',
-  'working',
+  'connected',
+  'nurturing',
+  'appointment_set',
+  'signed',
   'closed',
   'lost',
 ] as const;
