@@ -50,6 +50,7 @@ export default function ThankYouClient({
   idxMarketReport = null,
   idxMarketNarrative = null,
   idxCityName = '',
+  leadPrefill = null,
 }: {
   report: RevealedValuation | null;
   comps: HomeRecentSale[];
@@ -63,6 +64,18 @@ export default function ThankYouClient({
   idxMarketReport?: CityMarketReport | null;
   idxMarketNarrative?: string | null;
   idxCityName?: string;
+  /**
+   * Optional lead details for prefilling the appointment form when the page is
+   * reached via the durable report link (no sessionStorage handoff). sessionStorage
+   * still wins when present (the same-session submit flow).
+   */
+  leadPrefill?: {
+    firstName: string | null;
+    lastName: string | null;
+    phone: string | null;
+    email: string | null;
+    leadId: number | null;
+  } | null;
 }) {
   const params = useSearchParams();
   const [name, setName] = React.useState('');
@@ -78,14 +91,18 @@ export default function ThankYouClient({
     const type = params.get('type') ?? 'valuation';
     const city = params.get('city') ?? '';
     const variant = params.get('variant') ?? 'seo';
-    const em = sessionStorage.getItem('lead_email') ?? '';
-    const ph = sessionStorage.getItem('lead_phone') ?? '';
+    // Prefer the same-session sessionStorage handoff (post-submit redirect); fall
+    // back to the server-provided lead details (durable report-link visits).
+    const prefillName = [leadPrefill?.firstName, leadPrefill?.lastName].filter(Boolean).join(' ');
+    const nm = sessionStorage.getItem('lead_name') || prefillName || '';
+    const em = sessionStorage.getItem('lead_email') || leadPrefill?.email || '';
+    const ph = sessionStorage.getItem('lead_phone') || leadPrefill?.phone || '';
     const lid = sessionStorage.getItem('lead_id');
-    setName(sessionStorage.getItem('lead_name') ?? '');
+    setName(nm);
     setAddress(report?.address ?? sessionStorage.getItem('lead_address') ?? '');
     setPhone(ph);
     setEmail(em);
-    setLeadId(lid ? Number(lid) : null);
+    setLeadId(lid ? Number(lid) : leadPrefill?.leadId ?? null);
     setResponseMsg(withinOfferWindow() ? 'within 3 hours' : 'first thing tomorrow morning');
 
     dataLayerPush('lead_conversion', {
@@ -96,7 +113,7 @@ export default function ThankYouClient({
       email: em,
       phone: ph,
     });
-  }, [params, report]);
+  }, [params, report, leadPrefill]);
 
   async function copyLink() {
     try {

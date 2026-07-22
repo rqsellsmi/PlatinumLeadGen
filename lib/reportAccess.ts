@@ -43,6 +43,9 @@ export function reportUrl(citySlug: string | null | undefined, token: string): s
 export interface ReportContext {
   leadId: number;
   firstName: string | null;
+  lastName: string | null;
+  phone: string | null;
+  email: string | null;
   address: string | null;
   city: string | null;
   latitude: number | null;
@@ -68,6 +71,9 @@ export async function getReportContext(token: string): Promise<ReportContext | n
     return {
       leadId: lead.id,
       firstName: lead.firstName,
+      lastName: lead.lastName,
+      phone: lead.phone,
+      email: lead.email,
       address: lead.propertyAddress ?? revealed?.address ?? null,
       city: lead.propertyCity,
       latitude: lead.propertyLat ?? revealed?.latitude ?? null,

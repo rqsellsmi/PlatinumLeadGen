@@ -111,10 +111,28 @@ export default async function ThankYouPage({
   // valuation token (`v`) is the legacy immediate-reveal path.
   let report: RevealedValuation | null = null;
   let subjectCity = '';
+  // Optional appointment-form prefill for visits that arrive via the durable
+  // report link (a fresh session with no sessionStorage handoff). The lead's own
+  // details sit behind their report token; the client prefers sessionStorage and
+  // falls back to this. Null when there's no lead context (legacy `v` path).
+  let leadPrefill: {
+    firstName: string | null;
+    lastName: string | null;
+    phone: string | null;
+    email: string | null;
+    leadId: number | null;
+  } | null = null;
   if (reportTok) {
     const ctx = await getReportContext(reportTok);
     if (ctx) {
       subjectCity = ctx.city ?? '';
+      leadPrefill = {
+        firstName: ctx.firstName,
+        lastName: ctx.lastName,
+        phone: ctx.phone,
+        email: ctx.email,
+        leadId: ctx.leadId,
+      };
       report = {
         provider: ctx.revealed?.provider ?? 'idx',
         address: ctx.address,
@@ -191,6 +209,7 @@ export default async function ThankYouPage({
             idxMarketReport={idx.marketReport}
             idxMarketNarrative={idx.marketNarrative}
             idxCityName={idxCity}
+            leadPrefill={leadPrefill}
           />
         </Suspense>
         <div className="mt-10 text-center">
