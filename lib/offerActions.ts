@@ -21,6 +21,7 @@ import { siteUrl } from './siteUrl';
 const FIFTEEN_MIN_MS = 15 * 60 * 1000;
 const THIRTY_MIN_MS = 30 * 60 * 1000;
 const ONE_HOUR_MS = 60 * 60 * 1000;
+const INITIAL_UPDATE_DEADLINE_MS = 24 * 60 * 60 * 1000; // v4 §5 — 24h to first engagement
 
 export type OfferActionResult = {
   ok: boolean;
@@ -76,7 +77,15 @@ export async function applyAccept(offerId: number): Promise<OfferActionResult> {
     .where(eq(leadOffers.id, offer.id));
   await db
     .update(leads)
-    .set({ acceptedAt: now, lastStatusChangedAt: now, updatedAt: now })
+    .set({
+      acceptedAt: now,
+      lastStatusChangedAt: now,
+      // v4 §5: 24h hard window to first engagement; reset the once-per-lead
+      // fast-engagement guard so the bonus can fire for this working cycle.
+      updateDeadline: new Date(now.getTime() + INITIAL_UPDATE_DEADLINE_MS),
+      firstEngagementLogged: false,
+      updatedAt: now,
+    })
     .where(eq(leads.id, offer.leadId));
 
   // Response-time score, 4 bands (spec v2 §2). A null offerSentAt (queued

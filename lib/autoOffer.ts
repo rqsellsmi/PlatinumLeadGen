@@ -33,6 +33,7 @@ function formatRange(low: number | null, high: number | null): string | null {
 const OFFER_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const ACCEPTANCE_WINDOW_MS = 3 * 60 * 60 * 1000; // 3-hour acceptance timer
 const FIRST_UPDATE_MS = 48 * 60 * 60 * 1000; // 48 hours
+const INITIAL_UPDATE_DEADLINE_MS = 24 * 60 * 60 * 1000; // v4 §5 — 24h to first engagement
 const WEEKLY_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
@@ -377,10 +378,16 @@ export async function manualReassignLead(
     .returning({ id: leadOffers.id });
   const newOfferId = inserted[0].id;
 
-  // 4. Reflect new assignment on the lead.
+  // 4. Reflect new assignment on the lead (start the v4 24h update clock).
   await db
     .update(leads)
-    .set({ acceptedAt: now, lastStatusChangedAt: now, updatedAt: now })
+    .set({
+      acceptedAt: now,
+      lastStatusChangedAt: now,
+      updateDeadline: new Date(now.getTime() + INITIAL_UPDATE_DEADLINE_MS),
+      firstEngagementLogged: false,
+      updatedAt: now,
+    })
     .where(eq(leads.id, leadId));
 
   await logLeadEvent(leadId, 'manually_assigned', `Assigned to ${agent.firstName} ${agent.lastName}`.trim());

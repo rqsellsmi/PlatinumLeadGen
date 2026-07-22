@@ -4,7 +4,7 @@
  */
 import { siteUrl } from '@/lib/siteUrl';
 import { NextRequest, NextResponse } from 'next/server';
-import { and, eq, isNull, isNotNull, lt, or, count } from 'drizzle-orm';
+import { and, eq, gte, isNull, isNotNull, lt, or, count } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { leadOffers, leads, agents } from '@/drizzle/schema';
 import {
@@ -12,13 +12,10 @@ import {
   escalationEmail,
   weeklyReminderEmail,
   staleLeadWarningEmail,
-  stale6DayWarningEmail,
 } from '@/lib/email';
 import { sendAgentSms } from '@/lib/agentSms';
 import { updateReminderText } from '@/lib/smsTemplates';
 import { applyScore } from '@/lib/scoring';
-import { logLeadEvent } from '@/lib/leadEvents';
-import { STALL_WINDOW_MS } from '@/lib/leadLifecycle';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -124,19 +121,21 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Shared portal URL for stale notifications.
+    // Shared portal URL for update-clock notifications.
     const portalUrl = `${siteUrl()}/agent/leads`;
-    const t36 = new Date(now.getTime() - 36 * HOUR_MS);
-    const t48 = new Date(now.getTime() - 48 * HOUR_MS);
-    const t6d = new Date(now.getTime() - 6 * 24 * HOUR_MS);
-    const t7d = new Date(now.getTime() - 7 * 24 * HOUR_MS);
 
     const leadName = (l: { firstName: string | null; lastName: string | null }) =>
       `${l.firstName ?? ''} ${l.lastName ?? ''}`.trim() || 'your lead';
 
-    // (c) 36-hour warning (§E.5 Check 1) — first update overdue, not yet warned.
-    let stale36Warned = 0;
-    const warn36 = await db
+    // ---- Unified update clock (v4 §5) — replaces stale_48h / stale_7day /
+    //      stalled_30day with one recurring check, cadence by stage. ----
+
+    // (c) Pre-deadline warning email — accepted + active, within 24h of the
+    //     update deadline, not yet warned this cycle. staleWarningSentAt is the
+    //     per-cycle dedup: a fresh status change (lastStatusChangedAt) re-arms it.
+    const warnHorizon = new Date(now.getTime() + 24 * HOUR_MS);
+    let updateWarned = 0;
+    const warnRows = await db
       .select({ offer: leadOffers, lead: leads, agent: agents })
       .from(leadOffers)
       .innerJoin(leads, eq(leadOffers.leadId, leads.id))
@@ -144,13 +143,17 @@ export async function GET(req: NextRequest) {
       .where(
         and(
           eq(leadOffers.status, 'accepted'),
-          isNull(leadOffers.firstUpdateSubmittedAt),
-          isNotNull(leadOffers.offerSentAt),
-          lt(leadOffers.offerSentAt, t36),
-          isNull(leads.staleWarningSentAt),
+          isNotNull(leads.updateDeadline),
+          gte(leads.updateDeadline, now), // not yet overdue
+          lt(leads.updateDeadline, warnHorizon), // within 24h
+          or(
+            isNull(leads.staleWarningSentAt),
+            isNull(leads.lastStatusChangedAt),
+            lt(leads.staleWarningSentAt, leads.lastStatusChangedAt),
+          ),
         ),
       );
-    for (const row of warn36) {
+    for (const row of warnRows) {
       try {
         await sendEmail(
           staleLeadWarningEmail({
@@ -158,160 +161,59 @@ export async function GET(req: NextRequest) {
             agentName: `${row.agent.firstName} ${row.agent.lastName}`.trim(),
             leadName: leadName(row.lead),
             address: row.lead.propertyAddress,
-            penaltyInHours: 12,
+            penaltyInHours: 24,
             portalUrl,
             relatedLeadId: row.lead.id,
             relatedAgentId: row.agent.id,
           }),
         );
         await db.update(leads).set({ staleWarningSentAt: now, updatedAt: now }).where(eq(leads.id, row.lead.id));
-        stale36Warned += 1;
+        updateWarned += 1;
       } catch (err) {
-        console.error(`[cron/followup-check] 36h warning lead ${row.lead.id} failed:`, err);
+        console.error(`[cron/followup-check] update warning lead ${row.lead.id} failed:`, err);
       }
     }
 
-    // (d) 48-hour penalty (§E.5 Check 2) — first update overdue, no penalty yet.
-    let stale48Penalized = 0;
-    const pen48 = await db
+    // (d) Missed-update penalty — past the deadline: flat −2, then the deadline
+    //     recurs (+14d Signed / +7d otherwise) so it fires once per cycle, not
+    //     every cron tick. update_deadline is null for Closed/Lost, so they are
+    //     excluded automatically (the clock stops).
+    let missedUpdatePenalized = 0;
+    const overdueRows = await db
       .select({ offer: leadOffers, lead: leads })
       .from(leadOffers)
       .innerJoin(leads, eq(leadOffers.leadId, leads.id))
       .where(
         and(
           eq(leadOffers.status, 'accepted'),
-          isNull(leadOffers.firstUpdateSubmittedAt),
-          isNotNull(leadOffers.offerSentAt),
-          lt(leadOffers.offerSentAt, t48),
-          isNull(leads.lastPenaltyAt),
+          isNotNull(leads.updateDeadline),
+          lt(leads.updateDeadline, now),
         ),
       );
-    for (const row of pen48) {
+    for (const row of overdueRows) {
       try {
         await applyScore({
           agentId: row.offer.agentId,
-          reason: 'stale_48h',
+          reason: 'missed_update_checkin',
           leadId: row.lead.id,
           leadOfferId: row.offer.id,
         });
-        await db.update(leads).set({ lastPenaltyAt: now, updatedAt: now }).where(eq(leads.id, row.lead.id));
-        stale48Penalized += 1;
+        const nextMs = row.lead.status === 'signed' ? 14 * 24 * HOUR_MS : 7 * 24 * HOUR_MS;
+        await db
+          .update(leads)
+          .set({ updateDeadline: new Date(now.getTime() + nextMs), updatedAt: now })
+          .where(eq(leads.id, row.lead.id));
+        missedUpdatePenalized += 1;
       } catch (err) {
-        console.error(`[cron/followup-check] 48h penalty lead ${row.lead.id} failed:`, err);
-      }
-    }
-
-    // (e) 6-day warning (§E.5 Check 3 / §K.4) — reuses staleWarningSentAt:
-    //     lastPenaltyAt set & older than 6 days, and the last warning predates the
-    //     last penalty (i.e. a fresh cycle that hasn't been warned yet).
-    let stale6dWarned = 0;
-    const warn6d = await db
-      .select({ offer: leadOffers, lead: leads, agent: agents })
-      .from(leadOffers)
-      .innerJoin(leads, eq(leadOffers.leadId, leads.id))
-      .innerJoin(agents, eq(leadOffers.agentId, agents.id))
-      .where(
-        and(
-          eq(leadOffers.status, 'accepted'),
-          isNotNull(leads.lastPenaltyAt),
-          lt(leads.lastPenaltyAt, t6d),
-          or(isNull(leads.staleWarningSentAt), lt(leads.staleWarningSentAt, leads.lastPenaltyAt)),
-        ),
-      );
-    for (const row of warn6d) {
-      try {
-        await sendEmail(
-          stale6DayWarningEmail({
-            to: row.agent.email,
-            agentName: `${row.agent.firstName} ${row.agent.lastName}`.trim(),
-            leadName: leadName(row.lead),
-            address: row.lead.propertyAddress,
-            portalUrl,
-            relatedLeadId: row.lead.id,
-            relatedAgentId: row.agent.id,
-          }),
-        );
-        await db.update(leads).set({ staleWarningSentAt: now, updatedAt: now }).where(eq(leads.id, row.lead.id));
-        stale6dWarned += 1;
-      } catch (err) {
-        console.error(`[cron/followup-check] 6-day warning lead ${row.lead.id} failed:`, err);
-      }
-    }
-
-    // (f) 7-day recurring penalty (§E.5 Check 4) — lastPenaltyAt older than 7 days.
-    let stale7dPenalized = 0;
-    const pen7d = await db
-      .select({ offer: leadOffers, lead: leads })
-      .from(leadOffers)
-      .innerJoin(leads, eq(leadOffers.leadId, leads.id))
-      .where(
-        and(
-          eq(leadOffers.status, 'accepted'),
-          isNotNull(leads.lastPenaltyAt),
-          lt(leads.lastPenaltyAt, t7d),
-        ),
-      );
-    for (const row of pen7d) {
-      try {
-        await applyScore({
-          agentId: row.offer.agentId,
-          reason: 'stale_7day',
-          leadId: row.lead.id,
-          leadOfferId: row.offer.id,
-        });
-        // Reset the cycle: new penalty time; the next 6-day warning fires again
-        // because staleWarningSentAt now predates lastPenaltyAt (§K.4).
-        await db.update(leads).set({ lastPenaltyAt: now, updatedAt: now }).where(eq(leads.id, row.lead.id));
-        stale7dPenalized += 1;
-      } catch (err) {
-        console.error(`[cron/followup-check] 7-day penalty lead ${row.lead.id} failed:`, err);
-      }
-    }
-
-    // (g) 30-day stall (spec v2 §4.3) — a Qualified lead with no status change /
-    //     logged activity for 30 days. Penalize the assigned agent −3, recurring
-    //     every 30 days until the lead is Closed or marked Lost (both move it out
-    //     of 'qualified', so it naturally stops). Marking Lost after a stall
-    //     penalty already posted does NOT reverse it — that's intended.
-    const t30 = new Date(now.getTime() - STALL_WINDOW_MS);
-    let stalled = 0;
-    const stalledRows = await db
-      .select({ offer: leadOffers, lead: leads })
-      .from(leadOffers)
-      .innerJoin(leads, eq(leadOffers.leadId, leads.id))
-      .where(
-        and(
-          eq(leadOffers.status, 'accepted'),
-          eq(leads.status, 'qualified'),
-          isNotNull(leads.lastStatusChangedAt),
-          lt(leads.lastStatusChangedAt, t30),
-          or(isNull(leads.stallPenaltyAt), lt(leads.stallPenaltyAt, t30)),
-        ),
-      );
-    for (const row of stalledRows) {
-      try {
-        await applyScore({
-          agentId: row.offer.agentId,
-          reason: 'pipeline_stalled',
-          leadId: row.lead.id,
-          leadOfferId: row.offer.id,
-        });
-        await db.update(leads).set({ stallPenaltyAt: now, updatedAt: now }).where(eq(leads.id, row.lead.id));
-        await logLeadEvent(row.lead.id, 'pipeline_stalled', '30-day stall penalty (−3)');
-        stalled += 1;
-      } catch (err) {
-        console.error(`[cron/followup-check] stall penalty lead ${row.lead.id} failed:`, err);
+        console.error(`[cron/followup-check] missed-update penalty lead ${row.lead.id} failed:`, err);
       }
     }
 
     return NextResponse.json({
       escalated,
       reminded,
-      stale36Warned,
-      stale48Penalized,
-      stale6dWarned,
-      stale7dPenalized,
-      stalled,
+      updateWarned,
+      missedUpdatePenalized,
     });
   } catch (err) {
     console.error('[cron/followup-check] error:', err);
