@@ -835,3 +835,46 @@ penalties with one clock. Built in 8 phases, typecheck+tests green after each.
   `update_deadline` (fire ~24h out, dedup via `staleWarningSentAt <
   lastStatusChangedAt`). "Keep the emails" is not automatically "keep the exact
   triggers" — confirm the anchor when the underlying clock changes.
+
+## 20. Refinements session (`refinements-v1`) — small changes, sharp edges
+
+A batch of UX / data-quality / self-service refinements after Scoring v4. The
+recurring theme: the *guarding* logic is where the value is, not the form.
+
+- **Server-side ownership must be re-verified on every mutation, even when the
+  UI only shows owned records.** The agent lead-edit route (`/api/agent/lead`)
+  re-runs the exact ownership check the read path uses — the offer must exist,
+  belong to the calling agent, and be `accepted` — before writing. Never trust a
+  `leadOfferId` from the client just because the edit form was only rendered on a
+  page the agent could reach; a POST can carry any id. Same pattern already
+  proven by `recordStatusUpdate`.
+- **Reuse the validation helper, don't re-implement it.** Name editing on the
+  agent side pulls in the *same* `isValidPersonName` used by the public lead
+  forms via a small `agentLeadContactSchema` in `lib/validation.ts`. One rule
+  ("a letter, no digits, blanks allowed"), one message, three entry points
+  (two public forms + agent edit). A second copy would drift.
+- **A `varchar` "enum-ish" column is a feature when you need a new event type.**
+  `lead_events.event_type` is a `varchar(100)`, not a pg enum, so adding the
+  `contact_updated` timeline entry was a one-line union addition in
+  `lib/leadEvents.ts` — no migration. (Contrast §19: `lead_status`/`score_reason`
+  are real enums and every value change needs a migration.) Know which of your
+  "type" columns are enums and which are free varchars before you plan a change.
+- **"Outside the area" and "we can't tell where the area is" are different
+  states and must route differently.** Out-of-area handling only fires when the
+  lead has coords AND ≥1 agent is geocoded AND none match — a genuine "nobody
+  covers this" — and sends it to the admin unassigned. When proximity is
+  *unevaluable* (no lead coords or no geocoded agent) the global-queue fallback
+  is kept. Collapsing the two would have flooded the admin the moment a roster
+  was mis-geocoded.
+- **A "sensible" default in a dropdown becomes fabricated data.** The valuation
+  timeframe defaulted to the first option ("Next 3 months"), so every lead who
+  ignored the field looked like a 3-month seller. Making the default blank
+  ("Select a timeframe (optional)") and sending `undefined` when unset stopped
+  the skew. Pre-selected non-empty defaults on optional fields silently
+  manufacture signal — default to blank unless the field is required.
+- **Split a security flow when the threat models differ.** First-time password
+  *setup* (prove you're on the roster via a shared code) and *forgot-password*
+  (prove you own the inbox via an emailed link) started as one page and were
+  split on owner feedback — "I don't want just anyone to be able to reset it."
+  A shared setup code is fine for a never-set password but too weak to *re-set*
+  an existing one; different assurance needs → different flows.

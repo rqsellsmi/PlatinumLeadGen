@@ -626,3 +626,70 @@ in-thread: set `SITE_URL` + `NEXTAUTH_URL` (Vercel) and `DEPLOY_URL` (Actions) t
 the new domain, add/verify the domain in Vercel, extend the Google Maps browser
 key's HTTP-referrer allowlist, register the new IDX display URL with Realcomp, and
 add the domain in Google Search Console + resubmit the sitemap.
+
+---
+
+## Refinements session (`refinements-v1`, post-v4)
+
+A batch of smaller UX / data-quality / self-service refinements layered on top
+of Scoring v4, all pushed to `refinements-v1` as they were built. Migrations
+added across the session: **0026** (lead intent), **0027–0028** (Scoring v4),
+**0029** (agent setup code), **0030** (agent password reset). Final gate:
+typecheck clean, build compiles, **161 tests across 18 files**.
+
+### What shipped
+- **Out-of-area routing** (`lib/routing.ts`, `lib/autoOffer.ts`): a lead with
+  coordinates that falls within *no* geocoded agent's radius now returns
+  `outcome: 'outside-area'` and is left **unassigned**, emailing the admin the
+  details (`leadOutsideAreaEmail`) instead of dumping it on a far agent. The
+  global-queue fallback survives only when proximity is *unevaluable* (no lead
+  coords or no agent geocoded) — so a mis-geocoded roster can't flood the admin.
+- **Buyer/Seller intent** (migration 0026): `leads.intent` (`seller`/`buyer`/
+  `unknown`), a **label only** — no routing impact, Buyer Track is future. Admin
+  Leads page gained a Buyer/Seller filter.
+- **Name-format validation** (`lib/validation.ts isValidPersonName`): letter
+  required, no digits; wired into the server lead schema and both public
+  valuation forms with a shared client message.
+- **Appointment-form prefill** (thank-you page): auto-fills from the lead's
+  already-provided info via a sessionStorage handoff + server report-token
+  fallback ("prefill if we can, else blank" — reusable elsewhere later).
+- **Admin Leads completeness filter**: Full (`email IS NOT NULL`) vs Partial
+  (`email IS NULL`), with a "Partial" row tag. Partial (address-only) leads are
+  never routed to agents.
+- **Blank timeframe default**: the valuation-form timeframe starts blank
+  ("Select a timeframe (optional)") instead of defaulting to "Next 3 months,"
+  which was skewing the captured data.
+- **Admin agent availability toggle**: a Pause/Resume control that calls the
+  *same* `setAgentAvailability` (`lib/agentAvailability.ts`) as the agent's own
+  portal toggle — including the first-activation credit. The Agents list now
+  defaults to **active-only, available-first**. `isActive` (roster lockout) and
+  `isAvailable` (pauses new leads only) stay distinct.
+- **Top-of-page add buttons**: "+ Add agent" → dedicated `/admin/agents/new`
+  (form moved off the bottom of the list); "+ Add lead" at the top of Leads.
+- **Self-service agent passwords** (migrations 0029/0030): split into two flows —
+  (1) first-time **setup** at the public `/agent/set-password`, gated by a shared
+  **setup code** (Admin → Settings) + the email being on the roster, first-time
+  only; (2) **forgot-password** emails *that agent* a short-lived, email-verified
+  reset link (`/agent/reset-password`). "I don't want just anyone to reset it."
+- **Agent lead contact edit** (`lib/agentLeadEdit.ts`, `POST /api/agent/lead`,
+  `components/agent/EditContactForm.tsx`): the owning agent can edit a lead's
+  **name / email / phone** in place from the lead-detail "Contact & property"
+  card. Ownership is re-verified server-side (must hold the *accepted* offer),
+  names use the shared `isValidPersonName` rule, and each edit is logged to the
+  lead timeline as `contact_updated`. Property/routing data stays read-only.
+  Tests: `tests/agentLeadContact.test.ts` (6 cases).
+
+### What still needs to be done (owner)
+- **Apply migrations 0026–0030** on every Neon branch the app + GitHub Actions
+  use (several admin pages `select` whole lead/agent rows).
+- **Set the agent setup code** (Admin → Settings) and share `/agent/set-password`
+  with the team so agents can set their first password.
+- No env changes in this batch; routing slots + four-track aggregation unchanged.
+
+### Deferred (discussed, not built)
+- **`/ads/[slug]` vs `/sell/[slug]` consolidation** — revisit "when we set up all
+  the Google tracking." Ads currently point straight at `/sell/fenton-mi`; the
+  separate `/ads` pages exist but aren't the ad destination right now.
+- **Departed-agent leads handling** — undecided.
+- **`www.` / apex DNS** for `remax-platinumonline.com` — a DNS/registrar step,
+  not code (the bare Vercel link works; `www` needs a CNAME/redirect).
