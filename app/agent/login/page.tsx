@@ -150,6 +150,11 @@ function LoginInner() {
             <Button type="submit" className="w-full" disabled={pwPending}>
               {pwPending ? 'Signing in…' : 'Sign in'}
             </Button>
+            <p className="text-center text-sm text-slate-500">
+              <a href="/agent/set-password" className="font-semibold text-brand-blue hover:underline">
+                First time here, or forgot your password?
+              </a>
+            </p>
           </form>
 
           <div className="my-6 flex items-center gap-3">

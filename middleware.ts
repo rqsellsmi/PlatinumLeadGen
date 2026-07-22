@@ -27,7 +27,13 @@ export async function middleware(req: NextRequest) {
   }
 
   // --- Agent portal: signed session cookie ----------------------------------
-  if (pathname.startsWith('/agent') && pathname !== '/agent/login') {
+  // /agent/login and /agent/set-password are public (the latter is the shared
+  // first-time-setup / forgot-password page).
+  if (
+    pathname.startsWith('/agent') &&
+    pathname !== '/agent/login' &&
+    pathname !== '/agent/set-password'
+  ) {
     const cookie = req.cookies.get(AGENT_SESSION_COOKIE)?.value;
     const secret = process.env.NEXTAUTH_SECRET ?? '';
     const agentId = await verifyAgentSessionEdge(cookie, secret);

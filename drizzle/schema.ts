@@ -806,6 +806,9 @@ export const notificationSettings = pgTable('notification_settings', {
   // Testimonials source (Section — reviews): 'manual' | 'google' | 'both'.
   testimonialSource: varchar('testimonial_source', { length: 10 }).notNull().default('manual'),
   googlePlaceId: varchar('google_place_id', { length: 200 }), // for Google reviews
+  // Shared code an agent must enter on /agent/set-password before setting/
+  // resetting their password (migration 0029). Null/empty = setup page closed.
+  agentSetupCode: varchar('agent_setup_code', { length: 60 }),
   // Scoring v2 periodic-reset guards (so the maintenance cron resets each track
   // only once per boundary). Store the period key that was last reset.
   scoreMonthlyResetKey: varchar('score_monthly_reset_key', { length: 7 }), // 'YYYY-MM'

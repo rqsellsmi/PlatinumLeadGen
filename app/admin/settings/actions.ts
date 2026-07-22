@@ -18,6 +18,7 @@ export async function saveSettings(formData: FormData) {
   const offerWindowStartHour = int(formData.get('offerWindowStartHour'), 7);
   const offerWindowEndHour = int(formData.get('offerWindowEndHour'), 20);
   const proximityRadiusMiles = int(formData.get('proximityRadiusMiles'), 20);
+  const agentSetupCode = String(formData.get('agentSetupCode') ?? '').trim() || null;
 
   const existing = await db.select({ id: notificationSettings.id }).from(notificationSettings).limit(1);
   const values = {
@@ -25,6 +26,7 @@ export async function saveSettings(formData: FormData) {
     offerWindowStartHour,
     offerWindowEndHour,
     proximityRadiusMiles,
+    agentSetupCode,
     updatedAt: new Date(),
   };
 

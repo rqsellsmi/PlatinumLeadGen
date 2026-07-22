@@ -71,6 +71,20 @@ export default async function SettingsPage() {
               />
             </div>
             <div className="md:col-span-2">
+              <Label htmlFor="agentSetupCode">Agent setup code</Label>
+              <Input
+                id="agentSetupCode"
+                name="agentSetupCode"
+                defaultValue={settings.agentSetupCode ?? ''}
+                placeholder="e.g. PLATINUM2026"
+              />
+              <p className="mt-1 text-xs text-mute-light">
+                Share this with your agents along with the link{' '}
+                <span className="font-semibold">/agent/set-password</span> so they can set (or
+                reset) their own password. Leave blank to close the setup page.
+              </p>
+            </div>
+            <div className="md:col-span-2">
               <Button type="submit">Save settings</Button>
             </div>
           </form>
