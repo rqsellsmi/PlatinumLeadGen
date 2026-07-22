@@ -83,7 +83,7 @@ export default function ValuationForm({ locationSlug, cityName, pageVariant = 's
   const [lastName, setLastName] = React.useState('');
   const [email, setEmail] = React.useState('');
   const [phone, setPhone] = React.useState('');
-  const [timeframe, setTimeframe] = React.useState<string>(TIMEFRAMES[0]);
+  const [timeframe, setTimeframe] = React.useState<string>('');
 
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -233,7 +233,7 @@ export default function ValuationForm({ locationSlug, cityName, pageVariant = 's
           lastName,
           email,
           phone,
-          timeframe,
+          timeframe: timeframe || undefined,
           propertyAddress: place.propertyAddress,
           propertyLat: place.propertyLat,
           propertyLng: place.propertyLng,
@@ -402,6 +402,7 @@ export default function ValuationForm({ locationSlug, cityName, pageVariant = 's
                 <div>
                   <Label htmlFor="timeframe">When are you looking to sell?</Label>
                   <Select id="timeframe" value={timeframe} onChange={(e) => setTimeframe(e.target.value)}>
+                    <option value="">Select a timeframe (optional)</option>
                     {TIMEFRAMES.map((t) => (
                       <option key={t} value={t}>
                         {t}
