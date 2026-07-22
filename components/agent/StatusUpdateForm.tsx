@@ -24,12 +24,12 @@ export function StatusUpdateForm({
   canMarkLost,
 }: {
   leadOfferId: number;
-  currentStatus: LeadStatus;
+  currentStatus: string;
   canMarkLost: boolean;
 }) {
   const router = useRouter();
   const [newStatus, setNewStatus] = useState<LeadStatus>(
-    SETTABLE.includes(currentStatus) ? currentStatus : 'contacted',
+    (SETTABLE as readonly string[]).includes(currentStatus) ? (currentStatus as LeadStatus) : 'contacted',
   );
   const [lostReason, setLostReason] = useState<string>('');
   const [note, setNote] = useState('');

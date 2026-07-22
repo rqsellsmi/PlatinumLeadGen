@@ -37,12 +37,18 @@ export const leadIntentEnum = pgEnum('lead_intent', ['seller', 'buyer', 'unknown
 export const leadStatusEnum = pgEnum('lead_status', [
   'new',
   'attempted_contact', // reached out, no live conversation yet
+  // --- Scoring v4 Seller Track (migration 0027) ---
+  'connected', // live conversation established (v4; replaces 'contacted')
+  'nurturing', // actively worked, no appointment yet (v4; replaces 'qualified'/'working')
+  'appointment_set', // listing appointment booked (v4)
+  'signed', // listing agreement signed (v4)
+  // --- v2 statuses, retired but kept (Postgres can't drop enum values) ---
   'contacted',
   'qualified',
-  'working', // actively working the deal (post-qualified, pre-close)
+  'working',
   'closed',
   'lost',
-  'reopened', // spec v2 §4.4 — a Lost lead whose contact submitted again
+  'reopened', // a Lost lead whose contact resubmitted (behaves like New in v4)
 ]);
 
 export const offerStatusEnum = pgEnum('offer_status', [
@@ -71,6 +77,12 @@ export const scoreReasonEnum = pgEnum('score_reason', [
   'lead_deleted_reversal', // reversal of a negative event when a lead is deleted (v1.6 §K.3)
   'manual_adjustment', // variable (requires reason)
   'starting_credit', // +50 one-time queue head start on first activation (rolling-365 only)
+  // --- Scoring v4 (migration 0027). Old reasons above (stale_48h/7day,
+  // pipeline_stalled, fast_contact_bonus, pipeline_qualified) are retired but kept. ---
+  'fast_engagement', // variable +4/+3/+2/+1 for first Attempted/Connected log speed (v4 §4.2)
+  'milestone_appointment_set', // +4 first Appointment Set (v4 §4.3)
+  'milestone_signed', // +10 first Signed (v4 §4.3)
+  'missed_update_checkin', // -2 unified update-clock penalty (v4 §5)
 ]);
 
 export const scriptPositionEnum = pgEnum('script_position', ['head', 'body']);
@@ -425,8 +437,17 @@ export const leads = pgTable(
     contactedAt: timestamp('contacted_at'),
     lostReason: varchar('lost_reason', { length: 40 }),
     lostAt: timestamp('lost_at'),
-    stallPenaltyAt: timestamp('stall_penalty_at'),
+    stallPenaltyAt: timestamp('stall_penalty_at'), // retired in v4 (unified clock)
     reopenedAt: timestamp('reopened_at'),
+    // Scoring v4 (migration 0027). Unified update clock + once-only milestone
+    // guards + reactivation counter (Lost→Reopened). See docs/agent-rating-system.md.
+    updateDeadline: timestamp('update_deadline'), // null once Closed/Lost — clock stops (v4 §5)
+    firstEngagementLogged: boolean('first_engagement_logged').notNull().default(false),
+    milestoneAttemptedContact: boolean('milestone_attempted_contact').notNull().default(false),
+    milestoneConnected: boolean('milestone_connected').notNull().default(false),
+    milestoneAppointmentSet: boolean('milestone_appointment_set').notNull().default(false),
+    milestoneSigned: boolean('milestone_signed').notNull().default(false),
+    reactivationCount: integer('reactivation_count').notNull().default(0),
     // IDX market report (IDX spec §5.3 / §8.3): durable signed token for the
     // homeowner's report link, plus view tracking for the admin access log.
     reportToken: varchar('report_token', { length: 64 }),
