@@ -78,12 +78,14 @@ function gateAddress<T extends IdxListing>(row: T): T {
  * score are returned. This makes the "similar homes" genuinely comparable
  * rather than merely nearby or merely similarly priced.
  */
-export interface SimilarHomesParams {
+/**
+ * The subject-property attributes the similarity ranker reads. Shared by the
+ * for-sale (`SimilarHomesParams`) and sold-comp (`SoldCompsParams`) callers so a
+ * single ranking function serves both lists.
+ */
+export interface ComparableSubject {
   latitude?: number | null;
   longitude?: number | null;
-  priceRangeLow: number;
-  priceRangeHigh: number;
-  /** Subject-property attributes for similarity ranking (all optional). */
   estimatedValue?: number | null;
   city?: string | null;
   beds?: number | null;
@@ -91,6 +93,11 @@ export interface SimilarHomesParams {
   sqft?: number | null;
   yearBuilt?: number | null;
   propertyType?: string | null;
+}
+
+export interface SimilarHomesParams extends ComparableSubject {
+  priceRangeLow: number;
+  priceRangeHigh: number;
   limit?: number;
 }
 
@@ -113,7 +120,7 @@ export function propertyFamily(...values: (string | null | undefined)[]): string
 }
 
 /** Similarity distance for one candidate vs. the subject (lower = closer). */
-export function similarityScore(subject: SimilarHomesParams, cand: IdxListing): number {
+export function similarityScore(subject: ComparableSubject, cand: IdxListing): number {
   let score = 0;
 
   // Location — same city is a strong signal; distance adds a graded penalty.
@@ -148,10 +155,13 @@ export function similarityScore(subject: SimilarHomesParams, cand: IdxListing): 
     score += (Math.abs(subject.yearBuilt - cand.yearBuilt) / 30) * 1.0;
   }
 
-  // Price — relative difference from the subject's estimate.
+  // Price — relative difference from the subject's estimate. For a SOLD comp use
+  // what it actually sold for (closePrice); Active listings have no closePrice, so
+  // this falls back to listPrice and the for-sale ranking is unchanged.
   const subjPrice = subject.estimatedValue ?? null;
-  if (subjPrice != null && subjPrice > 0 && cand.listPrice != null) {
-    score += (Math.abs(subjPrice - cand.listPrice) / Math.max(subjPrice, 50_000)) * 2;
+  const candPrice = cand.closePrice ?? cand.listPrice;
+  if (subjPrice != null && subjPrice > 0 && candPrice != null) {
+    score += (Math.abs(subjPrice - candPrice) / Math.max(subjPrice, 50_000)) * 2;
   }
 
   return score;
@@ -199,20 +209,102 @@ export async function getSimilarHomes(params: SimilarHomesParams): Promise<IdxCa
 // ---------------------------------------------------------------------------
 // Recent Sold Comps — closed listings near the subject (IDX spec §5.2 §2)
 // ---------------------------------------------------------------------------
-export interface SoldCompsParams {
-  latitude?: number | null;
-  longitude?: number | null;
-  city?: string | null;
+/**
+ * HOW RECENTLY-SOLD COMPS ARE CHOSEN
+ * ----------------------------------
+ * Same philosophy as Similar Homes (above). When we have the subject's
+ * coordinates we pull a candidate pool of recent closed sales ordered by
+ * geographic nearness — NOT hard-gated to the subject's mailing city — then rank
+ * the pool by the shared `similarityScore` (attribute + proximity aware) plus a
+ * light recency tiebreaker. So a genuinely closer, more-comparable sale one town
+ * over can surface, and a far in-city sale can't crowd out a near one. A radius
+ * guardrail keeps a dropped city gate from surfacing a distant "comp".
+ *
+ * When the subject has NO coordinates, proximity is unevaluable, so we fall back
+ * to the previous behavior: same mailing city (if known), most-recent first.
+ */
+export interface SoldCompsParams extends ComparableSubject {
   withinDays?: number;
   limit?: number;
+  /** Prefer comps within this many miles of the subject before widening. */
+  maxRadiusMiles?: number;
+}
+
+export interface SoldRankOptions {
+  limit?: number;
+  maxRadiusMiles?: number;
+  withinDays?: number;
+  now?: Date;
+}
+
+/**
+ * Rank a pool of closed comps for a subject property (pure, unit-tested). Sorts
+ * by `similarityScore` (attribute + proximity) plus a small recency tiebreaker,
+ * preferring comps within `maxRadiusMiles` and widening to the full (already
+ * nearest-first) pool only when too few close comps exist. Lower rank = better.
+ */
+export function rankSoldComps(
+  subject: ComparableSubject,
+  pool: IdxListing[],
+  options: SoldRankOptions = {},
+): IdxListing[] {
+  const { limit = 6, maxRadiusMiles = 15, withinDays = 90, now = new Date() } = options;
+  const hasSubjectCoords = subject.latitude != null && subject.longitude != null;
+
+  const scored = pool.map((row) => {
+    const miles =
+      hasSubjectCoords && row.latitude != null && row.longitude != null
+        ? approxMiles(subject.latitude!, subject.longitude!, row.latitude, row.longitude)
+        : null;
+    let rank = similarityScore(subject, row);
+    // Recency tiebreaker: up to +0.5 for the oldest sale in the window, ~0 for a
+    // fresh one — small enough to only separate otherwise-comparable comps.
+    if (row.closeDate) {
+      const ageDays = (now.getTime() - new Date(row.closeDate).getTime()) / 86_400_000;
+      rank += Math.max(0, Math.min(1, ageDays / withinDays)) * 0.5;
+    }
+    return { row, miles, rank };
+  });
+
+  // Prefer comps inside the radius guardrail; fall back to the whole pool only
+  // when too few close comps exist, so thin markets still return something.
+  const within = scored.filter((s) => s.miles != null && s.miles <= maxRadiusMiles);
+  const base = within.length >= limit ? within : scored;
+  return base
+    .sort((a, b) => a.rank - b.rank)
+    .slice(0, limit)
+    .map((s) => s.row);
 }
 
 export async function getRecentSoldComps(params: SoldCompsParams): Promise<IdxCard[]> {
-  const { latitude, longitude, city, withinDays = 90, limit = 6 } = params;
+  const { latitude, longitude, city, withinDays = 90, limit = 6, maxRadiusMiles = 15 } = params;
   const hasCoords = latitude != null && longitude != null;
   const cutoff = new Date(Date.now() - withinDays * 24 * 60 * 60 * 1000);
 
-  const rows = await db
+  // No coordinates → proximity is unevaluable; keep the city-scoped, most-recent
+  // behavior (mirrors the routing "unevaluable vs. out-of-area" split).
+  if (!hasCoords) {
+    const rows = await db
+      .select()
+      .from(idxListings)
+      .where(
+        and(
+          eq(idxListings.standardStatus, 'Closed'),
+          notLease,
+          gte(idxListings.closeDate, cutoff),
+          isNotNull(idxListings.photoUrl),
+          canDisplay,
+          city ? sql`LOWER(${idxListings.city}) = LOWER(${city})` : undefined,
+        ),
+      )
+      .orderBy(sql`${idxListings.closeDate} DESC`)
+      .limit(limit);
+    return rows.map(gateAddress);
+  }
+
+  // With coordinates → pull a nearest-first candidate pool (no city gate) and
+  // rank it by attribute + proximity similarity.
+  const pool = await db
     .select()
     .from(idxListings)
     .where(
@@ -222,17 +314,15 @@ export async function getRecentSoldComps(params: SoldCompsParams): Promise<IdxCa
         gte(idxListings.closeDate, cutoff),
         isNotNull(idxListings.photoUrl),
         canDisplay,
-        city ? sql`LOWER(${idxListings.city}) = LOWER(${city})` : undefined,
       ),
     )
     .orderBy(
-      hasCoords
-        ? sql`ABS(COALESCE(${idxListings.latitude}, 0) - ${latitude}) + ABS(COALESCE(${idxListings.longitude}, 0) - ${longitude}) ASC`
-        : sql`${idxListings.closeDate} DESC`,
+      sql`ABS(COALESCE(${idxListings.latitude}, 0) - ${latitude}) + ABS(COALESCE(${idxListings.longitude}, 0) - ${longitude}) ASC`,
     )
-    .limit(limit);
+    .limit(150);
 
-  return rows.map(gateAddress);
+  const ranked = rankSoldComps(params, pool, { limit, maxRadiusMiles, withinDays });
+  return ranked.map(gateAddress);
 }
 
 // ---------------------------------------------------------------------------

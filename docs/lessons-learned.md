@@ -878,6 +878,25 @@ recurring theme: the *guarding* logic is where the value is, not the form.
   split on owner feedback — "I don't want just anyone to be able to reset it."
   A shared setup code is fine for a never-set password but too weak to *re-set*
   an existing one; different assurance needs → different flows.
+- **A hard equality filter and a soft ranking signal are different tools — don't
+  use the filter where you want the signal.** The sold-comps query hard-gated on
+  `city = subject city`, which meant a genuinely-closer, more-similar sale one
+  town over was invisible while a far in-city sale ranked fine — the city
+  *boundary* was doing a job that *proximity* should do. The fix mirrored the
+  already-correct For-Sale path: drop the hard gate, pull a nearest-first
+  candidate pool that can cross the boundary, and let `similarityScore` treat
+  same-city as a *bonus* (soft) alongside a real distance penalty. When a filter
+  encodes "close/relevant," check whether it's actually a proxy for a continuous
+  signal you already rank on — if so, move it into the ranker and widen the pool.
+- **Two lists that should rank the same way should share one ranker.** For-Sale
+  and Recently-Sold had drifted: For-Sale ran the multi-attribute
+  `similarityScore`, Sold ran nearest-by-coords with no attribute matching. The
+  cheapest durable fix was to make Sold reuse the *same* function (extracting a
+  shared `ComparableSubject` type so both callers satisfy it, and having
+  `similarityScore` read `closePrice ?? listPrice` so the sold-price signal works
+  without changing the active path). One ranker, two callers — the same
+  extract-the-shared-core discipline as `offerActions`/`statusUpdates` (§17), and
+  it keeps the two lists from silently diverging again.
 - **A docs/help page that restates engine constants is a second source of
   truth — mark it and source the numbers straight from the code.** The agent
   help page (`/agent/help`) hard-codes every score delta, slot threshold,

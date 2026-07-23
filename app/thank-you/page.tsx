@@ -72,7 +72,22 @@ async function loadIdxSections(
             limit: 6,
           })
         : Promise.resolve([]),
-      getRecentSoldComps({ latitude: lat, longitude: lng, city: idxCity || null, withinDays: 90, limit: 6 }),
+      getRecentSoldComps({
+        latitude: lat,
+        longitude: lng,
+        city: idxCity || null,
+        // Subject attributes → rank sold comps by matching size/beds/baths/type/
+        // year/price + proximity, not just same mailing city (matches the
+        // for-sale similar-homes ranker).
+        estimatedValue: est,
+        beds: b?.beds ?? null,
+        baths: b?.baths ?? null,
+        sqft: b?.sqft ?? null,
+        yearBuilt: b?.yearBuilt ?? null,
+        propertyType: b?.propertyType ?? null,
+        withinDays: 90,
+        limit: 6,
+      }),
       idxCity ? getCityMarketReport(idxCity) : Promise.resolve(null),
     ]);
 
