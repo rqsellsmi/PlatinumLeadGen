@@ -213,13 +213,13 @@ export default async function AgentHelpPage() {
 
           <PointGroup
             title="Fast-engagement bonus"
-            sub="One-time, for your first contact attempt after accepting"
+            sub="One-time per lead. The timer starts the moment you accept — you earn it by logging your first update (moving the lead to Attempted contact or Connected)."
           >
-            <PointRow label="First touch in under 15 min" delta="+4" />
-            <PointRow label="First touch in 15–30 min" delta="+3" />
-            <PointRow label="First touch in 30–60 min" delta="+2" />
-            <PointRow label="First touch in 1–3 hrs" delta="+1" />
-            <PointRow label="First touch after 3 hrs" delta="0" />
+            <PointRow label="First update within 15 min of accepting" delta="+4" />
+            <PointRow label="Within 15–30 min" delta="+3" />
+            <PointRow label="Within 30–60 min" delta="+2" />
+            <PointRow label="Within 1–3 hrs" delta="+1" />
+            <PointRow label="After 3 hrs — no bonus" delta="0" />
           </PointGroup>
 
           <PointGroup
