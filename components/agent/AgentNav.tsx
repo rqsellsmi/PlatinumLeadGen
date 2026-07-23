@@ -10,6 +10,7 @@ const ITEMS = [
   { href: '/agent/performance', label: 'Performance' },
   { href: '/agent/leaderboard', label: 'Leaderboard' },
   { href: '/agent/settings', label: 'Settings' },
+  { href: '/agent/help', label: 'Help' },
 ];
 
 /** Agent portal sidebar nav with active-route highlighting. */

@@ -878,6 +878,17 @@ recurring theme: the *guarding* logic is where the value is, not the form.
   split on owner feedback — "I don't want just anyone to be able to reset it."
   A shared setup code is fine for a never-set password but too weak to *re-set*
   an existing one; different assurance needs → different flows.
+- **A docs/help page that restates engine constants is a second source of
+  truth — mark it and source the numbers straight from the code.** The agent
+  help page (`/agent/help`) hard-codes every score delta, slot threshold,
+  timing band, and tier name so it can render statically with no client JS or
+  DB. That's the right call for a fast, cacheable explainer, but it means the
+  page will silently drift the day someone edits `SCORE_DELTAS`,
+  `fastEngagementDelta`, the slots formula, the accept/clock windows, or the
+  tier list. Before writing such a page, read the *actual* constants (don't
+  transcribe from memory or the current-state doc — both can lag), and leave a
+  header comment listing which lib files it mirrors so the next editor knows to
+  update both. Same discipline as §2/§3: ground every number in the code.
 - **A disclaimer belongs at every surface the value appears, not just one.** The
   AVM number is shown to a lead in three places — the pre-contact ballpark range
   in the `HeroValuation` modal, the same range in the city `ValuationForm` bar,
