@@ -106,7 +106,7 @@ Migrations are hand-authored idempotent SQL in `drizzle/migrations/` and registe
 ## 4. Key subsystems and formulas
 
 ### 4.1 Valuation (`lib/rentcast.ts`)
-RentCast AVM `GET /avm/value`. Returns estimate + range (RentCast's own range, or **±8%** fallback — kept per addendum §K.2) + lat/lng. Every call is logged; a **40/50 monthly free-tier alert** email fires once when the 40th call of the month lands.
+RentCast AVM `GET /avm/value`. Returns estimate + range (RentCast's own range, or **±8%** fallback — kept per addendum §K.2) + lat/lng. Every call is logged; a **40/50 monthly free-tier alert** email fires once when the 40th call of the month lands. **Every surface that shows a lead their own AVM value carries a "computer-generated estimate, not a formal appraisal" disclaimer** — the pre-contact ballpark range (both the `HeroValuation` modal and the city `ValuationForm` bar) and the post-contact revealed estimate on the `/thank-you` Full Valuation page.
 
 ### 4.2 Routing (`lib/routing.ts`, `lib/queue.ts`, `lib/autoOffer.ts`)
 - **Slot weight** = `max(1, min(5, 1 + floor(score/15)))` (1–5 slots).
@@ -177,6 +177,7 @@ Small, mostly non-routing UX/data-quality changes layered on after Scoring v4:
 - **Admin agent availability** (already in §5): a Pause/Resume toggle that calls the *same* `setAgentAvailability` as the agent's own portal toggle (incl. first-activation credit); the Agents list defaults to active-only, available-first.
 - **Add-agent page**: "+ Add agent" is a prominent top button → dedicated `/admin/agents/new` (form moved off the bottom of the list); "+ Add lead" likewise at the top of the Leads page.
 - **Self-service agent passwords** (already in §6, migrations 0029/0030): first-time setup via a shared setup code, forgot-password via an emailed email-verified reset link.
+- **AVM "computer-generated" disclaimer** (§4.1): a "This is a computer-generated estimate, not a formal appraisal." line now sits on **every** surface that shows a lead their own valued number — the instant ballpark range in both public forms (`HeroValuation` modal + city `ValuationForm`) and the revealed estimate on the `/thank-you` Full Valuation page. Copy-only (no logic/routing/data change).
 
 ---
 

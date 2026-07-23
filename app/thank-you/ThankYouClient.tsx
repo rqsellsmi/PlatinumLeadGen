@@ -205,6 +205,9 @@ export default function ThankYouClient({
                 </div>
               </>
             ) : null}
+            <p className="mt-4 text-[11px] text-mute-lighter">
+              This is a computer-generated estimate, not a formal appraisal.
+            </p>
           </div>
 
           {/* Property facts (populated by ATTOM) */}

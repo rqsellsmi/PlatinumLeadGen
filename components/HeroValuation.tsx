@@ -456,6 +456,9 @@ export default function HeroValuation({
                     <p className="mt-3 text-xs text-mute-light">
                       Enter your details below to unlock the precise estimate and full report.
                     </p>
+                    <p className="mt-2 text-[11px] text-mute-lighter">
+                      This is a computer-generated estimate, not a formal appraisal.
+                    </p>
                   </div>
                 ) : (
                   <div className="rounded-card border border-line bg-cream px-5 py-5 text-center text-sm text-mute">

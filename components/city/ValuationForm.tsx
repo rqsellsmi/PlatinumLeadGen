@@ -442,6 +442,9 @@ function ValuationRange({ v }: { v: Teaser }) {
         <span>{formatCurrency(v.rangeLow)} Low</span>
         <span>{formatCurrency(v.rangeHigh)} High</span>
       </div>
+      <p className="mt-3 text-center text-[11px] text-mute-lighter">
+        This is a computer-generated estimate, not a formal appraisal.
+      </p>
     </div>
   );
 }

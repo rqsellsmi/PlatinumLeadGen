@@ -878,3 +878,13 @@ recurring theme: the *guarding* logic is where the value is, not the form.
   split on owner feedback — "I don't want just anyone to be able to reset it."
   A shared setup code is fine for a never-set password but too weak to *re-set*
   an existing one; different assurance needs → different flows.
+- **A disclaimer belongs at every surface the value appears, not just one.** The
+  AVM number is shown to a lead in three places — the pre-contact ballpark range
+  in the `HeroValuation` modal, the same range in the city `ValuationForm` bar,
+  and the post-contact revealed estimate on `/thank-you`. Adding the
+  "computer-generated estimate, not a formal appraisal" notice meant grepping
+  every place a home value renders (`formatCurrency` on a lead's own estimate,
+  the two teaser cards, the reveal card) and confirming the ads flow reuses the
+  city form rather than a fourth surface. A compliance/expectation-setting line
+  that's on one of three surfaces still leaves two surfaces making an
+  un-disclaimed claim — enumerate the surfaces before deciding you're done.
