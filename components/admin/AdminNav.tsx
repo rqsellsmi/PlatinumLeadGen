@@ -47,6 +47,7 @@ const GROUPS: NavGroup[] = [
   { label: 'System', items: [
     { href: '/admin/api-keys', label: 'API Keys' },
     { href: '/admin/settings', label: 'Settings' },
+    { href: '/admin/sms-log', label: 'SMS Log' },
     { href: '/admin/debug', label: 'Debug' },
   ] },
 ];
