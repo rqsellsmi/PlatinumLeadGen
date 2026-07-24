@@ -65,3 +65,13 @@ jobs:
           curl -fsS --max-time 60 \
             -H "x-cron-secret: $CRON_SECRET" \
             "$BASE/api/cron/followup-check"
+
+      - name: Dispatch Google Ads conversions
+        env:
+          DEPLOY_URL: ${{ secrets.DEPLOY_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          BASE="${DEPLOY_URL%/}"
+          curl -fsS --max-time 60 \
+            -H "x-cron-secret: $CRON_SECRET" \
+            "$BASE/api/cron/google-ads-dispatch"

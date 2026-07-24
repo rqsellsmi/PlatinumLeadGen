@@ -15,6 +15,33 @@ that's the owner's first-connection step, same boundary as IDX/Telnyx/Places.
 
 ---
 
+## Build status — 2026-07-24 (owner approved: consent=UNSPECIFIED, auth=service-account, form conversion unchanged, build)
+
+**Built & green** (typecheck clean, build compiles, 178 tests across 20 files):
+- Phase 1 — `0031_google_ads_outbox` (outbox + token cache), schema, journal.
+- Phase 2 — `lib/googleAdsConfig.ts`, `lib/googleAdsHash.ts`,
+  `lib/googleAdsOutbox.ts`; `tests/googleAdsConversions.test.ts` (10).
+- Phase 3 — enqueue wired into `recordStatusUpdate`; `logLeadEvent` returns the
+  event id; channel threaded from the web + SMS callers.
+- Phase 4 — `lib/googleAdsClient.ts` (service-account JWT via node crypto, token
+  cache, 401 self-heal, per-request timeout); `tests/googleAdsClient.test.ts` (2).
+- Phase 5 — `app/api/cron/google-ads-dispatch` worker route + `lib/googleAdsWorker.ts`;
+  steps added to `cron.yml` (~10 min) + `scheduled-daily.yml` (daily reconciliation);
+  `.env.example` documented; `SETUP.md` §8 (owner setup + "what you need from Google").
+
+**Deferred (documented, not blocking Phase 1):**
+- Phase 6 admin UI card — the data is captured (`last_error` per row,
+  `googleAdsOutboxStatusCounts()` helper) but the read-only admin view is a
+  follow-up; errors are surfaced in the row, not swallowed.
+- `requestStatus.retrieve` polling to promote `submitted → accepted` — needs the
+  live endpoint shape (same first-connection boundary as IDX). Terminal Phase-1
+  state is `submitted` (delivered, awaiting Google processing).
+
+**Owner-side remaining:** Google Cloud/Ads setup (SETUP.md §8), set the env in
+Vercel, apply migration 0031, run the `validateOnly` QA pass.
+
+---
+
 ## Phase 0 — Sign-off & Google-side prerequisites (no code)
 - **D1 (consent) resolved** — no capture work; worker sends a constant
   (UNSPECIFIED recommended, or GRANTED). Still open: **D2** (auth), **D3** (form
