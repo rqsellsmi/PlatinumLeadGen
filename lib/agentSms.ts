@@ -25,8 +25,17 @@ export async function sendAgentSms(o: {
   leadId?: number | null;
 }): Promise<void> {
   try {
-    if (!process.env.TELNYX_API_KEY) return;
-    if (!shouldSendAgentSms(o.agent)) return;
+    if (!process.env.TELNYX_API_KEY) {
+      console.warn(`[agentSms] skip agent#${o.agent.id} kind=${o.kind}: TELNYX_API_KEY not set in this environment`);
+      return;
+    }
+    if (!shouldSendAgentSms(o.agent)) {
+      console.warn(
+        `[agentSms] skip agent#${o.agent.id} kind=${o.kind}: gated ` +
+          `(smsOptOut=${o.agent.smsOptOut ?? false}, hasPhone=${!!o.agent.phone})`,
+      );
+      return;
+    }
 
     const numbers = await officeNumberMap();
     const from = pickOfficeNumber({
@@ -34,10 +43,22 @@ export async function sendAgentSms(o: {
       numbersByOfficeId: numbers,
       defaultNumber: process.env.TELNYX_DEFAULT_FROM ?? null,
     });
-    if (!from) return; // no office number configured — email still sent by caller
+    if (!from) {
+      console.warn(
+        `[agentSms] skip agent#${o.agent.id} kind=${o.kind}: no from-number ` +
+          `(officeId=${o.agent.officeId ?? 'none'}, TELNYX_DEFAULT_FROM=${process.env.TELNYX_DEFAULT_FROM ? 'set' : 'unset'})`,
+      );
+      return; // no office number configured — email still sent by caller
+    }
+    console.info(`[agentSms] sending agent#${o.agent.id} kind=${o.kind} from=${from} to=${o.agent.phone}`);
 
     const officeId = o.agent.officeId ?? null;
     const res = await sendSms(o.agent.phone, o.body, { from });
+    if (res.sent) {
+      console.info(`[agentSms] sent agent#${o.agent.id} kind=${o.kind} telnyxId=${res.telnyxMessageId ?? 'none'}`);
+    } else {
+      console.warn(`[agentSms] send FAILED agent#${o.agent.id} kind=${o.kind}: ${res.error ?? 'unknown'}`);
+    }
     await logSmsMessage({
       direction: 'outbound',
       agentId: o.agent.id,
