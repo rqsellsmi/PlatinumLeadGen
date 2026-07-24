@@ -16,6 +16,8 @@ import {
   serial,
   integer,
   real,
+  numeric,
+  char,
   varchar,
   text,
   boolean,
@@ -1148,3 +1150,58 @@ export type NewIdxListing = typeof idxListings.$inferInsert;
 export type IdxListingPhoto = typeof idxListingPhotos.$inferSelect;
 export type NewIdxListingPhoto = typeof idxListingPhotos.$inferInsert;
 export type IdxSyncLogRow = typeof idxSyncLog.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Google Ads offline-conversion outbox (Google Ads lead-stage tracking spec)
+// One row per qualifying first-time CRM milestone (Nurturing / Signed /
+// Closed); a background worker delivers it to Google's Data Manager API. The
+// UNIQUE(lead_id, milestone) index is the sole once-only guard.
+// ---------------------------------------------------------------------------
+export const googleAdsConversionOutbox = pgTable(
+  'google_ads_conversion_outbox',
+  {
+    id: serial('id').primaryKey(),
+    leadId: integer('lead_id').notNull(),
+    // The lead_events row that recorded the first-time status event (audit link).
+    sourceEventId: integer('source_event_id'),
+    // 'valid_seller_lead' | 'listing_signed' | 'closed'
+    milestone: varchar('milestone', { length: 40 }).notNull(),
+    occurredAt: timestamp('occurred_at').notNull(), // milestone time, UTC
+    eventSource: varchar('event_source', { length: 16 }).notNull().default('OTHER'), // PHONE | WEB | OTHER
+    conversionActionId: varchar('conversion_action_id', { length: 120 }),
+    transactionId: varchar('transaction_id', { length: 120 }).notNull().unique(), // lead:{id}:{milestone}
+    conversionValue: numeric('conversion_value'), // omitted in Phase 1
+    currency: char('currency', { length: 3 }),
+    // pending | submitted | processing | accepted | error | ineligible
+    exportStatus: varchar('export_status', { length: 16 }).notNull().default('pending'),
+    exportAttempts: integer('export_attempts').notNull().default(0),
+    googleRequestId: varchar('google_request_id', { length: 120 }),
+    submittedAt: timestamp('submitted_at'),
+    nextRetryAt: timestamp('next_retry_at'),
+    lastError: text('last_error'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    leadMilestoneIdx: uniqueIndex('gaco_lead_milestone_uidx').on(t.leadId, t.milestone),
+    statusRetryIdx: index('gaco_status_retry_idx').on(t.exportStatus, t.nextRetryAt),
+    requestIdIdx: index('gaco_request_id_idx').on(t.googleRequestId),
+  }),
+);
+
+/**
+ * Cached Google Data Manager API access token (single row by provider). Same
+ * pattern as realcomp_tokens / ms_graph_tokens — a short-lived token minted
+ * from the service-account JWT assertion, reused until near expiry.
+ */
+export const googleAdsTokens = pgTable('google_ads_tokens', {
+  id: serial('id').primaryKey(),
+  provider: varchar('provider', { length: 50 }).notNull().unique().default('google_datamanager'),
+  accessToken: text('access_token').notNull(),
+  expiresAt: timestamp('expires_at').notNull(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
+export type GoogleAdsConversionOutboxRow = typeof googleAdsConversionOutbox.$inferSelect;
+export type NewGoogleAdsConversionOutboxRow = typeof googleAdsConversionOutbox.$inferInsert;
+export type GoogleAdsToken = typeof googleAdsTokens.$inferSelect;

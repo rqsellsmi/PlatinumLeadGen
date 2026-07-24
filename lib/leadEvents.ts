@@ -24,10 +24,15 @@ export async function logLeadEvent(
   leadId: number,
   eventType: LeadEventType,
   note?: string | null,
-): Promise<void> {
+): Promise<number | null> {
   try {
-    await db.insert(leadEvents).values({ leadId, eventType, note: note ?? null });
+    const rows = await db
+      .insert(leadEvents)
+      .values({ leadId, eventType, note: note ?? null })
+      .returning({ id: leadEvents.id });
+    return rows[0]?.id ?? null;
   } catch (err) {
     console.error(`[leadEvents] failed to log ${eventType} for lead ${leadId}:`, err);
+    return null;
   }
 }

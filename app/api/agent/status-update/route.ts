@@ -28,6 +28,7 @@ export async function POST(req: NextRequest) {
       newStatus: body.newStatus,
       note: body.note,
       lostReason: body.lostReason,
+      source: 'web',
     });
 
     if (r.ok) {

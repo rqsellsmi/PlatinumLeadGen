@@ -13,6 +13,7 @@ import { db } from './db';
 import { leadOffers, leads, statusUpdates } from '../drizzle/schema';
 import { applyScore, claimLeadMilestone, fastEngagementDelta } from './scoring';
 import { logLeadEvent } from './leadEvents';
+import { enqueueGoogleAdsConversion, type UpdateChannel } from './googleAdsOutbox';
 import {
   AGENT_SETTABLE_STATUSES_V4,
   isValidTransition,
@@ -48,6 +49,8 @@ export async function recordStatusUpdate(o: {
   newStatus: string;
   note?: string | null;
   lostReason?: string | null;
+  /** How the update was made — drives the Google Ads conversion eventSource. */
+  source?: UpdateChannel;
 }): Promise<RecordStatusResult> {
   if (!(AGENT_SETTABLE_STATUSES_V4 as readonly string[]).includes(o.newStatus)) {
     return { ok: false, reason: 'invalid-status' };
@@ -126,8 +129,8 @@ export async function recordStatusUpdate(o: {
       .where(eq(leadOffers.id, offer.id));
   }
 
-  // Timeline.
-  await logLeadEvent(
+  // Timeline. Keep the event id — it's the source_event_id for the Google outbox.
+  const statusEventId = await logLeadEvent(
     offer.leadId,
     newStatus === 'lost' ? 'marked_lost' : 'status_updated',
     newStatus === 'lost'
@@ -190,6 +193,23 @@ export async function recordStatusUpdate(o: {
     }
   } catch (err) {
     console.error('[lib/statusUpdates] scoring failed:', err);
+  }
+
+  // ===== Google Ads offline conversion (best-effort) =====
+  // First entry into Nurturing / Signed / Closed enqueues one outbox row for the
+  // export worker. The outbox UNIQUE(lead_id, milestone) index is the once-only
+  // guard, so a backward-then-forward re-entry is a no-op — but we also skip the
+  // enqueue on a backward move (it's a re-entry, never a first-time milestone).
+  // enqueueGoogleAdsConversion no-ops for non-trigger statuses and when the
+  // integration is unconfigured, and never throws.
+  if (!backward) {
+    await enqueueGoogleAdsConversion({
+      leadId: offer.leadId,
+      sourceEventId: statusEventId,
+      status: newStatus,
+      occurredAt: now,
+      channel: o.source,
+    });
   }
 
   return { ok: true, backward };
