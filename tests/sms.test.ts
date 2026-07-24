@@ -5,6 +5,13 @@ describe('toE164', () => {
   it('normalizes 10-digit US', () => expect(toE164('810-555-0134')).toBe('+18105550134'));
   it('keeps E.164', () => expect(toE164('+18105550134')).toBe('+18105550134'));
   it('rejects junk', () => expect(toE164('abc')).toBeNull());
+  // Regression: a from-number stored with dashes (e.g. TELNYX_DEFAULT_FROM =
+  // "+1-810-355-4099") must collapse to clean E.164, else Telnyx rejects the
+  // send with error 40013 "invalid messaging source number".
+  it('strips separators from a +1 dashed number', () =>
+    expect(toE164('+1-810-355-4099')).toBe('+18103554099'));
+  it('strips parens/spaces from a formatted number', () =>
+    expect(toE164('(810) 355 4099')).toBe('+18103554099'));
 });
 
 describe('buildTelnyxPayload', () => {

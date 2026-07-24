@@ -38,11 +38,14 @@ export async function sendAgentSms(o: {
     }
 
     const numbers = await officeNumberMap();
-    const from = pickOfficeNumber({
+    const fromResolved = pickOfficeNumber({
       officeId: o.agent.officeId,
       numbersByOfficeId: numbers,
       defaultNumber: process.env.TELNYX_DEFAULT_FROM ?? null,
     });
+    // Normalize to E.164 — office/default numbers may be stored with formatting
+    // (dashes/parens), which Telnyx rejects as an invalid source number.
+    const from = fromResolved ? toE164(fromResolved) ?? fromResolved : null;
     if (!from) {
       console.warn(
         `[agentSms] skip agent#${o.agent.id} kind=${o.kind}: no from-number ` +

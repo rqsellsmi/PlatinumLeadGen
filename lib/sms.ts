@@ -48,6 +48,11 @@ export async function sendSms(
   const e164 = toE164(to);
   if (!e164) return { sent: false, skipped: true, error: 'invalid-or-missing-number' };
   if (!opts?.from) return { sent: false, skipped: true, error: 'no-from-number' };
+  // Normalize the sender too — a from-number carrying formatting (dashes,
+  // spaces, parens) is rejected by Telnyx as an "invalid messaging source
+  // number" (error 40013). E.164 only, same as the recipient.
+  const fromE164 = toE164(opts.from);
+  if (!fromE164) return { sent: false, skipped: true, error: 'invalid-from-number' };
 
   try {
     const res = await fetch('https://api.telnyx.com/v2/messages', {
@@ -56,7 +61,7 @@ export async function sendSms(
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(buildTelnyxPayload(opts.from, e164, body)),
+      body: JSON.stringify(buildTelnyxPayload(fromE164, e164, body)),
     });
     if (!res.ok) {
       const txt = await res.text().catch(() => '');
