@@ -55,17 +55,17 @@ reconciliation. §3 is the load-bearing part.
 
 | # | Vendor spec assumes… | Reality in this repo | Resolution |
 |---|---|---|---|
-| R1 | A per-event **`first_time` flag** on `lead_events` gates each milestone. | `lead_events` has **no** `first_time` column (`event_type` is a free `varchar(100)`; entries are `status_updated`/`marked_lost`/etc.). Once-only-ness lives on **`leads.milestone_*` booleans**, claimed atomically by `claimLeadMilestone` (`lib/scoring.ts:238`). | Use the **milestone-boolean claim** as the "first-time" gate, not a per-event flag. The outbox trigger reuses the exact `UPDATE … WHERE guard=false RETURNING` pattern. |
-| R2 | First-time **Nurturing** is the primary conversion trigger. | Nurturing scores **0 points** and has **no `milestone_nurturing` guard** (`LeadMilestone = 'attempted_contact' \| 'connected' \| 'appointment_set' \| 'signed'`, `lib/scoring.ts:229`). | **Add a new `milestone_nurturing` boolean** + extend `LeadMilestone`/`claimLeadMilestone`. This guard exists *only* for the outbox — it does not change scoring. |
-| R3 | First-time **Closed** is a trigger and must be sent once even if the lead later loops back to Nurturing. | Closed calls `applyScore('system_closing')` with **no claim guard** (`lib/statusUpdates.ts:187`) — it relies on "Closed is terminal." The Google model explicitly allows a **Closed→Nurturing loop**, so an unguarded Closed *could* re-enqueue. | **Add a new `milestone_closed` boolean** + claim on first Closed. Scoring is untouched (Closed still pays +25 via its existing path). |
-| R4 | Insert the outbox row **"in the same DB transaction"** as the `lead_events` write; API call after commit. | `recordStatusUpdate` is **not wrapped in an explicit transaction** — it's sequential awaits (offer update → `logLeadEvent` → scoring). Atomicity for once-only comes from the atomic claim `UPDATE`, not a surrounding `BEGIN`. | Keep the repo's shape: the outbox insert is a **sequential await guarded by the atomic milestone claim** (claim wins ⇒ insert). This delivers the same "exactly one outbox row per milestone" guarantee the vendor wants, matching how the codebase already enforces once-only. Belt-and-suspenders: a DB `UNIQUE(lead_id, milestone)` on the outbox. |
+| R1 | A per-event **`first_time` flag** on `lead_events` gates each milestone. | `lead_events` has **no** `first_time` column (`event_type` is a free `varchar(100)`; entries are `status_updated`/`marked_lost`/etc.). Scoring's once-only-ness lives on `leads.milestone_*` booleans, but those exist only for attempted/connected/appointment/signed. | Don't reuse that flag or those columns. Use the **outbox table's `UNIQUE(lead_id, milestone)` constraint** as the once-only guard (R2). |
+| R2 | First-time **Nurturing** is the primary conversion trigger. | Nurturing scores **0 points** and has **no guard** (`LeadMilestone = 'attempted_contact' \| 'connected' \| 'appointment_set' \| 'signed'`, `lib/scoring.ts:229`; `grep milestone_nurturing` → none). Nurturing *is* a revert target (`appointment_set→nurturing`, `signed→nurturing` backward moves). | **No new column.** Enqueue on every nurturing entry with `ON CONFLICT (lead_id, milestone) DO NOTHING` — the first entry inserts, a backward-then-forward re-entry is a no-op. (Owner decision 2026-07-24: no transaction/claim machinery — the unique index is the guard.) |
+| R3 | First-time **Closed** is a trigger and must be sent once even if the lead later loops back to Nurturing. | Closed calls `applyScore('system_closing')` with no guard, but **`ALLOWED_TRANSITIONS` has `closed: []`** — Closed is **terminal**. The "Closed→Nurturing loop" the vendor worries about **cannot happen in this app**; Closed is reached exactly once (Signed→Closed). | **No new column.** The unique-constraint enqueue fires once naturally. The vendor's Closed-safeguard is moot here (documented, not built). |
+| R4 | Insert the outbox row **"in the same DB transaction"** as the `lead_events` write; API call after commit. | `recordStatusUpdate` is **not wrapped in an explicit transaction** — it's sequential awaits. **Owner explicitly wants nothing transaction-based.** | The enqueue is a plain `INSERT … ON CONFLICT DO NOTHING` sequential await in the status-change path — no `BEGIN`, no atomic-claim `UPDATE`, no wrapping transaction. The DB unique index does the dedup. |
 | R5 | Existing "Form Completed" conversion needs a deterministic `lead:{id}:form_completed` transaction id. | The form conversion is **client-side gtag** with `hero-`/`appointment-` id prefixes (`lib/googleAdsConversions.ts`), fired after the backend save. | **Proposed (D3):** leave it as-is in Phase 1; only add the 3 offline conversions. Re-keying or server-siding the form conversion is a separate, optional change (Open Decision). |
 | R6 | Send `ad_user_data` / `ad_personalization` consent per event; "add the columns or point at the existing consent record." | **No advertising consent is captured anywhere** — no schema column, no form field (the privacy policy references consent only in prose). | **Proposed (D1):** send `CONSENT_STATUS_UNSPECIFIED` in Phase 1 (US-only MI leads; enhanced matching + click-id attribution still function). Explicit capture is a later, opt-in enhancement (Open Decision). |
 | R7 | Leads timestamps are `TIMESTAMP` without tz — "confirm UTC, convert to RFC 3339." | Confirmed: all lead/event timestamps are Drizzle `timestamp()` (no tz), written via `.defaultNow()` / `new Date()` on Neon = **UTC**. | Worker converts with an explicit `…toISOString()` (RFC-3339 `Z`). Never rely on server-local tz. |
 | R8 | "Send from a background worker so a Google outage can't delay the agent." | Established pattern exists: `app/api/cron/dispatch-queued-offers` is pinged by `.github/workflows/cron.yml` every ~10 min with `x-cron-secret`. | Model the Google worker on it exactly: a new `/api/cron/google-ads-dispatch` route + a step in `cron.yml`. Each Data Manager send is a single quick HTTP call, so — unlike the IDX feed — it does **not** need to run on the GH runner. |
 | R9 | Persist/refresh an OAuth credential for Google. | Established pattern: `ms_graph_tokens`, `realcomp_tokens` single-row token caches with self-heal on 401 (`lessons-learned.md` §12d). | Reuse the pattern: a `google_ads_tokens` cache (or in-memory per-invocation mint if using a service account) + on-auth-error re-mint. |
 
-**Bottom line:** the trigger mechanism the vendor doc leans on (`lead_events.first_time`) doesn't exist; the real hook is the milestone-boolean claim, and **two new guard columns (`milestone_nurturing`, `milestone_closed`) are the core schema addition** beyond the outbox table itself.
+**Bottom line:** the trigger mechanism the vendor doc leans on (`lead_events.first_time`) doesn't exist, and (per the 2026-07-24 owner decision) we do **not** add milestone-guard columns or transaction/claim machinery. **The only new schema is the outbox table itself, whose `UNIQUE(lead_id, milestone)` index is the entire once-only mechanism.** Enqueue on every qualifying entry; the DB rejects duplicates.
 
 ---
 
@@ -73,13 +73,13 @@ reconciliation. §3 is the load-bearing part.
 
 | # | Decision | Default proposed here | Status |
 |---|---|---|---|
-| D1 | **Consent signal** | Send `CONSENT_STATUS_UNSPECIFIED` in Phase 1; defer explicit capture. | **Open** (§13) |
+| D1 | **Consent signal** | Send a **constant** `CONSENT_STATUS_UNSPECIFIED` (or `GRANTED`) per event — US/MI leads, first-party ads; **no capture UI or column**. Google's EU-consent policy doesn't apply to US traffic. Counsel confirm before go-live. | **Resolved** (owner 2026-07-24; value UNSPECIFIED vs GRANTED still to pick) |
 | D2 | **Data Manager API auth** | Service-account credential stored as a secret, token cached/refreshed like `realcomp`/`ms_graph`. | **Open** (§13) |
 | D3 | **Existing form conversion** | Leave the client-side "Form Completed" conversion untouched; add only the 3 offline conversions. | **Open** (§13) |
 | D4 | **This session's scope** | Produce **this spec + the work plan only**; implementation begins on approval. | **Open** (§13) |
-| D5 | **Milestone guards** | Add `milestone_nurturing` + `milestone_closed` booleans; reuse `claimLeadMilestone`. Guards are outbox-only, scoring unchanged. | **Locked** (design) |
+| D5 | **Once-only mechanism** | The outbox `UNIQUE(lead_id, milestone)` index only. **No** `milestone_nurturing`/`milestone_closed` columns, **no** `claimLeadMilestone` changes, **no** transactions. | **Locked** (owner 2026-07-24) |
 | D6 | **Trigger set** | Nurturing → `VALID_SELLER_LEAD`, Signed → `LISTING_SIGNED`, Closed → `CLOSED`. Attempted/Connected/Appointment-Set/Lost/Reopened = **no** conversion. | **Locked** (from vendor §3) |
-| D7 | **Nurturing eligibility** | First-time Nurturing **unless** Signed or Closed already occurred (checked via the milestone booleans). Closed→Nurturing loop never emits a new valid-lead conversion. | **Locked** (from vendor §3) |
+| D7 | **Nurturing eligibility** | Enqueue on every nurturing entry; the unique index makes it fire once. In this app you can't reach Signed/Closed without first passing Nurturing, so the "unless signed/closed already occurred" clause is already satisfied by the unique index (no extra check needed). | **Locked** (design) |
 | D8 | **Conversion values** | Omit in Phase 1 (no invented dollar values). Column exists in the outbox but stays null. | **Locked** (from vendor §7) |
 | D9 | **Bidding cutover** | Keep the existing form action **Primary**; import the three offline actions **Secondary**; promote "Valid Seller Lead" to Primary only after imports are proven (owner does this in the Google Ads UI, not code). | **Locked** (from vendor §7) |
 | D10 | **Worker runtime** | Vercel cron route pinged by GitHub Actions `cron.yml` (`x-cron-secret`); one event per request. | **Locked** (design) |
@@ -98,49 +98,49 @@ closed     (first time)                         → CLOSED
 Everything else (`new`, `attempted_contact`, `connected`, `appointment_set`,
 `lost`, `reopened`, backward moves) → **no outbox row**.
 
-### 5.2 Once-only + Closed-safeguard, expressed in real columns
+### 5.2 Once-only via the outbox unique index (no columns, no claims, no tx)
 In `recordStatusUpdate` (after the timeline write, alongside the existing scoring
-block; **not** on a backward move):
+block; **not** on a backward move), for each of the three trigger statuses, run
+one guarded insert:
 
-- `nurturing`: `if (claimLeadMilestone(leadId,'nurturing') && !milestoneSigned && !milestoneClosed) enqueue(VALID_SELLER_LEAD)`
-  - The `!signed && !closed` check reads the lead's current milestone booleans so a
-    Closed→Nurturing (or Signed→Nurturing) loop can **never** manufacture a new
-    valid-lead conversion (vendor §3, R3).
-- `signed`: `if (claimLeadMilestone(leadId,'signed')) enqueue(LISTING_SIGNED)`
-- `closed`: `if (claimLeadMilestone(leadId,'closed')) enqueue(CLOSED)`
-
-Because the claim is atomic and once-only per lead lifetime, backward/forward
-reactivation cycles are structurally incapable of re-enqueuing — the same
-anti-farming guarantee Scoring v4 already relies on (`lessons-learned.md` §19).
-
-> **Note on `milestone_signed`:** it already exists (drives the +10 score). The
-> outbox reuses it as the Signed dedup guard — but must **claim it independently**
-> of the score path so the two can't interfere. Cleanest design: the outbox
-> enqueue reads the milestone claim results already computed in the scoring block
-> rather than double-claiming. (Plan Phase 3 details the exact wiring so Signed
-> isn't claimed twice.)
-
-### 5.3 `enqueue(milestone)` = one outbox insert
 ```
-insert google_ads_conversion_outbox {
-  lead_id, source_event_id (the lead_events id just written),
-  milestone, occurred_at (event time, UTC),
-  transaction_id = `lead:${leadId}:${milestone}`,
-  conversion_action_id = CONFIG[milestone],
-  event_source (PHONE if the update came via SMS/phone, WEB if web/e-sign, else OTHER),
-  export_status = 'pending'
-} on conflict (lead_id, milestone) do nothing
+enqueue(milestone) =
+  insert google_ads_conversion_outbox {
+    lead_id,
+    source_event_id = <the lead_events id just written>,
+    milestone,                                    // valid_seller_lead | listing_signed | closed
+    occurred_at    = <event time, UTC>,
+    transaction_id = `lead:${leadId}:${milestone}`,
+    conversion_action_id = CONFIG[milestone],
+    event_source   = PHONE (SMS/phone update) | WEB (portal/e-sign) | OTHER,
+    export_status  = 'pending'
+  }
+  ON CONFLICT (lead_id, milestone) DO NOTHING
 ```
+
+- `nurturing → enqueue('valid_seller_lead')`
+- `signed → enqueue('listing_signed')`
+- `closed → enqueue('closed')`
+
+**Why this is sufficient (and why no signed/closed pre-check is needed):** the only
+path into Nurturing is `connected→nurturing`, and the only path to Signed is
+`…→nurturing→appointment_set→signed`. So **every** lead that ever reaches Signed or
+Closed already fired `valid_seller_lead` on its first Nurturing. A later
+`signed→nurturing` backward move re-enters Nurturing, but the `(lead_id,
+'valid_seller_lead')` row already exists → `DO NOTHING`. The unique index alone
+gives the exact "fire once per milestone per lead" behavior the vendor wanted,
+with no boolean columns, no atomic claim, and no transaction — matching the owner's
+2026-07-24 direction. Closed is terminal (`ALLOWED_TRANSITIONS closed: []`), so it
+enqueues once by construction.
 
 ---
 
 ## 6. Schema changes (migration `0031_google_ads_outbox`)
 
 Head is `0030_agent_password_reset`; next is **`0031`**. Hand-authored idempotent
-SQL + `schema.ts` + `meta/_journal.json` (repo rule, `lessons-learned.md` §1).
-Because new columns are added but **not** a new enum value that's used in the same
-migration, this can be a single migration file (contrast §19: `ADD VALUE` needs a
-split).
+SQL + `schema.ts` + `meta/_journal.json` (repo rule, `lessons-learned.md` §1). This
+is a **single-table** migration — no new `leads` columns, no enum `ADD VALUE`, so no
+split is needed (contrast §19).
 
 **6.1 New table `google_ads_conversion_outbox`** — delivery record, not pipeline
 history. Columns (vendor §5, typed to this repo's conventions):
@@ -169,16 +169,13 @@ Constraints/indexes: `UNIQUE(lead_id, milestone)`, `UNIQUE(transaction_id)`,
 `UNIQUE(source_event_id)`, index `(export_status, next_retry_at)` for the worker,
 index `(google_request_id)` for reconciliation.
 
-**6.2 Two new milestone guards on `leads`**
-```
-milestone_nurturing  boolean not null default false
-milestone_closed     boolean not null default false
-```
-Extend `LeadMilestone` union + the `claimLeadMilestone` switch (`lib/scoring.ts`).
+**6.2 No new `leads` columns.** (Superseded by the 2026-07-24 owner decision —
+the outbox unique index is the once-only guard; `leads.milestone_*`,
+`claimLeadMilestone`, and consent columns are all untouched.)
 
-**6.3 (Only if D1 = "add explicit capture")** consent columns on `leads`
-(`ad_user_data_consent`, `ad_personalization_consent` as `varchar(24)`), plus form
-fields. **Not** in the default Phase 1.
+**6.3 Consent:** no column, no form field. The worker sets the per-event
+`consent.{adUserData,adPersonalization}` to a **constant** from config (D1). US/MI,
+first-party ads — no capture needed.
 
 **6.4 Optional token cache** `google_ads_tokens` (single row, mirrors
 `realcomp_tokens`) — needed only if D2's auth method caches a refreshed token.
@@ -196,10 +193,9 @@ from a future API all emit the conversion identically, with zero duplication.
 - The enqueue lives next to the existing v4 scoring block, gated by `!backward`.
 - It is **best-effort/try-caught** exactly like the scoring block (`console.error`
   on failure, never throws) — a Google-outbox hiccup must never break an agent's
-  status update. The row simply isn't enqueued; the daily reconciliation (§9) is
-  the backstop for a missed enqueue only if we later add a sweep — but the primary
-  guarantee is that enqueue shares the transaction-less atomic-claim path, so if
-  the claim succeeded the insert runs in the same request.
+  status update. On failure the row simply isn't enqueued.
+- The insert is a single `INSERT … ON CONFLICT (lead_id, milestone) DO NOTHING` —
+  the unique index does the dedup; there is no transaction, no claim, no read-check.
 - `event_source` is derived from the update's channel if the status event records
   one (SMS command ⇒ `PHONE`; portal ⇒ `WEB`), else `OTHER`.
 
@@ -331,12 +327,12 @@ rule.
 
 ## 13. Open Decisions (need owner sign-off before implementation)
 
-1. **D1 — Consent.** Default proposed: send `CONSENT_STATUS_UNSPECIFIED` in
-   Phase 1 (US-only MI seller leads; enhanced matching + click-id attribution
-   still work). Alternatives: treat privacy-policy acceptance as `GRANTED`
-   (documented default, legal judgment call), or add explicit consent capture to
-   the valuation forms now (most defensible; expands Phase-1 scope onto the public
-   forms + a migration).
+1. **D1 — Consent. RESOLVED (owner 2026-07-24):** no consent capture is needed for
+   US/MI first-party ads (Google's EU-consent policy doesn't apply to US traffic).
+   The worker sends a **constant** consent value. Only remaining pick: send
+   `CONSENT_STATUS_UNSPECIFIED` (recommended — most accurate, no signal is actively
+   collected) or `GRANTED` (policy acceptance treated as consent). Counsel confirm
+   before go-live is the standard caveat; no engineering difference.
 2. **D2 — Data Manager API auth.** Default proposed: a **service-account
    credential** stored as a secret, tokens cached/refreshed like
    `realcomp`/`ms_graph`. Alternatives: an OAuth refresh token, or keyless

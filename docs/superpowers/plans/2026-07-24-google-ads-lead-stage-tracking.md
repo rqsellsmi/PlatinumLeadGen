@@ -16,27 +16,26 @@ that's the owner's first-connection step, same boundary as IDX/Telnyx/Places.
 ---
 
 ## Phase 0 — Sign-off & Google-side prerequisites (no code)
-- Confirm D1 (consent), D2 (auth), D3 (form conversion), D4 (scope), D11
-  (eligibility + the three action ids + customer id).
+- **D1 (consent) resolved** — no capture work; worker sends a constant
+  (UNSPECIFIED recommended, or GRANTED). Still open: **D2** (auth), **D3** (form
+  conversion), **D4** (scope), **D11** (eligibility + the three action ids +
+  customer id).
 - Owner/admin, in Google Cloud + Google Ads (vendor §7/§8): enable the Data
   Manager API, create the service account / credential (per D2), grant it Google
   Ads access, request scope `https://www.googleapis.com/auth/datamanager`, create
   the three offline conversion actions (Count = **One**), and hand back the
   customer id + three action ids. These block Phases 4–6, not 1–3.
 
-## Phase 1 — Schema & milestone guards (migration `0031`, pure helpers)
+## Phase 1 — Schema: the outbox table only (migration `0031`)
 - `drizzle/migrations/0031_google_ads_outbox.sql` (idempotent; `IF NOT EXISTS`):
-  - `CREATE TABLE google_ads_conversion_outbox` with all columns + constraints/
-    indexes from design §6.1.
-  - `ALTER TABLE leads ADD COLUMN IF NOT EXISTS milestone_nurturing boolean NOT NULL DEFAULT false`,
-    same for `milestone_closed`.
-  - (Only if D1 = explicit capture: the two `*_consent` columns — otherwise skip.)
-- `drizzle/schema.ts`: add the `googleAdsConversionOutbox` table; add
-  `milestoneNurturing`/`milestoneClosed` to `leads`; register `0031` in
-  `meta/_journal.json`.
-- `lib/scoring.ts`: extend `LeadMilestone` union with `'nurturing' | 'closed'` and
-  add the two `case`s to `claimLeadMilestone`.
-- **Single migration file is fine** — no `ADD VALUE` (contrast §19); columns only.
+  `CREATE TABLE google_ads_conversion_outbox` with all columns + constraints/
+  indexes from design §6.1, including **`UNIQUE(lead_id, milestone)`** (the
+  once-only guard), `UNIQUE(transaction_id)`, `UNIQUE(source_event_id)`.
+- `drizzle/schema.ts`: add the `googleAdsConversionOutbox` table; register `0031`
+  in `meta/_journal.json`.
+- **No `leads` columns**, **no** `LeadMilestone`/`claimLeadMilestone` changes, **no**
+  consent columns (owner decision 2026-07-24 — the unique index is the guard).
+- **Single-table migration** — no `ADD VALUE` (contrast §19).
 - Tests: none new yet (schema). `typecheck` green.
 
 ## Phase 2 — Pure logic: hashing, transaction-id, eligibility, mapping (unit-tested)
@@ -52,27 +51,25 @@ that's the owner's first-connection step, same boundary as IDX/Telnyx/Places.
 - Tests (`tests/googleAdsHash.test.ts`, `tests/googleAdsOutbox.test.ts`): known
   hash vectors (QA #11), transaction-id determinism (#4/#7/#8), eligibility
   filter, `event_source` derivation, RFC-3339 formatting, request-body shape
-  (#14 offline), and the **nurturing-eligibility + Closed-safeguard predicate**
-  (#6/#7/#10) as a pure function `shouldEnqueueValidLead({claimedNurturing, milestoneSigned, milestoneClosed})`.
+  (#14 offline), and `milestoneFor(status)` (nurturing→valid_seller_lead,
+  signed→listing_signed, closed→closed, everything else→null).
 
 ## Phase 3 — Enqueue hook in the status-change core
 - `lib/statusUpdates.ts recordStatusUpdate`: after the timeline write, inside the
   `!backward` branch, alongside the v4 scoring block, call a new
-  `enqueueGoogleAdsConversion(...)` in `lib/googleAdsOutbox.ts`:
-  - `signed`: reuse the **already-computed** `milestone_signed` claim result from
-    the scoring block (don't double-claim) → enqueue `listing_signed`.
-  - `closed`: `claimLeadMilestone(leadId,'closed')` → enqueue `closed`.
-  - `nurturing`: `claimLeadMilestone(leadId,'nurturing')` AND read
-    `milestoneSigned`/`milestoneClosed` false → enqueue `valid_seller_lead`.
+  `enqueueGoogleAdsConversion(leadId, sourceEventId, status, channel)` in
+  `lib/googleAdsOutbox.ts`:
+  - It maps `status → milestone` (else returns without inserting) and runs one
+    `INSERT … ON CONFLICT (lead_id, milestone) DO NOTHING`. **No claim, no read-
+    check, no transaction** — the unique index is the guard (design §5.2).
   - `source_event_id` = the `lead_events` id just written (thread it out of
     `logLeadEvent`, which currently returns void — small refactor to return the id).
   - Wrap in `try/catch` + `console.error` (best-effort, never throws — matches the
     scoring block).
   - `event_source` from the update channel (SMS ⇒ PHONE, portal ⇒ WEB, else OTHER).
-- Insert is `.onConflictDoNothing()` on `(lead_id, milestone)`.
-- Tests: extend `tests/statusUpdates`-level coverage where DB-free; the DB-touching
-  enqueue is covered by the pure predicate in Phase 2 (the repo can't run a live DB
-  in-suite). `typecheck` + `npm test` green.
+- Tests: the pure `milestoneFor`/request-shape logic is covered in Phase 2; the
+  DB-touching insert can't run live in-suite (no DB) — verified by typecheck +
+  the owner's first-connection QA (#6/#7/#10). `typecheck` + `npm test` green.
 
 ## Phase 4 — Data Manager API client + auth (needs D2 + Phase 0 creds)
 - `lib/googleAdsClient.ts`: token acquisition per D2 (service-account → short-lived
