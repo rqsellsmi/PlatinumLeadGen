@@ -15,13 +15,20 @@ function fullName(first: string | null, last: string | null): string {
 }
 
 export function offerText(p: {
-  leadId: number; city: string | null; estimate: number | null; deadline: string;
+  leadId: number; city: string | null; address?: string | null; estimate: number | null; deadline: string;
 }): string {
-  const where = p.city ? ` in ${p.city}` : '';
+  // Location: prefer a stored city, else fall back to the full property address
+  // (the valuation forms capture the address string but not a separate city, so
+  // city is usually empty). Agents decide by where the property is, so the
+  // offer must always carry a location when we have one.
+  const loc = (p.city && p.city.trim()) || (p.address && p.address.trim()) || '';
+  const where = loc ? ` in ${loc}` : '';
   const est = money(p.estimate);
-  const estBit = est ? ` ${est}` : '';
-  return `RE/MAX Platinum: new lead #${p.leadId}${where}${estBit}. ` +
-    `Reply YES ${p.leadId} to accept or NO ${p.leadId} to pass. Expires ${p.deadline}.`;
+  const estBit = est ? ` Est. ${est}.` : '';
+  // Accept/decline is inferred from the agent's single open offer, so a plain
+  // YES / NO is enough — no lead number required (only status updates need one).
+  return `RE/MAX Platinum: new lead #${p.leadId}${where}.${estBit} ` +
+    `Reply YES to accept or NO to pass. Expires ${p.deadline}.`;
 }
 
 export function clientInfoText(p: {

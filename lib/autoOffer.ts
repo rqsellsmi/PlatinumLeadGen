@@ -275,6 +275,7 @@ export async function dispatchOfferEmail(offerId: number): Promise<boolean> {
       body: offerText({
         leadId: lead.id,
         city: lead.propertyCity ?? null,
+        address: lead.propertyAddress ?? null,
         estimate: lead.estimatedValue ?? null,
         deadline: formatEtDeadline(deadline),
       }),
