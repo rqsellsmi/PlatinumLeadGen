@@ -370,3 +370,155 @@ against ground truth.
   `idx_listing_photos` (vision source), `property_records`.
 - **Related follow-up:** the sold-comps **map** (parked on cost/compliance) —
   `docs/current-state.md` §9.
+
+---
+
+# 18. Active plan — 2026-07-24 (branch `feature/custom-avm`)
+
+This continuation supersedes the phased rollout in §15 for **what we build
+first**. It captures the owner conversation that turned the abstract "backtest
+harness" into a concrete, inspectable tool. **Design only — no code yet.** A
+phased build plan follows *after* owner sign-off on this section.
+
+## 18.1 What we build first: a glass-box AVM inspector
+
+Not a headless batch harness that prints median-error stats — a **single-address
+admin page that shows its work**, so the owner (the domain expert) can judge and
+correct the *reasoning*, not just trust an aggregate number. Enter an address →
+see the subject's facts and where they came from, the comps chosen (and rejected)
+with plain-English reasons, an appraiser-style line-item adjustment grid, the
+reconciled custom value, the provider AVM beside it, and — for a home that has
+sold — the **actual sale price as ground truth**. Every run is saved to a
+re-runnable scoreboard so the custom column can be tuned toward the actual column
+over successive engine changes.
+
+This deliberately merges §15's Phases 1–3 (backtest + structured adjustments + AI
+condition) behind one inspectable UI, driven by real sold prices. The batch
+"median error % by segment" view becomes a later *button on the same engine*, once
+individual-home reasoning is trusted. **Admin-only; never seller-facing at this
+stage** (resolves §16 Q5).
+
+## 18.2 The hold-one-out test methodology (the core discipline)
+
+Grading against real sales is the only thing that proves accuracy — but it has to
+simulate production honestly:
+
+- **The most-recent sale is held out COMPLETELY.** It is the graded answer and
+  nothing else: not a comp, and **not used to characterize the subject.** (Its
+  listing may carry post-sale facts — "renovated 2024," a new pole barn — that we
+  would not have known *before* that sale, so using it would leak recency the live
+  tool never has.)
+- **The subject is characterized from the 2nd-most-recent sale.** In production
+  the freshest data about a not-yet-sold home predates the value we're predicting;
+  the backtest matches that. Subject-facts cascade (also the production cascade,
+  resolving §16 Q1):
+  1. **2nd-most-recent sale in our DB** (MLS-history match — free, authoritative).
+  2. **None in DB → query the MLS on demand** for a prior sale of that address,
+     persist it to `idx_listings`, then use it. (A lightweight, targeted way to
+     deepen history exactly where a test needs it — no mass backfill required.)
+  3. **No prior sale at all → the provider API** (RentCast `/properties`, then
+     ATTOM) for the subject's facts.
+- **The comp pool excludes the held-out sale** (else the home's own sale sneaks in
+  as a perfect comp and the tool cheats).
+- **Output per run:** `Actual $ · ATTOM $ · Custom $`, with error % for each.
+  Persisted and re-runnable so tuning is visible over time.
+
+## 18.3 Subject facts & provenance (top of the page)
+
+Show the facts being valued and *where each came from*, since characterization is
+the crux (§5). MLS-history match is labeled with its source listing + date; a
+provider fallback is labeled as such (and flagged lower-confidence, because the
+provider is blind to the non-standard drivers). Non-standard drivers
+(waterfront/frontage/outbuildings/basement type) show their individual source so a
+wrong fact is traceable.
+
+## 18.4 Comp selection — transparent, with reasons
+
+Reuse `rankSoldComps` + `similarityScore`, add the §7 hard filters (waterfront
+on/off first). Render **both** the comps used (each with a plain-English "why
+chosen" — same lake, closest size, recent) **and** the notable rejects (each with
+a "why not" — off-water, too far, distressed). The held-out sale is visibly marked
+as excluded.
+
+## 18.5 The adjustment grid — structured-first, AI for the gaps
+
+Appraiser-style: one dollar line per difference between each comp and the subject,
+netting each comp's sale price to "what it would have sold for *as the subject*."
+
+- **The AI proposes the dollar adjustments, grounded in the structured IDX data**
+  for both homes ($/sqft, frontage feet, acreage, garage count, basement enum,
+  close price, DOM) — it reasons from the data, not from a vacuum. Pure AI
+  judgment is reserved for what the data genuinely can't give — chiefly
+  **condition read from the listing photos**, the capability the owner most wants
+  to watch, surfaced verbatim ("dated kitchen, original baths — photos 4–6") so it
+  can be judged and overridden.
+- **Observation vs. price are separated.** The AI's *observation* of a comp
+  (condition score + driver tags from photos/remarks) is computed **once per comp
+  and cached** on the row (see §18.7); the *dollar adjustment* is the per-comparison
+  step. Keeping them apart makes corrections precise: agree the comp has a finished
+  walkout, still disagree on the dollars.
+- **Owner corrections are the calibration.** Early AI dollar figures will be the
+  roughest part (an LLM isn't grounded in *this* market yet); the hold-one-out
+  scoreboard exposes when they're off, and logged corrections become the signal a
+  later regression (§7) learns from. Ground truth stays in charge (Rule #1).
+
+## 18.6 v1 driver set + the "prefer MLS over AI" field audit
+
+Owner's top movers first, and **prefer a structured MLS field wherever one exists
+— only reach for AI where the MLS truly lacks it:**
+
+| Driver | Structured MLS source | AI only for |
+|---|---|---|
+| Lake frontage (ft) + waterfront filter | `waterFrontageFeet`, `waterfrontYN` — have | frontage quality (sandy/weedy, orientation) |
+| Lake type / identity | `waterfrontFeatures` (all-sports/no-wake), `waterBodyName` — have | remarks nuance |
+| Acreage | `lotSizeAcres` — have | splittable / usable vs wooded |
+| Basement: finished / walkout / egress | RESO `Basement` enum ("Finished/Walk-Out Access/Egress Window(s)") — **likely already in our `basement` text field, just unparsed** | — |
+| Garage | `garageSpaces`, `attachedGarageYN` — have | heated / finished |
+| Pole barn / outbuildings | RESO `OtherStructures` — **structured but not pulled yet** | confirm/size from photos |
+| Condition | (`PropertyCondition` exists but unreliable) | **AI photos + remarks — the real AI job** |
+
+**Task before/with the build — audit Realcomp `$metadata`** for `OtherStructures`,
+`PropertyCondition`, the `Basement`/`WaterfrontFeatures` enum value coverage, and
+garage features; add the missing structured fields and *parse the enum values we
+already store*. **Heed lessons §16b:** six fields (`ArchitecturalStyle`,
+`InteriorFeatures`, `Appliances`, `ParkingFeatures`, `LotFeatures`,
+`AssociationAmenities`) silently zero any `$select` that includes them — test any
+newly-added field the same way before wiring it into the incremental sync.
+
+## 18.7 AI cost model
+
+Analyze each comp's photos + remarks **once**, cache the observation (condition
+score + driver tags) on the listing row; every later test and eventual production
+valuation reuses it, so AI cost amortizes across the market rather than scaling per
+lead (§8, §12). `ANTHROPIC_API_KEY` is already present.
+
+## 18.8 The scoreboard (persistence)
+
+A small table of test runs — address, run timestamp, actual sale price + date, the
+held-out `listingKey`, the facts source used, ATTOM value, custom value, error %s,
+the engine/coefficient version, and free-text notes. Re-running an address appends
+a new row (or supersedes), so improvement is legible across engine changes. Schema
+TBD in the build plan; not built yet.
+
+## 18.9 Resolved decisions (updates §16)
+
+1. **Subject facts:** MLS-history match (prior sale) → on-demand MLS pull →
+   provider. ✔
+2. **Adjustment $:** AI-proposed, **grounded in structured IDX data**,
+   owner-corrected; regression later. ✔
+3. **v1 drivers:** frontage, lake type/identity, acreage, basement
+   (finished/walkout/egress), garage, pole barn/outbuildings, condition. ✔
+4. **Hard filters:** waterfront on/off, property family, distressed-exclusion,
+   coarse acreage bucket (from §7). ✔
+5. **Seller-facing?** No — admin-only inspector first. ✔
+6. **Fix the six NULL fields / expand fields?** Folded into the §18.6 field audit.
+7. **Realcomp permission for a per-address derived value:** still a pre-launch
+   verify (§13); internal backtest use needs no permission.
+8. **Local-preference quizzes (the Q3 idea):** deferred until the backtest proves
+   the core out; "lake type" is where it will eventually plug in (§6.1).
+
+## 18.10 Out of scope this session
+
+No code. This section is the design. The phased build plan (migrations for the
+scoreboard table + any new IDX fields, the inspector page, the adjustment engine,
+the AI comp-analysis cache, unit tests) comes after owner sign-off.
