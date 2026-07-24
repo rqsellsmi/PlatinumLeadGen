@@ -27,6 +27,17 @@ import { sendEmail, adminAlertEmail } from '@/lib/email';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+/**
+ * GET — liveness / URL-validation probe. Some providers (and uptime checks)
+ * verify a webhook URL by issuing a GET and expecting a 2xx; without this they
+ * get a 405 and may report the URL as "invalid." Carries no message payload and
+ * mutates nothing, so it is safe to answer 200 without authentication. Real
+ * message delivery is POST-only and still fully signature-gated below.
+ */
+export async function GET() {
+  return NextResponse.json({ ok: true, service: 'telnyx-webhook' });
+}
+
 // Agent shape used by the reply/dispatch helpers (subset of the row).
 type AgentRow = typeof agents.$inferSelect;
 
