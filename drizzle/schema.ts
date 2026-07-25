@@ -1148,3 +1148,43 @@ export type NewIdxListing = typeof idxListings.$inferInsert;
 export type IdxListingPhoto = typeof idxListingPhotos.$inferSelect;
 export type NewIdxListingPhoto = typeof idxListingPhotos.$inferInsert;
 export type IdxSyncLogRow = typeof idxSyncLog.$inferSelect;
+
+/**
+ * Homegrown-AVM backtest scoreboard (migration 0031). One row per hold-one-out
+ * run: value an already-sold home from the OTHER comps (its most-recent sale held
+ * out entirely — price and facts), then record our estimate vs. the provider AVM
+ * vs. the actual sale price. Re-running an address after an engine change appends
+ * a new row so accuracy improvement is legible. Admin-internal only — never a
+ * consumer/seller surface (see docs/superpowers/specs homegrown-avm §18/§19).
+ */
+export const avmBacktests = pgTable(
+  'avm_backtests',
+  {
+    id: serial('id').primaryKey(),
+    normalizedAddress: varchar('normalized_address', { length: 500 }).notNull(),
+    address: varchar('address', { length: 300 }),
+    subjectJson: text('subject_json'), // subject facts used + provenance
+    factsSource: varchar('facts_source', { length: 40 }), // mls_prior_sale | provider | manual | insufficient
+    heldOutListingKey: varchar('held_out_listing_key', { length: 100 }),
+    actualSalePrice: integer('actual_sale_price'),
+    actualSaleDate: timestamp('actual_sale_date'),
+    provider: varchar('provider', { length: 20 }), // attom | rentcast (null if not fetched)
+    providerValue: integer('provider_value'),
+    providerLow: integer('provider_low'),
+    providerHigh: integer('provider_high'),
+    customValue: integer('custom_value'),
+    customLow: integer('custom_low'),
+    customHigh: integer('custom_high'),
+    customConfidence: varchar('custom_confidence', { length: 20 }), // low | medium | high
+    compsJson: text('comps_json'), // ranked comps + reasons + adjustment line items
+    engineVersion: varchar('engine_version', { length: 20 }),
+    notes: text('notes'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    addrIdx: index('avm_backtests_addr_idx').on(t.normalizedAddress),
+    createdIdx: index('avm_backtests_created_idx').on(t.createdAt),
+  }),
+);
+export type AvmBacktestRow = typeof avmBacktests.$inferSelect;
+export type NewAvmBacktestRow = typeof avmBacktests.$inferInsert;
