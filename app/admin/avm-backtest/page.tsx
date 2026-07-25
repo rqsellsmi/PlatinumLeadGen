@@ -56,15 +56,32 @@ function compStatusTone(status: string): PillTone {
 export default async function AvmBacktestPage({
   searchParams,
 }: {
-  searchParams: { address?: string; run?: string };
+  searchParams: Record<string, string | undefined>;
 }) {
   await requireAdmin();
 
   const address = (searchParams.address ?? '').trim();
   const runId = searchParams.run ? Number(searchParams.run) : null;
 
+  const posNum = (v?: string) => {
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  };
+  const flag = (v?: string) => v === '1' || v === 'on';
+  const updates = {
+    addedBeds: posNum(searchParams.add_beds),
+    addedBaths: posNum(searchParams.add_baths),
+    addedSqft: posNum(searchParams.add_sqft),
+    addedGarageBays: posNum(searchParams.add_garage),
+    finishedBasement: flag(searchParams.fin_basement),
+    addedWalkout: flag(searchParams.add_walkout),
+    addedEgress: flag(searchParams.add_egress),
+    addedPool: flag(searchParams.add_pool),
+  };
+
   // `?run=<id>` re-opens a SAVED run (rebuilt from the stored row — no re-query,
-  // no provider call, no new scoreboard row). `?address=` runs a fresh backtest.
+  // no provider call, no new scoreboard row). `?address=` runs a fresh backtest
+  // (with any operator-entered updates folded into the subject).
   let outcome: BacktestOutcome | null = null;
   let savedAt: Date | null = null;
   if (runId != null && Number.isFinite(runId)) {
@@ -77,7 +94,7 @@ export default async function AvmBacktestPage({
       outcome = { ok: false, error: 'That saved run was not found.' };
     }
   } else if (address) {
-    outcome = await runBacktest(address).catch((e) => ({ ok: false as const, error: String(e?.message ?? e) }));
+    outcome = await runBacktest(address, updates).catch((e) => ({ ok: false as const, error: String(e?.message ?? e) }));
   }
 
   const formDefault = address || (outcome && outcome.ok ? outcome.run.address : '');
@@ -100,7 +117,19 @@ export default async function AvmBacktestPage({
           <h2 className="font-bold text-charcoal">Address to test</h2>
         </CardHeader>
         <CardBody>
-          <AvmAddressForm defaultValue={formDefault} />
+          <AvmAddressForm
+            defaultValue={formDefault}
+            updateDefaults={{
+              add_beds: searchParams.add_beds ?? '',
+              add_baths: searchParams.add_baths ?? '',
+              add_sqft: searchParams.add_sqft ?? '',
+              add_garage: searchParams.add_garage ?? '',
+              fin_basement: flag(searchParams.fin_basement),
+              add_walkout: flag(searchParams.add_walkout),
+              add_egress: flag(searchParams.add_egress),
+              add_pool: flag(searchParams.add_pool),
+            }}
+          />
         </CardBody>
       </Card>
 

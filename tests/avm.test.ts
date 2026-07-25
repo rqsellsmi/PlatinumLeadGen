@@ -13,6 +13,8 @@ import {
   type ReconInput,
 } from '../lib/avm/engine';
 import { sameProperty } from '../lib/avm/addressMatch';
+import { applyUpdates, hasUpdates, type SubjectUpdates } from '../lib/avm/updates';
+import type { AvmSubject } from '../lib/avm/valuate';
 
 const baseInput: DriverInput = {
   sqft: null,
@@ -127,6 +129,40 @@ describe('statusReliability', () => {
     expect(statusReliability('Closed')).toBeGreaterThan(statusReliability('Pending'));
     expect(statusReliability('Pending')).toBe(statusReliability('ActiveUnderContract'));
     expect(statusReliability('ActiveUnderContract')).toBeGreaterThan(statusReliability('Active'));
+  });
+});
+
+describe('applyUpdates (upgrades since last sale)', () => {
+  const subject: AvmSubject = {
+    address: '5915 Chickadee Ln', city: 'Clarkston', latitude: 42.7, longitude: -83.4,
+    beds: 3, baths: 2, sqft: 1800, yearBuilt: 1995, propertyType: 'Single Family Residence',
+    lotSizeAcres: 1, garageSpaces: 2, basement: 'Unfinished', waterfront: false, frontageFeet: null,
+    pool: null, factsSource: 'MLS prior sale',
+  };
+
+  it('adds beds/baths/sqft onto a known base', () => {
+    const { subject: s, applied } = applyUpdates(subject, { addedBeds: 1, addedBaths: 1, addedSqft: 600 });
+    expect(s.beds).toBe(4);
+    expect(s.baths).toBe(3);
+    expect(s.sqft).toBe(2400);
+    expect(applied).toContain('+1 bd');
+  });
+
+  it('folds a finished basement into the basement string (parseBasement then sees it)', () => {
+    const { subject: s } = applyUpdates(subject, { finishedBasement: true });
+    expect(parseBasement(s.basement).finished).toBe(true);
+  });
+
+  it('does not fabricate a numeric delta onto an unknown base', () => {
+    const noBeds: AvmSubject = { ...subject, beds: null };
+    const { subject: s, skipped } = applyUpdates(noBeds, { addedBeds: 1 });
+    expect(s.beds).toBeNull();
+    expect(skipped.join(' ')).toMatch(/base unknown/);
+  });
+
+  it('hasUpdates reflects whether anything is set', () => {
+    expect(hasUpdates({})).toBe(false);
+    expect(hasUpdates({ finishedBasement: true } as SubjectUpdates)).toBe(true);
   });
 });
 

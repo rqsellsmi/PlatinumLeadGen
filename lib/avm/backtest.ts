@@ -23,6 +23,7 @@ import { normalizeAddress } from '../addressNormalization';
 import { valuateFromComps, type AvmResult, type AvmSubject } from './valuate';
 import { fetchAddressHistoryFromMls } from './addressHistory';
 import { sameProperty } from './addressMatch';
+import { applyUpdates, hasUpdates, type SubjectUpdates } from './updates';
 
 export interface BacktestRun {
   id: number | null;
@@ -90,7 +91,7 @@ const notLease = and(
 /**
  * Run one hold-one-out backtest for an address and persist it to the scoreboard.
  */
-export async function runBacktest(inputAddress: string): Promise<BacktestOutcome> {
+export async function runBacktest(inputAddress: string, updates?: SubjectUpdates): Promise<BacktestOutcome> {
   const raw = inputAddress.trim();
   const key = normalizeAddress(raw).full;
   if (!key || key.length < 5) return { ok: false, error: 'Enter a full street address.' };
@@ -203,6 +204,16 @@ export async function runBacktest(inputAddress: string): Promise<BacktestOutcome
     } else {
       subject = providerSubject;
     }
+  }
+
+  // Fold in operator-entered updates/upgrades since the prior sale (finished
+  // basement, added bed/bath/sqft, etc.) so the subject reflects the home as it is
+  // TODAY, not as it last sold (spec §5.2). Comps then price toward the improved home.
+  if (hasUpdates(updates)) {
+    const upd = applyUpdates(subject, updates!);
+    subject = upd.subject;
+    if (upd.applied.length) notes.push(`Applied updates since last sale: ${upd.applied.join(', ')}.`);
+    if (upd.skipped.length) notes.push(`Updates not applied (base value unknown): ${upd.skipped.join(', ')}.`);
   }
 
   // --- Comp pool: nearby comps of ALL statuses --------------------------------
