@@ -43,6 +43,7 @@ const GROUPS: NavGroup[] = [
     { href: '/admin/idx-sync', label: 'IDX Sync' },
     { href: '/admin/idx-listings', label: 'IDX Listings' },
     { href: '/admin/market-reports', label: 'Market Reports' },
+    { href: '/admin/avm-backtest', label: 'AVM Backtest' },
   ] },
   { label: 'System', items: [
     { href: '/admin/api-keys', label: 'API Keys' },
