@@ -38,7 +38,14 @@ export type ScoreReason =
   | 'fast_engagement' // variable +4/+3/+2/+1 (fastEngagementDelta)
   | 'milestone_appointment_set'
   | 'milestone_signed'
-  | 'missed_update_checkin';
+  | 'missed_update_checkin'
+  // --- Buyer Track (migration 0034) — a tunable duplicate of the seller pipeline
+  // reasons, so buyer point values can be adjusted independently in SCORE_DELTAS.
+  | 'buyer_attempted'
+  | 'buyer_connected'
+  | 'buyer_signed'
+  | 'buyer_closing'
+  | 'buyer_fast_engagement'; // variable, like fast_engagement
 
 const ROLLING_WINDOW_MS = 365 * 24 * 60 * 60 * 1000;
 
@@ -49,7 +56,10 @@ const ROLLING_WINDOW_MS = 365 * 24 * 60 * 60 * 1000;
  * an explicit +6.
  */
 export const SCORE_DELTAS: Record<
-  Exclude<ScoreReason, 'manual_adjustment' | 'lead_deleted_reversal' | 'starting_credit' | 'fast_engagement'>,
+  Exclude<
+    ScoreReason,
+    'manual_adjustment' | 'lead_deleted_reversal' | 'starting_credit' | 'fast_engagement' | 'buyer_fast_engagement'
+  >,
   number
 > = {
   // v4 accept bands (reduced from 8/6/4/1; 15–30 min passes explicit +3).
@@ -64,6 +74,12 @@ export const SCORE_DELTAS: Record<
   milestone_appointment_set: 4.0, // Appointment Set milestone (v4 §4.3)
   milestone_signed: 10.0, // Signed milestone (v4 §4.3)
   missed_update_checkin: -2.0, // unified update-clock penalty (v4 §5)
+  // Buyer Track pipeline milestones — initialized as a mirror of the seller
+  // values; tune these independently to change buyer scoring only.
+  buyer_attempted: 1.0, // Attempted Contact (buyer)
+  buyer_connected: 2.0, // Connected (buyer)
+  buyer_signed: 10.0, // Under contract / signed (buyer)
+  buyer_closing: 25.0, // Closed Won (buyer)
   // retired v2 reasons — kept so the Record is total, never written by v4 code.
   fast_contact_bonus: 3.0,
   pipeline_qualified: 2.0,
@@ -104,7 +120,8 @@ export function resolveScoreDelta(reason: ScoreReason, delta?: number): number {
   if (
     reason === 'manual_adjustment' ||
     reason === 'lead_deleted_reversal' ||
-    reason === 'fast_engagement' // variable — caller supplies fastEngagementDelta(...)
+    reason === 'fast_engagement' || // variable — caller supplies fastEngagementDelta(...)
+    reason === 'buyer_fast_engagement' // variable (buyer track)
   ) {
     if (delta === undefined) throw new Error(`${reason} requires an explicit delta`);
     return delta;

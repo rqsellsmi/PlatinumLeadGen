@@ -12,7 +12,8 @@ import PropertyDetails from '@/components/PropertyDetails';
 import { getPropertyRecord } from '@/lib/propertyRecords';
 import { StatusUpdateForm } from '@/components/agent/StatusUpdateForm';
 import { EditContactForm } from '@/components/agent/EditContactForm';
-import { lostReasonsForOrigin, leadStatusLabel } from '@/lib/leadLifecycle';
+import { leadStatusLabel } from '@/lib/leadLifecycle';
+import { trackConfig } from '@/lib/trackConfig';
 
 export const dynamic = 'force-dynamic';
 
@@ -65,7 +66,10 @@ export default async function AgentLeadDetailPage({
   // Lost reasons are scoped to the lead's current stage (v4 §6); Lost A2 (no
   // response after 6) unlocks once there are ≥6 Attempted-Contact logs.
   const attemptedContactCount = history.filter((u) => u.newStatus === 'attempted_contact').length;
-  const lostReasons = lostReasonsForOrigin(lead.status, attemptedContactCount);
+  // Seller vs buyer track — labels, transitions, and Lost reasons follow the
+  // lead's intent.
+  const cfg = trackConfig(lead.intent);
+  const lostReasons = cfg.lostReasonsForOrigin(lead.status, attemptedContactCount);
 
   return (
     <div className="space-y-6">
@@ -83,6 +87,16 @@ export default async function AgentLeadDetailPage({
           </div>
           <h1 className="text-2xl font-extrabold tracking-tight text-charcoal">{fullName}</h1>
           {address ? <p className="mt-1 text-sm text-mute-light">{address}</p> : null}
+          {lead.intent === 'buyer' && lead.interestedListingKey ? (
+            <p className="mt-1 text-sm">
+              <Link
+                href={`/listing/${encodeURIComponent(lead.interestedListingKey)}`}
+                className="font-semibold text-platinum-blue hover:underline"
+              >
+                View the home this buyer inquired on →
+              </Link>
+            </p>
+          ) : null}
         </div>
         {lead.phone ? (
           <a
@@ -182,6 +196,7 @@ export default async function AgentLeadDetailPage({
               leadOfferId={offer.id}
               currentStatus={lead.status}
               lostReasons={lostReasons}
+              intent={lead.intent}
             />
           </div>
         </div>

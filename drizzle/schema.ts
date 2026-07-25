@@ -83,6 +83,13 @@ export const scoreReasonEnum = pgEnum('score_reason', [
   'milestone_appointment_set', // +4 first Appointment Set (v4 §4.3)
   'milestone_signed', // +10 first Signed (v4 §4.3)
   'missed_update_checkin', // -2 unified update-clock penalty (v4 §5)
+  // --- Buyer Track (migration 0034) — tunable duplicate of the seller pipeline
+  // reasons so buyer point values can be adjusted independently. ---
+  'buyer_attempted', // +1 first Attempted Contact (buyer)
+  'buyer_connected', // +2 first Connected (buyer)
+  'buyer_signed', // +10 under contract / signed (buyer)
+  'buyer_closing', // +25 Closed Won (buyer)
+  'buyer_fast_engagement', // variable fast-engagement bonus (buyer)
 ]);
 
 export const scriptPositionEnum = pgEnum('script_position', ['head', 'body']);

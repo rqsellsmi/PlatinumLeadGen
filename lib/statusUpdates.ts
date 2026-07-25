@@ -13,13 +13,8 @@ import { db } from './db';
 import { leadOffers, leads, statusUpdates } from '../drizzle/schema';
 import { applyScore, claimLeadMilestone, fastEngagementDelta } from './scoring';
 import { logLeadEvent } from './leadEvents';
-import {
-  AGENT_SETTABLE_STATUSES_V4,
-  isValidTransition,
-  isBackwardMove,
-  isValidLostReasonForOrigin,
-  v4LostReasonLabel,
-} from './leadLifecycle';
+import { AGENT_SETTABLE_STATUSES_V4 } from './leadLifecycle';
+import { trackConfig } from './trackConfig';
 
 export const AGENT_SETTABLE_STATUSES = AGENT_SETTABLE_STATUSES_V4;
 export type AgentSettableStatus = (typeof AGENT_SETTABLE_STATUSES_V4)[number];
@@ -49,11 +44,6 @@ export async function recordStatusUpdate(o: {
   note?: string | null;
   lostReason?: string | null;
 }): Promise<RecordStatusResult> {
-  if (!(AGENT_SETTABLE_STATUSES_V4 as readonly string[]).includes(o.newStatus)) {
-    return { ok: false, reason: 'invalid-status' };
-  }
-  const newStatus = o.newStatus as AgentSettableStatus;
-
   const offerRows = await db
     .select()
     .from(leadOffers)
@@ -65,35 +55,48 @@ export async function recordStatusUpdate(o: {
   }
 
   const leadRows = await db
-    .select({ status: leads.status, acceptedAt: leads.acceptedAt, contactedAt: leads.contactedAt })
+    .select({
+      status: leads.status,
+      acceptedAt: leads.acceptedAt,
+      contactedAt: leads.contactedAt,
+      intent: leads.intent,
+    })
     .from(leads)
     .where(eq(leads.id, offer.leadId))
     .limit(1);
   const leadRow = leadRows[0];
   const fromStatus = leadRow?.status ?? 'new';
 
-  // The move must be legal in the v4 flow (§3).
-  if (!isValidTransition(fromStatus, newStatus)) {
+  // Select the track (seller vs buyer) by the lead's intent — one engine, two
+  // tunable configs. The seller path is unchanged (intent !== 'buyer').
+  const cfg = trackConfig(leadRow?.intent);
+
+  if (!cfg.settableStatuses.includes(o.newStatus)) {
+    return { ok: false, reason: 'invalid-status' };
+  }
+  const newStatus = o.newStatus as AgentSettableStatus;
+
+  // The move must be legal in this track's flow.
+  if (!cfg.isValidTransition(fromStatus, newStatus)) {
     return { ok: false, reason: 'invalid-transition' };
   }
 
-  // Lost is reason-gated by the origin status (§6); Lost A2 needs ≥6 attempts.
+  // Lost is reason-gated by the origin status; Lost A2 needs ≥6 attempts.
   if (newStatus === 'lost') {
-    let attemptedCount = 0;
     const attemptedRows = await db
       .select({ n: sql<number>`count(*)::int` })
       .from(statusUpdates)
       .where(
         and(eq(statusUpdates.leadId, offer.leadId), eq(statusUpdates.newStatus, 'attempted_contact')),
       );
-    attemptedCount = Number(attemptedRows[0]?.n ?? 0);
-    if (!isValidLostReasonForOrigin(fromStatus, o.lostReason, attemptedCount)) {
+    const attemptedCount = Number(attemptedRows[0]?.n ?? 0);
+    if (!cfg.isValidLostReasonForOrigin(fromStatus, o.lostReason, attemptedCount)) {
       return { ok: false, reason: 'lost-reason-required' };
     }
   }
 
   const now = new Date();
-  const backward = isBackwardMove(fromStatus, newStatus);
+  const backward = cfg.isBackwardMove(fromStatus, newStatus);
 
   await db.insert(statusUpdates).values({
     leadOfferId: offer.id,
@@ -131,7 +134,7 @@ export async function recordStatusUpdate(o: {
     offer.leadId,
     newStatus === 'lost' ? 'marked_lost' : 'status_updated',
     newStatus === 'lost'
-      ? `Lost — ${v4LostReasonLabel(o.lostReason ?? '')}${o.note ? ` · ${o.note}` : ''}`
+      ? `Lost — ${cfg.lostReasonLabel(o.lostReason ?? '')}${o.note ? ` · ${o.note}` : ''}`
       : backward
         ? `Reactivated to Nurturing (from ${fromStatus})${o.note ? ` · ${o.note}` : ''}`
         : o.note
@@ -155,7 +158,7 @@ export async function recordStatusUpdate(o: {
         if (bonus > 0) {
           await applyScore({
             agentId: o.agentId,
-            reason: 'fast_engagement',
+            reason: cfg.fastEngagementReason,
             delta: bonus,
             leadId: offer.leadId,
             leadOfferId: offer.id,
@@ -165,26 +168,16 @@ export async function recordStatusUpdate(o: {
     }
 
     // Status milestones — once per lead (§4.3). Backward moves pay nothing (D3).
+    // The reason + point value comes from the track config (seller vs buyer).
     if (!backward) {
-      if (newStatus === 'attempted_contact') {
-        if (await claimLeadMilestone(offer.leadId, 'attempted_contact', now)) {
-          await applyScore({ agentId: o.agentId, reason: 'pipeline_attempted', leadId: offer.leadId, leadOfferId: offer.id });
-        }
-      } else if (newStatus === 'connected') {
-        if (await claimLeadMilestone(offer.leadId, 'connected', now)) {
-          await applyScore({ agentId: o.agentId, reason: 'pipeline_contacted', leadId: offer.leadId, leadOfferId: offer.id });
-        }
-      } else if (newStatus === 'appointment_set') {
-        if (await claimLeadMilestone(offer.leadId, 'appointment_set', now)) {
-          await applyScore({ agentId: o.agentId, reason: 'milestone_appointment_set', leadId: offer.leadId, leadOfferId: offer.id });
-        }
-      } else if (newStatus === 'signed') {
-        if (await claimLeadMilestone(offer.leadId, 'signed', now)) {
-          await applyScore({ agentId: o.agentId, reason: 'milestone_signed', leadId: offer.leadId, leadOfferId: offer.id });
+      const milestone = cfg.pipelineMilestone(newStatus);
+      if (milestone) {
+        if (await claimLeadMilestone(offer.leadId, milestone.key, now)) {
+          await applyScore({ agentId: o.agentId, reason: milestone.reason, leadId: offer.leadId, leadOfferId: offer.id });
         }
       } else if (newStatus === 'closed') {
-        // Closed Won is terminal (reached once); +25.
-        await applyScore({ agentId: o.agentId, reason: 'system_closing', leadId: offer.leadId, leadOfferId: offer.id });
+        // Closed Won is terminal (reached once).
+        await applyScore({ agentId: o.agentId, reason: cfg.closingReason, leadId: offer.leadId, leadOfferId: offer.id });
       }
       // nurturing / lost → 0 points.
     }

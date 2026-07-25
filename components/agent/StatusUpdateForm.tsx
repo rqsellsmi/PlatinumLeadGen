@@ -3,25 +3,31 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button, Select, Textarea, Label } from '@/components/ui';
-import { ALLOWED_TRANSITIONS, leadStatusLabel, v4LostReasonLabel } from '@/lib/leadLifecycle';
+import { leadStatusLabel } from '@/lib/leadLifecycle';
+import { trackConfig } from '@/lib/trackConfig';
 
 /**
  * Agent status/activity logger (Scoring v4). The status options are exactly the
- * moves allowed from the lead's current stage (ALLOWED_TRANSITIONS); the Lost
- * reason list is the origin-scoped set the server computed for this stage.
+ * moves allowed from the lead's current stage for this lead's TRACK (seller vs
+ * buyer, by intent); the Lost reason list is the origin-scoped set the server
+ * computed for this stage on the same track.
  */
 export function StatusUpdateForm({
   leadOfferId,
   currentStatus,
   lostReasons,
+  intent,
 }: {
   leadOfferId: number;
   currentStatus: string;
-  /** Valid Lost reasons for the current origin status (server-computed, v4 §6). */
+  /** Valid Lost reasons for the current origin status (server-computed). */
   lostReasons: string[];
+  /** The lead's intent — selects the seller vs buyer track. */
+  intent?: string | null;
 }) {
   const router = useRouter();
-  const options = [...(ALLOWED_TRANSITIONS[currentStatus] ?? [])];
+  const cfg = trackConfig(intent);
+  const options = [...cfg.allowedFrom(currentStatus)];
   const [newStatus, setNewStatus] = useState<string>(options[0] ?? '');
   const [lostReason, setLostReason] = useState('');
   const [note, setNote] = useState('');
@@ -122,7 +128,7 @@ export function StatusUpdateForm({
             </option>
             {lostReasons.map((r) => (
               <option key={r} value={r}>
-                {v4LostReasonLabel(r)}
+                {cfg.lostReasonLabel(r)}
               </option>
             ))}
           </Select>
