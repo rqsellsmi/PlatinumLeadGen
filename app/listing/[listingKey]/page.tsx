@@ -3,11 +3,13 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import SiteHeader from '@/components/SiteHeader';
 import SiteFooter from '@/components/SiteFooter';
-import ListingGallery from '@/components/idx/ListingGallery';
-import ListingHero from '@/components/idx/ListingHero';
+import ListingHeroCarousel from '@/components/idx/ListingHeroCarousel';
 import ListingBackButton from '@/components/idx/ListingBackButton';
+import KeyFeatureChips from '@/components/idx/KeyFeatureChips';
+import ListingLocationMap from '@/components/idx/ListingLocationMap';
 import AreaHighlights from '@/components/idx/AreaHighlights';
 import MarketReport from '@/components/idx/MarketReport';
+import { buildKeyFeatures } from '@/lib/listingFeatures';
 import RealcompLogo from '@/components/idx/RealcompLogo';
 import IdxCompliance from '@/components/idx/IdxCompliance';
 import { getListingByKey, getListingPhotos, getCityMarketReport, type IdxCard, type CityMarketReport } from '@/lib/idx';
@@ -57,30 +59,6 @@ type Section = { title: string; facts: Fact[] };
 
 const has = (hay: string | null | undefined, needle: string): boolean =>
   !!hay && hay.toLowerCase().includes(needle.toLowerCase());
-
-/** Short marketing chips derived from the structured detail fields. */
-function buildChips(l: IdxCard): string[] {
-  const chips: string[] = [];
-  if (l.waterfrontYN || l.waterBodyName) {
-    if (l.waterBodyName) chips.push(`${l.waterBodyName} access`);
-    else if (l.waterfrontFeatures) chips.push(l.waterfrontFeatures.split(',')[0].trim());
-    else chips.push('Waterfront');
-  }
-  if (has(l.interiorFeatures, 'first floor primary') || has(l.interiorFeatures, 'entry level primary') || has(l.interiorFeatures, 'primary on main'))
-    chips.push('1st-floor primary suite');
-  if ((l.fireplacesTotal ?? 0) > 0 || l.fireplaceFeatures) {
-    if (has(l.fireplaceFeatures, 'gas')) chips.push('Gas fireplace');
-    else if ((l.fireplacesTotal ?? 0) > 1) chips.push(`${l.fireplacesTotal} fireplaces`);
-    else chips.push('Fireplace');
-  }
-  if (has(l.laundryFeatures, 'main') || has(l.laundryFeatures, 'first floor')) chips.push('Main-floor laundry');
-  if (has(l.basement, 'finished')) chips.push('Finished lower level');
-  if (l.poolPrivateYN) chips.push('Private pool');
-  if (l.newConstructionYN) chips.push('New construction');
-  if ((l.garageSpaces ?? 0) > 0) chips.push(`${l.garageSpaces}-car garage`);
-  // De-dupe and cap.
-  return [...new Set(chips)].slice(0, 6);
-}
 
 /** Build the two detail columns, omitting empty values. */
 function buildSections(l: IdxCard): Section[] {
@@ -237,7 +215,7 @@ export default async function ListingDetailPage({
   const baths = listing.bathsTotal;
   const sqft = listing.livingArea;
 
-  const chips = buildChips(listing);
+  const keyFeatures = buildKeyFeatures(listing);
   const sections = buildSections(listing);
 
   // Optional enrichments — never let a failure break the page.
@@ -266,7 +244,7 @@ export default async function ListingDetailPage({
 
   const eyebrow = [listing.subdivisionName, city].filter(Boolean).join(' · ').toUpperCase() || null;
   const cityLine = [listing.city, listing.stateOrProvince, listing.postalCode].filter(Boolean).join(', ');
-  const galleryPhotos = showFullGallery && photos.length > 1 ? photos : [];
+  const addressHidden = listing.internetAddressDisplayYN === false;
 
   return (
     <>
@@ -277,8 +255,8 @@ export default async function ListingDetailPage({
         {/* ---- Listing body. No RE/MAX branding or agent contact inside this
              block per §18.3.12. ---- */}
         <div className="mt-3">
-          <ListingHero
-            photoUrl={photos[0] ?? null}
+          <ListingHeroCarousel
+            photos={photos}
             alt={listing.address ?? 'Property photo'}
             badge={sold && listing.closeDate ? `Sold ${formatMonthYear(listing.closeDate)}` : statusLabel(listing.standardStatus, listing.mlsStatus)}
             badgeTone={sold ? 'sold' : 'active'}
@@ -362,19 +340,8 @@ export default async function ListingDetailPage({
             ))}
           </dl>
 
-          {/* Feature chips */}
-          {chips.length ? (
-            <div className="mt-5 flex flex-wrap gap-2">
-              {chips.map((c) => (
-                <span
-                  key={c}
-                  className="rounded-full border border-line bg-cream px-3 py-1.5 text-sm font-semibold text-charcoal"
-                >
-                  {c}
-                </span>
-              ))}
-            </div>
-          ) : null}
+          {/* Key-feature icon chips — chosen from this listing's own data. */}
+          <KeyFeatureChips features={keyFeatures} />
 
           {/* Description */}
           {listing.publicRemarks ? (
@@ -382,6 +349,15 @@ export default async function ListingDetailPage({
               {listing.publicRemarks}
             </p>
           ) : null}
+
+          {/* Location map (free Embed API; approximate when address is hidden). */}
+          <ListingLocationMap
+            latitude={listing.latitude}
+            longitude={listing.longitude}
+            city={listing.city}
+            stateOrProvince={listing.stateOrProvince}
+            addressHidden={addressHidden}
+          />
 
           {/* Two-column detail */}
           {sections.length ? (
@@ -433,13 +409,6 @@ export default async function ListingDetailPage({
             </p>
           ) : null}
 
-          {/* Browsable gallery (Active / Under Contract only). */}
-          {galleryPhotos.length ? (
-            <div className="mt-8">
-              <h2 className="mb-3 text-lg font-bold text-charcoal">Photos</h2>
-              <ListingGallery photos={galleryPhotos} alt={listing.address ?? 'Property photo'} />
-            </div>
-          ) : null}
         </div>
 
         {/* ---- Realcomp office credit + logo + copyright, immediately after the
