@@ -1,0 +1,150 @@
+import {
+  getHomepageAggregateStats,
+  getHomePageMetrics,
+  getFeaturedRecentSales,
+  getCityTiles,
+  getGuidesForPage,
+  getHomeTestimonials,
+} from '@/lib/queries';
+import { formatNumber } from '@/lib/utils';
+import { getHeroImages } from '@/lib/heroImages';
+import SiteHeader from '@/components/SiteHeader';
+import SiteFooter from '@/components/SiteFooter';
+import HeroBackdrop from '@/components/HeroBackdrop';
+import HeroValuation from '@/components/HeroValuation';
+import MarketStatsBar from '@/components/city/MarketStatsBar';
+import HomeRecentSales from '@/components/home/HomeRecentSales';
+import ExploreMarket from '@/components/home/ExploreMarket';
+import GuideDownloadBlock from '@/components/home/GuideDownloadBlock';
+import ValueCta from '@/components/home/ValueCta';
+
+// The seller-facing homepage (free home valuation funnel). Extracted from the
+// former `app/page.tsx` so it can live at `/sell/home-value` while the site root
+// `/` becomes the buyer-facing home search. Behavior is unchanged.
+export default async function SellerHomepage() {
+  const [stats, homeMetrics, recentSales, cityTiles, guides, testimonials, heroImages] = await Promise.all([
+    getHomepageAggregateStats(),
+    getHomePageMetrics(),
+    getFeaturedRecentSales(6),
+    getCityTiles(),
+    getGuidesForPage('home'),
+    getHomeTestimonials(3),
+    getHeroImages(),
+  ]);
+  const guide = guides[0] ?? null;
+
+  return (
+    <>
+      <SiteHeader />
+      <main>
+        {/* Hero */}
+        <section className="relative isolate flex min-h-[560px] items-center px-5 py-20 sm:px-8 lg:px-12">
+          <HeroBackdrop images={heroImages} alt="Michigan homes" />
+          <div
+            aria-hidden
+            className="absolute inset-0 -z-10 bg-gradient-to-r from-[rgba(20,20,24,0.78)] via-[rgba(20,20,24,0.55)] to-[rgba(20,20,24,0.3)]"
+          />
+          <div className="mx-auto w-full max-w-6xl">
+            <div className="max-w-[680px] lg:max-w-[760px]">
+              <h1 className="text-5xl font-black leading-[1.0] tracking-tight text-white sm:text-7xl">
+                Your home is here. So are we.
+              </h1>
+              <p className="mt-6 max-w-xl text-lg leading-relaxed text-white/90 sm:text-xl">
+                {stats.homesSold
+                  ? `RE/MAX Platinum has helped ${formatNumber(stats.homesSold)} families sell across South East Michigan. `
+                  : 'RE/MAX Platinum helps families across South East Michigan sell for more. '}
+                Find out what your home is worth today — free, and with no obligation.
+              </p>
+              <div className="mt-8">
+                <HeroValuation buttonLabel="What's My Home Worth? →" />
+              </div>
+              <div className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-3 text-sm font-semibold text-white">
+                {stats.avgRating != null ? (
+                  <span className="flex items-center gap-1.5">
+                    <span className="text-platinum-red" aria-hidden>
+                      ★
+                    </span>
+                    {stats.avgRating.toFixed(1)}
+                    {stats.reviewCount ? ` · ${formatNumber(stats.reviewCount)}+ reviews` : ''}
+                  </span>
+                ) : null}
+                <span className="text-white/90">Free · No obligation · Instant estimate</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Market stats — same four metrics as the city pages, brokerage-wide */}
+        <MarketStatsBar
+          avgSalePrice={homeMetrics?.avgSalePrice ?? null}
+          daysToSell={homeMetrics?.avgDaysToSell ?? null}
+          homesSold={homeMetrics?.homesSold ?? null}
+          percentAboveList={homeMetrics?.pctAboveListPrice ?? null}
+          subtext={
+            homeMetrics?.homesSold
+              ? `Based on ${formatNumber(homeMetrics.homesSold)} homes sold across Southeast Michigan over the last 12 months.`
+              : null
+          }
+        />
+
+        {/* Recent sales across all communities */}
+        <HomeRecentSales sales={recentSales} />
+
+        {/* Explore Your Market — city cards linking to community pages */}
+        <ExploreMarket cities={cityTiles} />
+
+        {/* Seller guide download (admin-managed; shown when assigned to "home") */}
+        {guide ? <GuideDownloadBlock guide={guide} /> : null}
+
+        {/* Featured testimonials */}
+        {testimonials.length >= 2 ? (
+          <section className="bg-white">
+            <div className="mx-auto max-w-6xl px-4 py-16 sm:py-24">
+              <h2 className="text-3xl font-extrabold tracking-tight text-charcoal sm:text-4xl">
+                What Michigan Homeowners Are Saying
+              </h2>
+              <div className="mt-12 grid grid-cols-1 gap-6 md:grid-cols-3">
+                {testimonials.map((t) => (
+                  <figure key={t.id} className="flex flex-col rounded-xl bg-cream p-9">
+                    <div className="mb-4 flex gap-0.5" aria-hidden>
+                      {[0, 1, 2, 3, 4].map((i) => (
+                        <span
+                          key={i}
+                          className={i < Math.round(t.rating) ? 'text-platinum-red' : 'text-mute-lighter'}
+                        >
+                          ★
+                        </span>
+                      ))}
+                    </div>
+                    <blockquote className="flex-1">
+                      <p className="font-serif text-xl leading-relaxed text-charcoal line-clamp-6">
+                        &ldquo;{t.quote}&rdquo;
+                      </p>
+                    </blockquote>
+                    {t.subLabel && t.source === 'manual' ? (
+                      <div className="mt-5">
+                        <span className="inline-block rounded-pill border border-line bg-white px-3 py-1.5 text-xs font-bold text-success">
+                          {t.subLabel}
+                        </span>
+                      </div>
+                    ) : null}
+                    <figcaption className="mt-4">
+                      <p className="font-bold text-charcoal">{t.clientName}</p>
+                      {t.source === 'google' ? (
+                        <p className="text-sm text-mute-light">{t.subLabel ?? 'via Google'}</p>
+                      ) : null}
+                    </figcaption>
+                  </figure>
+                ))}
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+        {/* Closing CTA band */}
+        <ValueCta />
+      </main>
+      <SiteFooter />
+    </>
+  );
+}

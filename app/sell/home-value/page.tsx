@@ -2,22 +2,18 @@ import { siteUrl } from '@/lib/siteUrl';
 import type { Metadata } from 'next';
 import SellerHomepage from '@/components/home/SellerHomepage';
 
-// Render at request time so the page always reflects the live database (the
-// admin pages are already dynamic). ISR can be re-enabled after launch.
+// Render at request time so the page always reflects the live database.
 export const dynamic = 'force-dynamic';
 
 const SITE_URL = siteUrl();
 
-// NOTE: The site root currently renders the seller homepage. It will become the
-// buyer-facing home search (Phase 4); the seller homepage also lives permanently
-// at /sell/home-value.
 export const metadata: Metadata = {
   title: 'Sell Your Michigan Home | RE/MAX Platinum — Local Experts',
   description:
     'RE/MAX Platinum helps Michigan homeowners sell faster and for more money. Get a free, instant home valuation and connect with a local expert who knows your market.',
-  alternates: { canonical: SITE_URL },
+  alternates: { canonical: `${SITE_URL}/sell/home-value` },
 };
 
-export default function HomePage() {
+export default function SellHomeValuePage() {
   return <SellerHomepage />;
 }

@@ -16,6 +16,9 @@ export default function SiteHeader() {
           <Link href="/" className="hidden hover:text-platinum-blue sm:inline">
             Home
           </Link>
+          <Link href="/sell/home-value" className="hidden hover:text-platinum-blue sm:inline">
+            Sell
+          </Link>
           <Link href="/sell" className="hidden hover:text-platinum-blue sm:inline">
             Cities
           </Link>
