@@ -1,5 +1,6 @@
 import { requireAdmin } from '@/components/admin/requireAdmin';
-import { Card, CardHeader, CardBody, Button, Input, Label, Badge, type PillTone } from '@/components/ui';
+import { Card, CardHeader, CardBody, Badge, type PillTone } from '@/components/ui';
+import AvmAddressForm from '@/components/admin/AvmAddressForm';
 import { runBacktest, listRecentBacktests, type BacktestRun } from '@/lib/avm/backtest';
 import { formatLineItem } from '@/lib/avm/engine';
 
@@ -58,19 +59,7 @@ export default async function AvmBacktestPage({
           <h2 className="font-bold text-charcoal">Address to test</h2>
         </CardHeader>
         <CardBody>
-          <form method="get" className="flex flex-col gap-3 sm:flex-row sm:items-end">
-            <div className="flex-1">
-              <Label htmlFor="address">Sold property address</Label>
-              <Input
-                id="address"
-                name="address"
-                defaultValue={address}
-                placeholder="123 Lakeshore Dr, Fenton, MI 48430"
-                autoComplete="off"
-              />
-            </div>
-            <Button type="submit">Run backtest</Button>
-          </form>
+          <AvmAddressForm defaultValue={address} />
         </CardBody>
       </Card>
 
