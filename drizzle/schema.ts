@@ -27,7 +27,7 @@ import {
 // ---------------------------------------------------------------------------
 // Enums
 // ---------------------------------------------------------------------------
-export const leadTypeEnum = pgEnum('lead_type', ['valuation', 'seller_guide', 'webhook']);
+export const leadTypeEnum = pgEnum('lead_type', ['valuation', 'seller_guide', 'webhook', 'buyer_inquiry']);
 
 // Buyer/Seller classification (migration 0026). Label only — no routing impact.
 // All current capture flows are seller-side, so this defaults to 'seller';
@@ -454,6 +454,8 @@ export const leads = pgTable(
     reportToken: varchar('report_token', { length: 64 }),
     reportFirstAccessedAt: timestamp('report_first_accessed_at'),
     reportViewCount: integer('report_view_count').notNull().default(0),
+    // Buyer track (migration 0033): the IDX listing this buyer inquired on.
+    interestedListingKey: varchar('interested_listing_key', { length: 100 }),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
@@ -763,6 +765,8 @@ export const appointmentRequests = pgTable('appointment_requests', {
   preferredTime: varchar('preferred_time', { length: 200 }),
   notes: text('notes'),
   source: varchar('source', { length: 80 }).notNull().default('thank-you'),
+  // Buyer showing requests (migration 0033) — the listing the showing is for.
+  listingKey: varchar('listing_key', { length: 100 }),
   // Attribution (v1.6 §C.2) — mirrors leads.
   utmSource: varchar('utm_source', { length: 200 }),
   utmMedium: varchar('utm_medium', { length: 200 }),

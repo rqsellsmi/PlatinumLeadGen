@@ -232,6 +232,13 @@
       "when": 1785900000000,
       "tag": "0032_buyer_home_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1786000000000,
+      "tag": "0033_buyer_lead_fields",
+      "breakpoints": true
     }
   ]
 }

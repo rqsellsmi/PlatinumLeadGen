@@ -132,6 +132,32 @@ export const appointmentSchema = z.object({
   ...attributionFields,
 });
 
+export const buyerInquirySchema = z.object({
+  listingKey: z.string().trim().min(1).max(100),
+  kind: z.enum(['showing', 'contact']),
+  firstName: z
+    .string()
+    .trim()
+    .min(1, { message: 'Enter a first name.' })
+    .max(120)
+    .refine(isValidPersonName, { message: INVALID_NAME_MESSAGE }),
+  lastName: z
+    .string()
+    .trim()
+    .max(120)
+    .refine(isValidPersonName, { message: INVALID_NAME_MESSAGE })
+    .optional()
+    .nullable(),
+  email: z.string().trim().email().max(200),
+  phone: z.string().trim().max(40).optional().nullable(),
+  preferredDate: z.string().trim().max(40).optional().nullable(),
+  preferredTime: z.string().trim().max(80).optional().nullable(),
+  message: z.string().trim().max(2000).optional().nullable(),
+  ...attributionFields,
+});
+
+export type BuyerInquiryInput = z.infer<typeof buyerInquirySchema>;
+
 export type PartialLeadInput = z.infer<typeof partialLeadSchema>;
 export type LeadSubmitInput = z.infer<typeof leadSubmitSchema>;
 export type WebhookLeadInput = z.infer<typeof webhookLeadSchema>;

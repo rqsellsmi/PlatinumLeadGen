@@ -7,6 +7,7 @@ import ListingHeroCarousel from '@/components/idx/ListingHeroCarousel';
 import ListingBackButton from '@/components/idx/ListingBackButton';
 import KeyFeatureChips from '@/components/idx/KeyFeatureChips';
 import ListingLocationMap from '@/components/idx/ListingLocationMap';
+import ListingContact from '@/components/idx/ListingContact';
 import AreaHighlights from '@/components/idx/AreaHighlights';
 import MarketReport from '@/components/idx/MarketReport';
 import { buildKeyFeatures } from '@/lib/listingFeatures';
@@ -462,6 +463,14 @@ export default async function ListingDetailPage({
           originatingSystemName={listing.originatingSystemName}
         />
       </main>
+      {/* Buyer contact — sticky "schedule a showing / contact an agent" (for-sale
+          listings only). */}
+      {!sold ? (
+        <ListingContact
+          listingKey={listing.listingKey}
+          listingLabel={[listing.address, city].filter(Boolean).join(', ') || city || null}
+        />
+      ) : null}
       <SiteFooter latitude={listing.latitude} longitude={listing.longitude} />
     </>
   );

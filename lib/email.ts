@@ -516,6 +516,51 @@ Notes: ${d.notes ?? '—'}`;
 }
 
 // ---------------------------------------------------------------------------
+// Buyer inquiry (schedule a showing / contact an agent on a listing)
+// ---------------------------------------------------------------------------
+export interface BuyerInquiryEmailData {
+  kind: 'showing' | 'contact';
+  name: string;
+  phone: string | null;
+  email: string | null;
+  preferred: string | null;
+  message: string | null;
+  listingAddress: string | null;
+  listingUrl: string;
+}
+
+export function buyerInquiryNotificationEmail(d: BuyerInquiryEmailData): SendEmailArgs {
+  const heading = d.kind === 'showing' ? 'New showing request' : 'New buyer inquiry';
+  const where = d.listingAddress || 'a listing';
+  const html = shell(
+    heading,
+    `<h1 style="margin:0 0 12px;font-size:22px;color:${BRAND_BLUE};">${heading}</h1>
+     <p style="font-size:15px;">For <a href="${escapeHtml(d.listingUrl)}">${escapeHtml(where)}</a></p>
+     <table style="font-size:15px;line-height:1.8;margin:12px 0;">
+       <tr><td style="color:#64748b;padding-right:12px;">Name</td><td><strong>${escapeHtml(d.name)}</strong></td></tr>
+       <tr><td style="color:#64748b;padding-right:12px;">Phone</td><td>${escapeHtml(d.phone ?? '—')}</td></tr>
+       <tr><td style="color:#64748b;padding-right:12px;">Email</td><td>${escapeHtml(d.email ?? '—')}</td></tr>
+       <tr><td style="color:#64748b;padding-right:12px;">Preferred time</td><td>${escapeHtml(d.preferred ?? '—')}</td></tr>
+       <tr><td style="color:#64748b;padding-right:12px;">Message</td><td>${escapeHtml(d.message ?? '—')}</td></tr>
+     </table>`,
+  );
+  const text = `${heading}
+Listing: ${where} (${d.listingUrl})
+Name: ${d.name}
+Phone: ${d.phone ?? '—'}
+Email: ${d.email ?? '—'}
+Preferred time: ${d.preferred ?? '—'}
+Message: ${d.message ?? '—'}`;
+  return {
+    to: adminEmail(),
+    subject: `${heading} — ${d.name}`,
+    html,
+    text,
+    templateName: 'buyer_inquiry',
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Agent password reset — emailed "forgot password" link (email-verified reset)
 // ---------------------------------------------------------------------------
 export interface AgentPasswordResetEmailData {

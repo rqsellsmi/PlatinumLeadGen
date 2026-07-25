@@ -45,7 +45,11 @@ export async function middleware(req: NextRequest) {
   }
 
   // --- Internal lead API: same-origin only ----------------------------------
-  if (pathname.startsWith('/api/leads') || pathname === '/api/appointments') {
+  if (
+    pathname.startsWith('/api/leads') ||
+    pathname === '/api/appointments' ||
+    pathname === '/api/buyer/inquiry'
+  ) {
     if (req.method === 'POST') {
       const origin = req.headers.get('origin');
       const host = req.headers.get('host');
@@ -60,5 +64,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/admin/:path*', '/agent/:path*', '/api/leads/:path*', '/api/appointments'],
+  matcher: ['/admin/:path*', '/agent/:path*', '/api/leads/:path*', '/api/appointments', '/api/buyer/inquiry'],
 };
