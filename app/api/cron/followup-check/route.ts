@@ -15,6 +15,7 @@ import {
 } from '@/lib/email';
 import { sendAgentSms } from '@/lib/agentSms';
 import { updateReminderText } from '@/lib/smsTemplates';
+import { buildAgentMagicLink } from '@/lib/agentMagicLink';
 import { applyScore } from '@/lib/scoring';
 
 export const runtime = 'nodejs';
@@ -72,7 +73,8 @@ export async function GET(req: NextRequest) {
             firstName: row.lead.firstName ?? null,
             lastName: row.lead.lastName ?? null,
             address: row.lead.propertyAddress ?? null,
-            leadUrl: `${siteUrl()}/agent/leads/${row.offer.id}`,
+            // Magic link: auto-login + land on this lead (no manual sign-in).
+            leadUrl: await buildAgentMagicLink(row.agent, `/agent/leads/${row.offer.id}`),
           }),
         });
         await db

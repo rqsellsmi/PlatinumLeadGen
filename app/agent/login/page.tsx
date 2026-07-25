@@ -26,6 +26,12 @@ function LoginInner() {
   const [tokenError, setTokenError] = useState<string | null>(null);
   const [tokenPending, setTokenPending] = useState(false);
 
+  // Optional post-login destination (e.g. a lead deep-link from an SMS). Only
+  // agent-portal paths are honored, so a crafted ?next=// or ?next=https://…
+  // can't turn this into an open redirect.
+  const nextParam = searchParams.get('next');
+  const destination = /^\/agent\/[\w\-/]*$/.test(nextParam ?? '') ? (nextParam as string) : '/agent/leads';
+
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
@@ -40,7 +46,7 @@ function LoginInner() {
         });
         if (cancelled) return;
         if (res.ok) {
-          router.push('/agent/leads');
+          router.push(destination);
           return;
         }
         const data = (await res.json().catch(() => ({}))) as { error?: string };
@@ -58,7 +64,7 @@ function LoginInner() {
     return () => {
       cancelled = true;
     };
-  }, [token, router]);
+  }, [token, router, destination]);
 
   async function handleResetSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -89,7 +95,7 @@ function LoginInner() {
         body: JSON.stringify({ email, password }),
       });
       if (res.ok) {
-        router.push('/agent/leads');
+        router.push(destination);
         return;
       }
       setPwError('Invalid email or password.');
