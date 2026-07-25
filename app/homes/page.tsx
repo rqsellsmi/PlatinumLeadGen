@@ -5,7 +5,8 @@ import SiteFooter from '@/components/SiteFooter';
 import IdxListingCard from '@/components/idx/IdxListingCard';
 import IdxCompliance from '@/components/idx/IdxCompliance';
 import SearchFilterPanel from '@/components/search/SearchFilterPanel';
-import { normalizeFilters } from '@/lib/listingSearch';
+import SearchMap, { type MapPin } from '@/components/search/SearchMap';
+import { normalizeFilters, listingStatusLabel } from '@/lib/listingSearch';
 import { searchListings } from '@/lib/idxSearch';
 import { getPhotosForListings } from '@/lib/idx';
 
@@ -28,6 +29,19 @@ export default async function HomesSearchPage({ searchParams }: { searchParams: 
 
   const { rows, total, page, pageSize } = await searchListings(filters);
   const photos = rows.length ? await getPhotosForListings(rows.map((r) => r.listingKey)) : new Map();
+
+  const pins: MapPin[] = rows
+    .filter((r) => r.latitude != null && r.longitude != null)
+    .map((r) => ({
+      listingKey: r.listingKey,
+      lat: r.latitude as number,
+      lng: r.longitude as number,
+      price: r.listPrice,
+      address: r.address,
+      city: r.city,
+      status: listingStatusLabel(r),
+      hidden: r.internetAddressDisplayYN === false,
+    }));
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const pageHref = (p: number) => {
@@ -56,6 +70,8 @@ export default async function HomesSearchPage({ searchParams }: { searchParams: 
         </div>
 
         <SearchFilterPanel filters={filters} advancedOpen={advancedOpen} resultCount={total} />
+
+        {pins.length > 0 ? <SearchMap pins={pins} /> : null}
 
         {rows.length === 0 ? (
           <div className="mt-10 rounded-xl border border-dashed border-line bg-cream/50 px-6 py-16 text-center">

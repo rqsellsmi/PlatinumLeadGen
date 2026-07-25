@@ -9,6 +9,7 @@ import {
   parsePolygon,
   encodePolygon,
   normalizeFilters,
+  coarsenPin,
   DEFAULT_PAGE_SIZE,
   MAX_PAGE_SIZE,
 } from '../lib/listingSearch';
@@ -86,6 +87,15 @@ describe('listingStatusLabel / isUnderContractLike', () => {
     expect(isUnderContractLike('ActiveUnderContract')).toBe(true);
     expect(isUnderContractLike('Pending')).toBe(true);
     expect(isUnderContractLike('Active')).toBe(false);
+  });
+});
+
+describe('coarsenPin (address-hidden compliance)', () => {
+  it('returns exact coords when not hidden', () => {
+    expect(coarsenPin(42.7891, -83.7123, false)).toEqual({ lat: 42.7891, lng: -83.7123 });
+  });
+  it('rounds to ~2 decimals when hidden', () => {
+    expect(coarsenPin(42.7891, -83.7123, true)).toEqual({ lat: 42.79, lng: -83.71 });
   });
 });
 

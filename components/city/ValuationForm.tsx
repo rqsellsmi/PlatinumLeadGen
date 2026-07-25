@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import Script from 'next/script';
+import { loadGoogleMaps } from '@/lib/googleMaps';
 import { Button, Input, Label, Select, Card, CardBody, CardHeader } from '@/components/ui';
 import { formatCurrency } from '@/lib/utils';
 import {
@@ -114,7 +114,17 @@ export default function ValuationForm({ locationSlug, cityName, pageVariant = 's
   }, []);
 
   React.useEffect(() => {
-    if (window.google?.maps?.places) initAutocomplete();
+    let cancelled = false;
+    loadGoogleMaps()
+      .then(() => {
+        if (!cancelled) initAutocomplete();
+      })
+      .catch(() => {
+        /* no maps key / load failure — the plain text input still works */
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [initAutocomplete]);
 
   // Prefill from the exit-intent overlay (Section 22.2 handoff).
@@ -276,21 +286,12 @@ export default function ValuationForm({ locationSlug, cityName, pageVariant = 's
     }
   }
 
-  const mapsKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-
   return (
     <section id="valuation" className="scroll-mt-20 bg-cream">
       <div className="mx-auto max-w-2xl px-4 py-16 sm:py-24">
         <p className="mb-3.5 text-center text-[13px] font-bold uppercase tracking-[0.14em] text-platinum-red">
           Free Home Valuation
         </p>
-        {mapsKey ? (
-          <Script
-            src={`https://maps.googleapis.com/maps/api/js?key=${mapsKey}&libraries=places`}
-            strategy="lazyOnload"
-            onLoad={initAutocomplete}
-          />
-        ) : null}
 
         <Card>
           <CardHeader>

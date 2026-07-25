@@ -140,6 +140,16 @@ export function isUnderContractLike(standardStatus?: string | null): boolean {
   return standardStatus === 'ActiveUnderContract' || standardStatus === 'Pending';
 }
 
+/**
+ * Compliance: a listing whose address is hidden (internetAddressDisplayYN=false)
+ * must not have its exact location revealed. When `hidden`, round the pin to ~2
+ * decimals (≈1 km) so the map shows the general area, not the doorstep.
+ */
+export function coarsenPin(lat: number, lng: number, hidden: boolean): LatLng {
+  if (!hidden) return { lat, lng };
+  return { lat: Math.round(lat * 100) / 100, lng: Math.round(lng * 100) / 100 };
+}
+
 function num(v: unknown): number | undefined {
   if (v == null) return undefined;
   const n = typeof v === 'number' ? v : parseFloat(String(v));

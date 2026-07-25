@@ -2,8 +2,8 @@
 
 import * as React from 'react';
 import { createPortal } from 'react-dom';
-import Script from 'next/script';
 import { Button, Input, Label, Select } from '@/components/ui';
+import { loadGoogleMaps } from '@/lib/googleMaps';
 import { formatCurrency } from '@/lib/utils';
 import { dataLayerPush, LEAD_SUBMITTED_FLAG } from '@/lib/clientAnalytics';
 import {
@@ -111,7 +111,6 @@ export default function HeroValuation({
 
   const heroInputRef = React.useRef<HTMLInputElement>(null);
   const modalInputRef = React.useRef<HTMLInputElement>(null);
-  const mapsKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
 
   const attach = React.useCallback((el: HTMLInputElement | null) => {
     const places = window.google?.maps?.places;
@@ -135,12 +134,21 @@ export default function HeroValuation({
     });
   }, []);
 
-  // Attach autocomplete to the hero box once Maps is ready.
+  // Load Maps (shared single-load) then attach autocomplete to the hero box.
   React.useEffect(() => {
-    if (window.google?.maps?.places) {
-      setMapsReady(true);
-      attach(heroInputRef.current);
-    }
+    let cancelled = false;
+    loadGoogleMaps()
+      .then(() => {
+        if (cancelled) return;
+        setMapsReady(true);
+        attach(heroInputRef.current);
+      })
+      .catch(() => {
+        /* no maps key / load failure — the plain text input still works */
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [attach]);
 
   // Attach autocomplete to the modal's step-1 input when it appears.
@@ -320,17 +328,6 @@ export default function HeroValuation({
 
   return (
     <>
-      {mapsKey ? (
-        <Script
-          src={`https://maps.googleapis.com/maps/api/js?key=${mapsKey}&libraries=places`}
-          strategy="afterInteractive"
-          onLoad={() => {
-            setMapsReady(true);
-            attach(heroInputRef.current);
-          }}
-        />
-      ) : null}
-
       {/* Hero address box. Hidden in modalOnly mode (global header trigger), which
           renders just the modal. Wider on desktop so the full address stays
           visible (the button is wide, so a narrow form clipped long addresses). */}
