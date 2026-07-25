@@ -1,3 +1,58 @@
+# Session Summary — Buyer Side (Home Search + Buyer-Lead Pipeline)
+
+Branch: `feature/buyer-search` (from `refinements-v1`). Migrations added:
+**0031–0034**. Design: `docs/superpowers/specs/2026-07-25-buyer-search-design.md`;
+plan: `docs/superpowers/plans/2026-07-25-buyer-search.md`. Built in 8 phases
+(typecheck + tests green after each); final gate: typecheck clean, build compiles,
+**221 tests across 23 files**.
+
+Turned the seller-only lead platform into a two-sided one: buyers can search homes
+and inquire, routed to agents through the existing pipeline.
+
+## What shipped
+- **Homepage → buyer-first** (`app/page.tsx`): a tabbed search hero (location
+  search default + a "What's my home worth?" tab that launches the unchanged
+  valuation flow), 9 most-recent active listings (service-area), and 12 city tiles
+  (near-an-office ∧ most-active, minus an admin-editable exclusion list). The seller
+  homepage moved **intact** to `/sell/home-value` (`components/home/SellerHomepage.tsx`).
+- **Home search** (`/homes`): `lib/idxSearch.ts searchListings` — compliance-gated
+  (Active + ActiveUnderContract only, `canDisplay`/`notLease`/`gateAddress`), with
+  price/beds/baths/sqft/year/type/lot/garage/HOA/DOM/waterfront/pool/new-construction
+  filters (never the 6 NULL Realcomp columns). `SearchFilterPanel` + an interactive
+  **Google Maps JS + Drawing** map (`SearchMap`): result pins, draw-an-area polygon,
+  use-my-location, city autocomplete; address-hidden pins coarsened. Cards show the
+  **real** status (AUC ≠ "For Sale").
+- **Listing detail polish** (`/listing/[listingKey]`): key-feature icon chips from
+  the listing's own populated data (`buildKeyFeatures`), a photo carousel in the hero
+  slot + click-to-enlarge lightbox, a free-Embed location map below the remarks, and
+  a **sticky "Schedule a showing" / "Contact an agent"** bar.
+- **Buyer lead intake** (`POST /api/buyer/inquiry`, `lib/buyerInquiry.ts`): a buyer
+  becomes a lead (`intent='buyer'`, `leadType='buyer_inquiry'`) carrying the
+  **listing's** coords, deduped by email (one active buyer lead; extra interest
+  attached), routed through the existing `autoOfferLead` (proximity to the listing,
+  out-of-area → admin). Showing requests also write `appointment_requests`.
+- **Buyer-track scoring** (`lib/trackConfig.ts`): one engine, two tunable configs
+  selected by `leads.intent`. `SELLER_TRACK` is the unchanged v4; `BUYER_TRACK`
+  reuses the seller `lead_status` values, **drops `appointment_set`**, has
+  buyer-specific Lost reasons, allows `closed → nurturing` (repeat client), and pays
+  `buyer_*` score reasons (tunable in `SCORE_DELTAS`). `recordStatusUpdate` branches
+  on intent; the agent status form + lead page are intent-aware.
+
+## What still needs to be done (owner)
+- **Apply migrations 0031–0034** on every Neon branch the app + GitHub Actions use.
+- **Enable Maps JavaScript API + Drawing + Geometry** on
+  `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` (billing on) — the `/homes` map is a new
+  per-load cost (~$7/1k). The listing-page location map uses the free Embed API.
+- **Verify with Realcomp** that mapping Active/AUC IDX listings (and the
+  pin-precision rule for address-hidden ones) is permitted before launch.
+- Optional: add `ListingContractDate`/`OnMarketDate` to the sync `$select` to
+  replace the `daysOnMarket ASC` "most-recent" proxy (validate against `$metadata`).
+
+## Lessons
+See `docs/lessons-learned.md` §21.
+
+---
+
 # Session Summary — Agent Scoring v4 (Seller Track)
 
 Branch: `refinements-v1`. Migrations added: **0027–0028**. Design +

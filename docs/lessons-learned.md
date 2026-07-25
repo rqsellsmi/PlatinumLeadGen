@@ -918,3 +918,73 @@ recurring theme: the *guarding* logic is where the value is, not the form.
   city form rather than a fourth surface. A compliance/expectation-setting line
   that's on one of three surfaces still leaves two surfaces making an
   un-disclaimed claim — enumerate the surfaces before deciding you're done.
+
+## 21. Buyer side (home search + buyer-lead pipeline) session
+
+Built the buyer half of the platform in 8 phases on `feature/buyer-search`
+(migrations 0031–0034). The recurring theme: the seller machinery was already
+intent-agnostic, so the win was *activating* it, not rebuilding it.
+
+- **An inert schema field can be the whole hook.** `leads.intent`
+  (seller/buyer/unknown) had existed since migration 0026 as a "label only, no
+  routing impact." Routing, offers, the queue, and `applyScore` never read it.
+  The entire buyer pipeline reduced to: give a buyer lead the *listing's* coords
+  and select a track config by `intent`. Before designing a parallel system,
+  grep whether an existing seam already carries the distinction you need.
+- **Reuse the enum values, don't grow them.** The buyer status flow (per the
+  owner's schema) maps onto the SAME `lead_status` values as the seller flow
+  (it just drops `appointment_set` and re-scopes Lost reasons). So the buyer
+  track needed ZERO new statuses — and therefore none of the hand-maintained
+  `type LeadStatus` unions across the UI broke (contrast §19, where adding 4
+  statuses walked typecheck through a dozen files). Know which "type" columns are
+  enums (need migrations + union edits) vs free varchars: `leads.lost_reason` is a
+  `varchar`, so buyer Lost reasons are just new strings — no migration at all.
+  Only `score_reason` grew (0034), because a legible audit + independent tuning
+  wanted dedicated `buyer_*` reasons.
+- **"One engine, two configs" beats forking the engine.** Buyer scoring is a
+  *tunable duplicate*, not a second code path. Extracting `TrackConfig`
+  (`SELLER_TRACK`/`BUYER_TRACK`, `trackConfig(intent)`) and having
+  `recordStatusUpdate` read the config for transitions/Lost/milestones/points kept
+  the proven seller path byte-for-byte identical (its 9 lifecycle tests never
+  changed) while making the buyer point table a data edit. `applyScore` already
+  accepted an explicit `delta` over the `SCORE_DELTAS` lookup, so buyer point
+  values are tunable without touching the write path — the extension point was
+  already there.
+- **The Maps JS API loads ONCE per page — centralize it.** `HeroValuation`
+  (mounted in the header on every page) loaded the API with `libraries=places`;
+  the buyer search map needs `places,drawing,geometry`. Loading the script twice
+  with different libraries is flaky (the second load no-ops and its extra
+  libraries may be missing, and load order is nondeterministic). A single
+  `lib/googleMaps.ts loadGoogleMaps()` singleton that loads the superset once, with
+  every consumer (`HeroValuation`, `ValuationForm`, `SearchMap`) awaiting the same
+  promise, fixed it. When two components both bootstrap a global singleton library
+  with different options, route them through one loader instead of each injecting
+  its own tag.
+- **Client-safe pure modules keep server code out of the bundle.** The search
+  helpers (`pointInPolygon`, `normalizeFilters`, `listingStatusLabel`,
+  `coarsenPin`, `rankBuyerCityTiles`) live in `lib/listingSearch.ts` with NO `db`
+  import, so the map/card/filter client components and the vitest specs import them
+  directly; the server query (`lib/idxSearch.ts`) imports from it and adds the
+  Drizzle layer. A pure helper colocated with a `db` import would drag the DB
+  client into the client bundle. Split the pure part out the moment a client
+  component needs it. (`lib/trackConfig.ts` is client-safe the same way — it uses
+  only `import type` from `scoring.ts`, so the intent-aware status form can import
+  it without pulling in the scoring DB code.)
+- **IDX compliance extends to the map, not just the card.** A results map must
+  still gate: only displayable statuses, `gateAddress` before any popover, and —
+  the map-specific rule — an address-hidden listing (`internetAddressDisplayYN=
+  false`) must not be pinned at its exact coordinates (`coarsenPin` rounds it to
+  ~1 km). And the status badge must be honest: an Active-Under-Contract listing
+  reads its real `mlsStatus` ("Accepting Backup Offers"), never a generic "For
+  Sale" — a card that mislabels AUC as available is a compliance/UX defect, not
+  cosmetics. Whether mapping IDX listings at all is permitted stays a
+  verify-with-Realcomp item (same caution the comps-map discussion carried).
+- **Phase the relocation so `/` never breaks.** Moving the seller homepage to
+  `/sell/home-value` first extracted it into a shared `SellerHomepage` component
+  rendered at BOTH routes, so `/` kept working through phases 1–3; only phase 4
+  swapped `/`'s body to the buyer home. A route move that leaves the old URL
+  functional every commit is safer than a big-bang swap.
+- **Same code-only-session boundary as every prior integration (§12/§14/§17).**
+  Live Maps billing, the Realcomp mapping-compliance confirm, and applying the four
+  migrations are the owner's first-connection steps; everything verifiable without
+  them (the pure filter/geo/track logic, 55+ new unit tests, typecheck, build) is.
