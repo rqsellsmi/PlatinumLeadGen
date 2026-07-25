@@ -16,7 +16,7 @@
  *
  * Admin-internal only; nothing here is consumer/seller-facing (spec §19).
  */
-import { and, desc, eq, gte, isNotNull, isNull, lt, ne, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNotNull, isNull, lt, ne, or, sql } from 'drizzle-orm';
 import { db } from '../db';
 import { avmBacktests, idxListings, type AvmBacktestRow, type IdxListing } from '../../drizzle/schema';
 import { normalizeAddress } from '../addressNormalization';
@@ -205,7 +205,14 @@ export async function runBacktest(inputAddress: string): Promise<BacktestOutcome
     }
   }
 
-  // --- Comp pool: closed sales BEFORE the held-out sale, near the subject ------
+  // --- Comp pool: nearby comps of ALL statuses --------------------------------
+  // Closed sales are ground truth (gated BEFORE the held-out sale — no look-ahead),
+  // and Active / Under-Contract / Pending homes are included too: a nearby home
+  // that went pending fast is strong evidence of what buyers will pay (owner
+  // direction). Non-closed comps carry no closeDate, so they're taken by list
+  // price; they reflect the CURRENT market (a caveat when grading a past sale —
+  // surfaced in the notes). Ordered nearest-first; the ring expansion in
+  // valuateFromComps then keeps only the closest.
   const windowStart = new Date(saleDate.getTime() - 365 * 86_400_000);
   const hasCoords = subject.latitude != null && subject.longitude != null;
   const pool = await db
@@ -213,14 +220,22 @@ export async function runBacktest(inputAddress: string): Promise<BacktestOutcome
     .from(idxListings)
     .where(
       and(
-        eq(idxListings.standardStatus, 'Closed'),
-        isNotNull(idxListings.closeDate),
-        lt(idxListings.closeDate, saleDate),
-        gte(idxListings.closeDate, windowStart),
-        isNotNull(idxListings.closePrice),
         ne(idxListings.listingKey, heldOut.listingKey),
         notLease,
         canDisplay,
+        or(
+          and(
+            eq(idxListings.standardStatus, 'Closed'),
+            isNotNull(idxListings.closeDate),
+            lt(idxListings.closeDate, saleDate),
+            gte(idxListings.closeDate, windowStart),
+            isNotNull(idxListings.closePrice),
+          ),
+          and(
+            inArray(idxListings.standardStatus, ['Pending', 'ActiveUnderContract', 'Active']),
+            isNotNull(idxListings.listPrice),
+          ),
+        ),
       ),
     )
     .orderBy(
@@ -228,12 +243,19 @@ export async function runBacktest(inputAddress: string): Promise<BacktestOutcome
         ? sql`ABS(COALESCE(${idxListings.latitude}, 0) - ${subject.latitude}) + ABS(COALESCE(${idxListings.longitude}, 0) - ${subject.longitude}) ASC`
         : desc(idxListings.closeDate),
     )
-    .limit(250);
+    .limit(400);
 
   // Drop the home's own other sales/relistings (normalized-address match).
   const compPool = pool.filter((r) => !sameProperty(r.address, raw));
 
   const result = valuateFromComps(subject, compPool, { now: saleDate });
+
+  const nonClosedUsed = result.compsUsed.filter((c) => c.status !== 'Closed').length;
+  if (nonClosedUsed > 0) {
+    notes.push(
+      `${nonClosedUsed} of ${result.compsUsed.length} comps are active/under-contract (current-market signal, weighted below closed sales; they reflect today's market, not the sale date).`,
+    );
+  }
 
   // --- Provider AVM for comparison (best-effort; no creds → null) --------------
   let provider: BacktestRun['provider'] = null;

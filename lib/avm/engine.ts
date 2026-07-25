@@ -232,6 +232,28 @@ export interface ReconInput {
   similarity: number; // lower = more similar (from similarityScore)
   totalAdjustment: number;
   withinRadius: boolean;
+  /**
+   * How much to trust this comp's price by listing status: a Closed sale is
+   * ground truth (1.0); a Pending / under-contract home cleared the market at ~its
+   * list price (strong, ~0.85); an Active home is only an asking price (weaker,
+   * ~0.6). Defaults to 1 so older callers/tests are unaffected.
+   */
+  statusWeight?: number;
+}
+
+/** Price-reliability weight for a listing status (Closed = ground truth). */
+export function statusReliability(standardStatus: string | null | undefined): number {
+  switch ((standardStatus ?? '').trim()) {
+    case 'Closed':
+      return 1;
+    case 'Pending':
+    case 'ActiveUnderContract':
+      return 0.85;
+    case 'Active':
+      return 0.6;
+    default:
+      return 0.5;
+  }
 }
 
 export interface Reconciliation {
@@ -258,7 +280,8 @@ export function reconcile(comps: ReconInput[]): Reconciliation {
     const simW = 1 / (1 + Math.max(0, c.similarity));
     const adjPct = c.totalAdjustment / c.rawPrice;
     const adjW = 1 / (1 + adjPct * 2); // heavy adjustments discounted
-    return simW * adjW;
+    const statusW = c.statusWeight ?? 1; // Closed > Pending/UC > Active
+    return simW * adjW * statusW;
   };
 
   const weights = usable.map(weightOf);

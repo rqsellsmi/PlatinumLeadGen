@@ -32,6 +32,20 @@ function errTone(err: number | null | undefined): PillTone {
 
 const confTone: Record<string, PillTone> = { high: 'success', medium: 'info', low: 'warning' };
 
+function compStatusLabel(status: string): string {
+  if (status === 'Closed') return 'Sold';
+  if (status === 'ActiveUnderContract') return 'Under contract';
+  if (status === 'Pending') return 'Pending';
+  if (status === 'Active') return 'Active';
+  return status || 'Listed';
+}
+function compStatusTone(status: string): PillTone {
+  if (status === 'Closed') return 'success';
+  if (status === 'Pending' || status === 'ActiveUnderContract') return 'info';
+  if (status === 'Active') return 'warning';
+  return 'neutral';
+}
+
 /**
  * Admin glass-box AVM backtest (spec §18). Enter a sold address → we hold out its
  * most-recent sale entirely, value it from the other comps, and show our estimate
@@ -220,7 +234,7 @@ function RunView({ run }: { run: BacktestRun }) {
       {/* Comps used, with reasons + adjustment grid */}
       <Card>
         <CardHeader>
-          <h2 className="font-bold text-charcoal">Comparable sales used ({result.compsUsed.length})</h2>
+          <h2 className="font-bold text-charcoal">Comparables used ({result.compsUsed.length})</h2>
         </CardHeader>
         <CardBody className="space-y-3">
           {result.compsUsed.length === 0 ? (
@@ -229,9 +243,13 @@ function RunView({ run }: { run: BacktestRun }) {
             result.compsUsed.map((c) => (
               <div key={c.listingKey} className="rounded-lg border border-line p-3">
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <div className="font-medium text-charcoal">{c.address ?? '(address hidden)'}{c.city ? `, ${c.city}` : ''}</div>
+                  <div className="flex items-center gap-2 font-medium text-charcoal">
+                    <Badge tone={compStatusTone(c.status)}>{compStatusLabel(c.status)}</Badge>
+                    <span>{c.address ?? '(address hidden)'}{c.city ? `, ${c.city}` : ''}</span>
+                  </div>
                   <div className="text-sm text-mute">
-                    sold {usd(c.rawPrice)} → adjusted <span className="font-semibold text-charcoal">{usd(c.adjustedPrice)}</span>
+                    {c.status === 'Closed' ? 'sold' : 'listed'} {usd(c.rawPrice)} → adjusted{' '}
+                    <span className="font-semibold text-charcoal">{usd(c.adjustedPrice)}</span>
                   </div>
                 </div>
                 <div className="mt-0.5 text-xs text-mute-lighter">{c.reason}</div>

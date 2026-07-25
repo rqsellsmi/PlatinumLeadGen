@@ -1,13 +1,20 @@
 /**
  * Comp-based valuation over a candidate pool — the glass-box "value + show the
- * work" step. Pure w.r.t. the DB: it takes the subject and a pool of closed
- * comps (IdxListing rows) and returns the indicated value, range, confidence, the
- * comps it USED (each with a plain-English reason + the adjustment line items),
- * and the comps it REJECTED (each with why). Comp selection reuses the shared
- * `rankSoldComps`/`similarityScore` engine (lib/idx) so this list ranks the same
- * way the consumer sold-comps list does. Spec §18.4/§18.5.
+ * work" step. Pure w.r.t. the DB: it takes the subject and a pool of comps
+ * (IdxListing rows — Closed, Pending, Under-Contract, and Active) and returns the
+ * indicated value, range, confidence, the comps it USED (each with a reason + the
+ * adjustment line items), and the comps it REJECTED (each with why).
+ *
+ * Selection is CLOSEST-FIRST ring expansion (spec §18.4, owner direction): use the
+ * tightest radius that yields enough comps, widening only when a tight ring is too
+ * thin — so a far comp is never chosen when nearer ones exist. All listing statuses
+ * are considered, not just Closed: a nearby home that went Pending in a few days
+ * is strong evidence of what buyers will pay. Price uses `closePrice ?? listPrice`
+ * and each comp is weighted in reconciliation by its status reliability
+ * (Closed > Pending/UC > Active). Attribute similarity uses the shared
+ * `similarityScore` (lib/idx) so it stays consistent with the consumer lists.
  */
-import { rankSoldComps, similarityScore, type ComparableSubject } from '../idx';
+import { similarityScore, type ComparableSubject } from '../idx';
 import type { IdxListing } from '../../drizzle/schema';
 import {
   DEFAULT_COEFFICIENTS,
@@ -17,11 +24,31 @@ import {
   makeDriverSet,
   propertyFamily,
   reconcile,
+  statusReliability,
   type AvmCoefficients,
   type Confidence,
   type LineItem,
   type ReconInput,
 } from './engine';
+
+/** Radius rings (miles) tried in order — the tightest with enough comps wins. */
+const RING_MILES = [0.75, 1.5, 3, 5, 8, 12];
+
+/** Human label for a non-closed status shown in a comp's reason line. */
+function statusLabel(status: string | null | undefined): string {
+  switch ((status ?? '').trim()) {
+    case 'Pending':
+      return 'pending';
+    case 'ActiveUnderContract':
+      return 'under contract';
+    case 'Active':
+      return 'active';
+    case 'Closed':
+      return 'sold';
+    default:
+      return (status ?? '').toLowerCase() || 'listed';
+  }
+}
 
 /** The subject property, characterized from its own MLS history (or a provider). */
 export interface AvmSubject {
@@ -48,12 +75,15 @@ export interface AvmCompDetail {
   listingKey: string;
   address: string | null;
   city: string | null;
+  status: string; // Closed | Pending | ActiveUnderContract | Active
+  daysOnMarket: number | null;
   closeDate: Date | null;
   distanceMiles: number | null;
-  rawPrice: number;
+  rawPrice: number; // closePrice for sold, else listPrice
   adjustedPrice: number;
   similarity: number;
   totalAdjustment: number;
+  reliability: number; // status weight used in reconciliation
   lineItems: LineItem[];
   reason: string;
 }
@@ -76,7 +106,8 @@ export interface AvmResult {
 
 export interface ValuateOptions {
   limit?: number;
-  maxRadiusMiles?: number;
+  minComps?: number; // ring expansion widens until at least this many comps
+  maxRadiusMiles?: number; // hard cap — never reach past this for a comp
   withinDays?: number;
   now?: Date;
   coeffs?: AvmCoefficients;
@@ -135,7 +166,7 @@ export function valuateFromComps(
   pool: IdxListing[],
   options: ValuateOptions = {},
 ): AvmResult {
-  const { limit = 6, maxRadiusMiles = 15, withinDays = 365, now = new Date(), coeffs = DEFAULT_COEFFICIENTS } = options;
+  const { limit = 8, minComps = 5, maxRadiusMiles = 12, now = new Date(), coeffs = DEFAULT_COEFFICIENTS } = options;
 
   const subjFamily = propertyFamily(subject.propertyType);
   const subjComparable: ComparableSubject = {
@@ -168,40 +199,73 @@ export function valuateFromComps(
     passing.push(comp);
   }
 
-  const ranked = rankSoldComps(subjComparable, passing, { limit, maxRadiusMiles, withinDays, now });
-
-  const compsUsed: AvmCompDetail[] = [];
-  const reconInputs: ReconInput[] = [];
-  for (const comp of ranked) {
-    const rawPrice = (comp.closePrice ?? comp.listPrice)!;
-    const adj = adjustComp(subjDrivers, compDrivers(comp), rawPrice, coeffs);
-    const similarity = similarityScore(subjComparable, comp);
+  // Score every passing comp on distance + attribute similarity.
+  const scored = passing.map((comp) => {
     const dist =
       subject.latitude != null && subject.longitude != null && comp.latitude != null && comp.longitude != null
         ? approxMiles(subject.latitude, subject.longitude, comp.latitude, comp.longitude)
         : null;
+    return { comp, dist, similarity: similarityScore(subjComparable, comp) };
+  });
+
+  // CLOSEST-FIRST ring expansion: use the tightest radius that yields at least
+  // `minComps`, widening only up to the hard cap — so a far comp is never chosen
+  // while nearer ones exist. With no subject coordinates, proximity is
+  // unevaluable, so fall back to attribute similarity across the whole pool.
+  const hasCoords = subject.latitude != null && subject.longitude != null;
+  let selected: typeof scored;
+  if (hasCoords) {
+    const withCoords = scored.filter((s) => s.dist != null);
+    let ring: typeof scored = [];
+    for (const r of RING_MILES) {
+      if (r > maxRadiusMiles) break;
+      ring = withCoords.filter((s) => s.dist! <= r);
+      if (ring.length >= minComps) break;
+    }
+    if (ring.length === 0) ring = withCoords.filter((s) => s.dist! <= maxRadiusMiles);
+    selected = ring;
+  } else {
+    selected = scored;
+  }
+  const chosen = [...selected].sort((a, b) => a.similarity - b.similarity).slice(0, limit);
+
+  const compsUsed: AvmCompDetail[] = [];
+  const reconInputs: ReconInput[] = [];
+  for (const { comp, dist, similarity } of chosen) {
+    const rawPrice = (comp.closePrice ?? comp.listPrice)!;
+    const adj = adjustComp(subjDrivers, compDrivers(comp), rawPrice, coeffs);
     const withinRadius = dist != null && dist <= maxRadiusMiles;
+    const reliability = statusReliability(comp.standardStatus);
+    const isClosed = comp.standardStatus === 'Closed';
     const sameCity =
       !!subject.city && !!comp.city && subject.city.trim().toLowerCase() === comp.city.trim().toLowerCase();
-    const m = monthsAgo(comp.closeDate, now);
 
     const reasonBits: string[] = [];
-    if (sameCity) reasonBits.push('same city');
-    else if (dist != null) reasonBits.push(`${dist.toFixed(1)} mi away`);
+    if (dist != null) reasonBits.push(`${dist.toFixed(1)} mi`);
+    else if (sameCity) reasonBits.push('same city');
     if (comp.bedsTotal != null || comp.bathsTotal != null) reasonBits.push(`${comp.bedsTotal ?? '?'}bd/${comp.bathsTotal ?? '?'}ba`);
     if (comp.livingArea != null) reasonBits.push(`${comp.livingArea.toLocaleString('en-US')} sqft`);
-    if (m != null) reasonBits.push(`sold ${m} mo before`);
+    if (isClosed) {
+      const m = monthsAgo(comp.closeDate, now);
+      reasonBits.push(m != null ? `sold ${m} mo before` : 'sold');
+    } else {
+      reasonBits.push(statusLabel(comp.standardStatus));
+    }
+    if (comp.daysOnMarket != null) reasonBits.push(`${comp.daysOnMarket} DOM`);
 
     compsUsed.push({
       listingKey: comp.listingKey,
       address: comp.internetAddressDisplayYN === false ? null : comp.address,
       city: comp.city,
+      status: comp.standardStatus,
+      daysOnMarket: comp.daysOnMarket,
       closeDate: comp.closeDate,
       distanceMiles: dist,
       rawPrice,
       adjustedPrice: adj.adjustedPrice,
       similarity,
       totalAdjustment: adj.totalAdjustment,
+      reliability,
       lineItems: adj.lineItems,
       reason: reasonBits.join(' · '),
     });
@@ -211,6 +275,7 @@ export function valuateFromComps(
       similarity,
       totalAdjustment: adj.totalAdjustment,
       withinRadius,
+      statusWeight: reliability,
     });
   }
 

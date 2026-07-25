@@ -6,6 +6,7 @@ import {
   reconcile,
   hardFilterReason,
   propertyFamily,
+  statusReliability,
   DEFAULT_COEFFICIENTS,
   type DriverInput,
   type DriverSet,
@@ -110,6 +111,22 @@ describe('reconcile', () => {
   it('gives low confidence for few, widely-dispersed comps', () => {
     const wide = [reconcileInput(400_000), reconcileInput(700_000)];
     expect(reconcile(wide).confidence).toBe('low');
+  });
+
+  it('weights a closed comp above an active one at the same distance/similarity', () => {
+    const closed: ReconInput = { adjustedPrice: 500_000, rawPrice: 500_000, similarity: 1, totalAdjustment: 0, withinRadius: true, statusWeight: 1 };
+    const active: ReconInput = { adjustedPrice: 600_000, rawPrice: 600_000, similarity: 1, totalAdjustment: 0, withinRadius: true, statusWeight: 0.6 };
+    // The closed comp (1.0) outweighs the active (0.6), so the value sits below the
+    // 550k midpoint (pulled toward the closed 500k).
+    expect(reconcile([closed, active]).value!).toBeLessThan(550_000);
+  });
+});
+
+describe('statusReliability', () => {
+  it('ranks Closed > Pending/UC > Active', () => {
+    expect(statusReliability('Closed')).toBeGreaterThan(statusReliability('Pending'));
+    expect(statusReliability('Pending')).toBe(statusReliability('ActiveUnderContract'));
+    expect(statusReliability('ActiveUnderContract')).toBeGreaterThan(statusReliability('Active'));
   });
 });
 
