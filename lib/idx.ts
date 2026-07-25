@@ -20,7 +20,7 @@ import { DISPLAYABLE_STANDARD_STATUSES, showsFullGallery } from './idxSync';
 export type IdxCard = IdxListing;
 
 /** WHERE fragment: listing may be shown at all (entire-listing display gate). */
-const canDisplay = or(
+export const canDisplay = or(
   eq(idxListings.internetEntireListingDisplayYN, true),
   isNull(idxListings.internetEntireListingDisplayYN),
 );
@@ -31,7 +31,7 @@ const canDisplay = or(
  * occasionally PropertySubType; exclude anything mentioning lease/rental in
  * either. Null types are kept (assumed sale) so we don't drop real comps.
  */
-const notLease = and(
+export const notLease = and(
   or(
     isNull(idxListings.propertyType),
     and(
@@ -49,7 +49,7 @@ const notLease = and(
 );
 
 /** Null the address when the listing agent hid it (§18.2.3 / spec §2.2). */
-function gateAddress<T extends IdxListing>(row: T): T {
+export function gateAddress<T extends IdxListing>(row: T): T {
   if (row.internetAddressDisplayYN === false) return { ...row, address: null };
   return row;
 }
@@ -102,7 +102,7 @@ export interface SimilarHomesParams extends ComparableSubject {
 }
 
 /** Rough miles between two lat/lng points (equirectangular approximation). */
-function approxMiles(aLat: number, aLng: number, bLat: number, bLng: number): number {
+export function approxMiles(aLat: number, aLng: number, bLat: number, bLng: number): number {
   const dLat = (bLat - aLat) * 69; // ~69 miles per degree latitude
   const dLng = (bLng - aLng) * 69 * Math.cos((aLat * Math.PI) / 180);
   return Math.sqrt(dLat * dLat + dLng * dLng);

@@ -981,6 +981,13 @@ export const idxListings = pgTable(
     modIdx: index('idx_listings_mod_idx').on(t.modificationTimestamp),
     priceIdx: index('idx_listings_price_idx').on(t.listPrice),
     closeDateIdx: index('idx_listings_close_date_idx').on(t.closeDate),
+    // Buyer-search filter/map indexes (migration 0031).
+    latLngIdx: index('idx_listings_lat_lng_idx').on(t.latitude, t.longitude),
+    bedsIdx: index('idx_listings_beds_idx').on(t.bedsTotal),
+    bathsIdx: index('idx_listings_baths_idx').on(t.bathsTotal),
+    livingAreaIdx: index('idx_listings_living_area_idx').on(t.livingArea),
+    yearBuiltIdx: index('idx_listings_year_built_idx').on(t.yearBuilt),
+    domIdx: index('idx_listings_dom_idx').on(t.daysOnMarket),
   }),
 );
 
