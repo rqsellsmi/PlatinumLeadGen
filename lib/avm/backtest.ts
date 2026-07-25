@@ -22,6 +22,7 @@ import { avmBacktests, idxListings, type IdxListing } from '../../drizzle/schema
 import { normalizeAddress } from '../addressNormalization';
 import { valuateFromComps, type AvmResult, type AvmSubject } from './valuate';
 import { fetchAddressHistoryFromMls } from './addressHistory';
+import { sameProperty } from './addressMatch';
 
 export interface BacktestRun {
   id: number | null;
@@ -107,7 +108,7 @@ export async function runBacktest(inputAddress: string): Promise<BacktestOutcome
       .where(sql`${idxListings.address} ILIKE ${`${streetNum} %`}`)
       .limit(500);
     return candidates
-      .filter((r) => r.address && normalizeAddress(r.address).full === key)
+      .filter((r) => sameProperty(r.address, raw))
       .filter((r) => r.standardStatus === 'Closed' && r.closeDate != null && r.closePrice != null)
       .sort((a, b) => new Date(b.closeDate!).getTime() - new Date(a.closeDate!).getTime());
   };
@@ -118,18 +119,28 @@ export async function runBacktest(inputAddress: string): Promise<BacktestOutcome
   // the subject). If our data doesn't hold both, pull this address's history from
   // the MLS feed on demand (spec §18.2 step 2), then re-read — this also
   // opportunistically deepens our store. No-ops safely without Realcomp creds.
+  let pullSummary = '';
   if (closedSales.length < 2) {
     const pull = await fetchAddressHistoryFromMls(raw);
-    if (pull.ok && pull.upserted > 0) {
-      notes.push(`Pulled ${pull.upserted} listing(s) for this address from the MLS feed.`);
-      closedSales = await findClosedSales();
-    } else if (!pull.ok && pull.reason && pull.reason !== 'Realcomp not configured') {
-      notes.push(`MLS address lookup unavailable: ${pull.reason}`);
+    if (pull.ok) {
+      pullSummary = `MLS pull: fetched ${pull.fetched}, upserted ${pull.upserted}`;
+      if (pull.upserted > 0) {
+        notes.push(`Pulled ${pull.upserted} listing(s) for this address from the MLS feed.`);
+        closedSales = await findClosedSales();
+      }
+    } else {
+      pullSummary = `MLS pull: ${pull.reason ?? 'unavailable'}`;
+      if (pull.reason && pull.reason !== 'Realcomp not configured') {
+        notes.push(`MLS address lookup unavailable: ${pull.reason}`);
+      }
     }
   }
 
   if (closedSales.length === 0) {
-    return { ok: false, error: `No closed sale on record for "${raw}" (checked our data and the MLS feed).` };
+    return {
+      ok: false,
+      error: `No closed sale on record for "${raw}" in our data${pullSummary ? ` (${pullSummary})` : ''}.`,
+    };
   }
 
   const heldOut = closedSales[0]; // most-recent sale — the graded answer, held out entirely
@@ -220,7 +231,7 @@ export async function runBacktest(inputAddress: string): Promise<BacktestOutcome
     .limit(250);
 
   // Drop the home's own other sales/relistings (normalized-address match).
-  const compPool = pool.filter((r) => !(r.address && normalizeAddress(r.address).full === key));
+  const compPool = pool.filter((r) => !sameProperty(r.address, raw));
 
   const result = valuateFromComps(subject, compPool, { now: saleDate });
 

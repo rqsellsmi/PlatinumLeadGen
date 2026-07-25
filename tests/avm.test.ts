@@ -11,6 +11,7 @@ import {
   type DriverSet,
   type ReconInput,
 } from '../lib/avm/engine';
+import { sameProperty } from '../lib/avm/addressMatch';
 
 const baseInput: DriverInput = {
   sqft: null,
@@ -135,5 +136,32 @@ describe('propertyFamily', () => {
   it('buckets single-family and condo', () => {
     expect(propertyFamily('Single Family Residence')).toBe('single');
     expect(propertyFamily('Condominium')).toBe('condo');
+  });
+});
+
+describe('sameProperty (address matching)', () => {
+  it('matches the same home when the city name differs (Google vs MLS)', () => {
+    // The exact case that broke the backtest: autocomplete city vs MLS city.
+    expect(
+      sameProperty(
+        '5915 Chickadee Ln, Village of Clarkston, MI 48346, USA',
+        '5915 Chickadee Ln, Clarkston, MI 48346',
+      ),
+    ).toBe(true);
+  });
+  it('matches across a missing/extra street suffix at the same number+zip', () => {
+    expect(sameProperty('5915 Chickadee Ln, Clarkston, MI 48346', '5915 Chickadee, Clarkston, MI 48346')).toBe(true);
+  });
+  it('rejects a different house number', () => {
+    expect(sameProperty('5917 Chickadee Ln, Clarkston, MI 48346', '5915 Chickadee Ln, Clarkston, MI 48346')).toBe(false);
+  });
+  it('rejects the same street text in a different ZIP', () => {
+    expect(sameProperty('100 Main St, Brighton, MI 48116', '100 Main St, Fenton, MI 48430')).toBe(false);
+  });
+  it('rejects a different street at the same number+zip', () => {
+    expect(sameProperty('100 Oak St, Clarkston, MI 48346', '100 Elm St, Clarkston, MI 48346')).toBe(false);
+  });
+  it('is false for empty input', () => {
+    expect(sameProperty(null, '5915 Chickadee Ln, Clarkston, MI 48346')).toBe(false);
   });
 });
