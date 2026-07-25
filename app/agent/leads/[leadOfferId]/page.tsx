@@ -139,7 +139,26 @@ export default async function AgentLeadDetailPage({
             provider={propertyRecord?.provider}
           />
 
-          {/* Activity timeline */}
+        </div>
+
+        {/* Right column: the update form with the activity timeline directly
+            under it, so an agent sees the history right where they log to it. */}
+        <div className="space-y-6 lg:self-start">
+          {/* Update status */}
+          <div className="rounded-card border border-line bg-white">
+            <div className="border-b border-line px-5 py-4">
+              <h2 className="font-bold text-charcoal">Log activity</h2>
+            </div>
+            <div className="px-5 py-5">
+              <StatusUpdateForm
+                leadOfferId={offer.id}
+                currentStatus={lead.status}
+                lostReasons={lostReasons}
+              />
+            </div>
+          </div>
+
+          {/* Activity timeline — under the update so it's easy to see. */}
           <div className="rounded-card border border-line bg-white">
             <div className="border-b border-line px-5 py-4">
               <h2 className="font-bold text-charcoal">Activity</h2>
@@ -169,20 +188,6 @@ export default async function AgentLeadDetailPage({
                 </ul>
               )}
             </div>
-          </div>
-        </div>
-
-        {/* Update status */}
-        <div className="rounded-card border border-line bg-white lg:self-start">
-          <div className="border-b border-line px-5 py-4">
-            <h2 className="font-bold text-charcoal">Log activity</h2>
-          </div>
-          <div className="px-5 py-5">
-            <StatusUpdateForm
-              leadOfferId={offer.id}
-              currentStatus={lead.status}
-              lostReasons={lostReasons}
-            />
           </div>
         </div>
       </div>

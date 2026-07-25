@@ -226,21 +226,46 @@ export default async function LeadDetailPage({ params }: { params: { id: string 
         </Card>
       </div>
 
+      {/* Offer history + activity, combined and placed above the home details. */}
+      <Card>
+        <CardHeader>
+          <h2 className="font-bold text-charcoal">Offer history &amp; activity</h2>
+        </CardHeader>
+        <CardBody className="space-y-6">
+          <OfferHistory leadId={lead.id} offers={offers} agents={agentOptions} />
+
+          <div className="border-t border-line pt-5">
+            <h3 className="mb-3 text-xs font-bold uppercase tracking-wide text-mute-light">
+              Activity timeline
+            </h3>
+            {eventRows.length === 0 ? (
+              <p className="text-sm text-mute">No activity recorded yet.</p>
+            ) : (
+              <ul className="space-y-3">
+                {eventRows.map((e) => (
+                  <li key={e.id} className="flex items-start gap-3 text-sm">
+                    <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-platinum-blue" />
+                    <div>
+                      <p className="font-semibold text-charcoal">{formatEventType(e.eventType)}</p>
+                      {e.note ? <p className="text-mute">{e.note}</p> : null}
+                      <p className="text-xs text-mute-light">
+                        <LocalTime value={e.createdAt} fallback="" />
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </CardBody>
+      </Card>
+
       {/* Full property record from the AVM provider (owner is public record). */}
       <PropertyDetails
         record={propertyRecord?.record ?? null}
         fetchedAt={propertyRecord?.fetchedAt}
         provider={propertyRecord?.provider}
       />
-
-      <Card>
-        <CardHeader>
-          <h2 className="font-bold text-charcoal">Offer history</h2>
-        </CardHeader>
-        <CardBody>
-          <OfferHistory leadId={lead.id} offers={offers} agents={agentOptions} />
-        </CardBody>
-      </Card>
 
       <Card>
         <CardHeader>
@@ -263,32 +288,6 @@ export default async function LeadDetailPage({ params }: { params: { id: string 
             </dl>
           ) : (
             <p className="text-sm text-mute">No attribution captured for this lead.</p>
-          )}
-        </CardBody>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <h2 className="font-bold text-charcoal">Activity timeline</h2>
-        </CardHeader>
-        <CardBody>
-          {eventRows.length === 0 ? (
-            <p className="text-sm text-mute">No activity recorded yet.</p>
-          ) : (
-            <ul className="space-y-3">
-              {eventRows.map((e) => (
-                <li key={e.id} className="flex items-start gap-3 text-sm">
-                  <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-platinum-blue" />
-                  <div>
-                    <p className="font-semibold text-charcoal">{formatEventType(e.eventType)}</p>
-                    {e.note ? <p className="text-mute">{e.note}</p> : null}
-                    <p className="text-xs text-mute-light">
-                      <LocalTime value={e.createdAt} fallback="" />
-                    </p>
-                  </div>
-                </li>
-              ))}
-            </ul>
           )}
         </CardBody>
       </Card>
