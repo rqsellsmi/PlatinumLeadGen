@@ -21,6 +21,7 @@ import { db } from '../db';
 import { avmBacktests, idxListings, type IdxListing } from '../../drizzle/schema';
 import { normalizeAddress } from '../addressNormalization';
 import { valuateFromComps, type AvmResult, type AvmSubject } from './valuate';
+import { fetchAddressHistoryFromMls } from './addressHistory';
 
 export interface BacktestRun {
   id: number | null;
@@ -97,22 +98,38 @@ export async function runBacktest(inputAddress: string): Promise<BacktestOutcome
 
   const notes: string[] = [];
 
-  // --- Find this home's listings in our data, matched by normalized address ---
-  const candidates = await db
-    .select()
-    .from(idxListings)
-    .where(sql`${idxListings.address} ILIKE ${`${streetNum} %`}`)
-    .limit(500);
-  const mine = candidates.filter((r) => r.address && normalizeAddress(r.address).full === key);
-  if (mine.length === 0) {
-    return { ok: false, error: `No listing history for "${raw}" in our IDX data.` };
+  // Find this home's CLOSED sales in our data, newest first (matched by
+  // normalized address, since idx_listings has no normalized column).
+  const findClosedSales = async (): Promise<IdxListing[]> => {
+    const candidates = await db
+      .select()
+      .from(idxListings)
+      .where(sql`${idxListings.address} ILIKE ${`${streetNum} %`}`)
+      .limit(500);
+    return candidates
+      .filter((r) => r.address && normalizeAddress(r.address).full === key)
+      .filter((r) => r.standardStatus === 'Closed' && r.closeDate != null && r.closePrice != null)
+      .sort((a, b) => new Date(b.closeDate!).getTime() - new Date(a.closeDate!).getTime());
+  };
+
+  let closedSales = await findClosedSales();
+
+  // We need the most-recent sale (the answer) AND a prior sale (to characterize
+  // the subject). If our data doesn't hold both, pull this address's history from
+  // the MLS feed on demand (spec §18.2 step 2), then re-read — this also
+  // opportunistically deepens our store. No-ops safely without Realcomp creds.
+  if (closedSales.length < 2) {
+    const pull = await fetchAddressHistoryFromMls(raw);
+    if (pull.ok && pull.upserted > 0) {
+      notes.push(`Pulled ${pull.upserted} listing(s) for this address from the MLS feed.`);
+      closedSales = await findClosedSales();
+    } else if (!pull.ok && pull.reason && pull.reason !== 'Realcomp not configured') {
+      notes.push(`MLS address lookup unavailable: ${pull.reason}`);
+    }
   }
 
-  const closedSales = mine
-    .filter((r) => r.standardStatus === 'Closed' && r.closeDate != null && r.closePrice != null)
-    .sort((a, b) => new Date(b.closeDate!).getTime() - new Date(a.closeDate!).getTime());
   if (closedSales.length === 0) {
-    return { ok: false, error: `No closed sale on record for "${raw}" to grade against.` };
+    return { ok: false, error: `No closed sale on record for "${raw}" (checked our data and the MLS feed).` };
   }
 
   const heldOut = closedSales[0]; // most-recent sale — the graded answer, held out entirely

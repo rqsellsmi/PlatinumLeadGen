@@ -533,6 +533,13 @@ TBD in the build plan; not built yet.
   AND facts), subject from the 2nd-most-recent sale → provider record → insufficient;
   no-look-ahead comp pool (closed before the sale, near, excludes the home's own
   listings); best-effort provider AVM comparison; persists to the scoreboard.
+- `lib/avm/addressHistory.ts` — **on-demand MLS pull** (§18.2 step 2): when the
+  subject has <2 closed sales in our DB, query the Realcomp feed for that address
+  (StreetNumber + PostalCode filter, client-paged), upsert via the existing
+  `upsertRawListings`, and re-read — so a subject missing from our sync is still
+  characterized from its MLS history, and our store deepens one address at a time.
+  No-ops without creds; the OData address-filter fields are a first-connection
+  verify item (results are re-matched by normalized address in JS regardless).
 - `app/admin/avm-backtest/page.tsx` (+ AdminNav) — the glass-box inspector:
   actual vs ours vs provider (error % + confidence), subject facts + provenance,
   the adjustment grid per comp, excluded comps, and the scoreboard table.
@@ -543,8 +550,6 @@ TBD in the build plan; not built yet.
   self-hosted (local) model is stood up, so no IDX data egresses to a third party
   (Agreement §7.5/§7.6/§7.7; §19). The engine's coefficient/driver seam is where
   it plugs in.
-- **On-demand MLS pull** for a subject with no prior sale in our DB (§18.2 step 2)
-  — currently falls straight to the provider record. Needs live Realcomp creds.
 - **Anything consumer/seller-facing** — gated on Realcomp's answer (§19).
 - **Coefficient calibration UI** — coefficients are a single hard-coded constant
   for now; tune in code, watch the scoreboard. A regression pass comes later (§7).
