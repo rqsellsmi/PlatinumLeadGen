@@ -1,7 +1,15 @@
+import Link from 'next/link';
 import { requireAdmin } from '@/components/admin/requireAdmin';
 import { Card, CardHeader, CardBody, Badge, type PillTone } from '@/components/ui';
 import AvmAddressForm from '@/components/admin/AvmAddressForm';
-import { runBacktest, listRecentBacktests, type BacktestRun } from '@/lib/avm/backtest';
+import {
+  runBacktest,
+  listRecentBacktests,
+  getBacktest,
+  backtestRowToRun,
+  type BacktestRun,
+  type BacktestOutcome,
+} from '@/lib/avm/backtest';
 import { formatLineItem } from '@/lib/avm/engine';
 
 export const dynamic = 'force-dynamic';
@@ -34,12 +42,31 @@ const confTone: Record<string, PillTone> = { high: 'success', medium: 'info', lo
 export default async function AvmBacktestPage({
   searchParams,
 }: {
-  searchParams: { address?: string };
+  searchParams: { address?: string; run?: string };
 }) {
   await requireAdmin();
 
   const address = (searchParams.address ?? '').trim();
-  const outcome = address ? await runBacktest(address).catch((e) => ({ ok: false as const, error: String(e?.message ?? e) })) : null;
+  const runId = searchParams.run ? Number(searchParams.run) : null;
+
+  // `?run=<id>` re-opens a SAVED run (rebuilt from the stored row — no re-query,
+  // no provider call, no new scoreboard row). `?address=` runs a fresh backtest.
+  let outcome: BacktestOutcome | null = null;
+  let savedAt: Date | null = null;
+  if (runId != null && Number.isFinite(runId)) {
+    const row = await getBacktest(runId).catch(() => null);
+    if (row) {
+      const rebuilt = backtestRowToRun(row);
+      outcome = { ok: true, run: rebuilt.run };
+      savedAt = rebuilt.savedAt;
+    } else {
+      outcome = { ok: false, error: 'That saved run was not found.' };
+    }
+  } else if (address) {
+    outcome = await runBacktest(address).catch((e) => ({ ok: false as const, error: String(e?.message ?? e) }));
+  }
+
+  const formDefault = address || (outcome && outcome.ok ? outcome.run.address : '');
   const history = await listRecentBacktests(25).catch(() => []);
 
   return (
@@ -59,7 +86,7 @@ export default async function AvmBacktestPage({
           <h2 className="font-bold text-charcoal">Address to test</h2>
         </CardHeader>
         <CardBody>
-          <AvmAddressForm defaultValue={address} />
+          <AvmAddressForm defaultValue={formDefault} />
         </CardBody>
       </Card>
 
@@ -71,7 +98,17 @@ export default async function AvmBacktestPage({
         </Card>
       ) : null}
 
-      {outcome && outcome.ok ? <RunView run={outcome.run} /> : null}
+      {outcome && outcome.ok ? (
+        <div className="space-y-2">
+          {savedAt ? (
+            <p className="text-xs text-mute-lighter">
+              Viewing a saved run from {savedAt.toISOString().slice(0, 10)} — the address is prefilled above;
+              click <span className="font-semibold">Run backtest</span> to refresh it against current data.
+            </p>
+          ) : null}
+          <RunView run={outcome.run} />
+        </div>
+      ) : null}
 
       <Card>
         <CardHeader>
@@ -100,8 +137,12 @@ export default async function AvmBacktestPage({
                   const cErr = r.customValue != null && r.actualSalePrice ? (r.customValue - r.actualSalePrice) / r.actualSalePrice : null;
                   const pErr = r.providerValue != null && r.actualSalePrice ? (r.providerValue - r.actualSalePrice) / r.actualSalePrice : null;
                   return (
-                    <tr key={r.id} className="border-b border-line/60">
-                      <td className="py-2 pr-3 font-medium text-charcoal">{r.address}</td>
+                    <tr key={r.id} className={`border-b border-line/60 ${r.id === runId ? 'bg-platinum-blue/5' : ''}`}>
+                      <td className="py-2 pr-3 font-medium">
+                        <Link href={`/admin/avm-backtest?run=${r.id}`} className="text-platinum-blue hover:underline">
+                          {r.address}
+                        </Link>
+                      </td>
                       <td className="py-2 pr-3 text-mute">{new Date(r.createdAt).toISOString().slice(0, 10)}</td>
                       <td className="py-2 pr-3">{usd(r.actualSalePrice)}</td>
                       <td className="py-2 pr-3">{usd(r.customValue)}</td>

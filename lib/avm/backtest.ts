@@ -18,7 +18,7 @@
  */
 import { and, desc, eq, gte, isNotNull, isNull, lt, ne, or, sql } from 'drizzle-orm';
 import { db } from '../db';
-import { avmBacktests, idxListings, type IdxListing } from '../../drizzle/schema';
+import { avmBacktests, idxListings, type AvmBacktestRow, type IdxListing } from '../../drizzle/schema';
 import { normalizeAddress } from '../addressNormalization';
 import { valuateFromComps, type AvmResult, type AvmSubject } from './valuate';
 import { fetchAddressHistoryFromMls } from './addressHistory';
@@ -272,7 +272,7 @@ export async function runBacktest(inputAddress: string): Promise<BacktestOutcome
         customLow: result.low,
         customHigh: result.high,
         customConfidence: result.confidence,
-        compsJson: JSON.stringify({ used: result.compsUsed, rejected: result.compsRejected }),
+        compsJson: JSON.stringify({ used: result.compsUsed, rejected: result.compsRejected, poolSize: compPool.length }),
         engineVersion: result.engineVersion,
         notes: notes.join(' | ').slice(0, 2000),
       })
@@ -309,4 +309,68 @@ export async function runBacktest(inputAddress: string): Promise<BacktestOutcome
 /** The scoreboard: recent backtest runs, newest first. */
 export async function listRecentBacktests(limit = 25) {
   return db.select().from(avmBacktests).orderBy(desc(avmBacktests.createdAt)).limit(limit);
+}
+
+/** Load one saved run by id (for re-opening it later without re-running). */
+export async function getBacktest(id: number): Promise<AvmBacktestRow | null> {
+  if (!Number.isFinite(id)) return null;
+  const rows = await db.select().from(avmBacktests).where(eq(avmBacktests.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+/**
+ * Rebuild a `BacktestRun` from a persisted row so a saved run renders identically
+ * to a fresh one — no re-query, no provider call, no new scoreboard row. Every
+ * field the detail view needs was stored at run time (subject facts, comps +
+ * adjustments, provider/custom values); errors are recomputed from the stored
+ * numbers, and the saved timestamp is returned so the page can label it.
+ */
+export function backtestRowToRun(row: AvmBacktestRow): { run: BacktestRun; savedAt: Date } {
+  const subject = safeParse<AvmSubject>(row.subjectJson) ?? ({ factsSource: row.factsSource ?? 'unknown' } as AvmSubject);
+  const comps = safeParse<{ used?: AvmResult['compsUsed']; rejected?: AvmResult['compsRejected']; poolSize?: number }>(row.compsJson) ?? {};
+  const actual = row.actualSalePrice ?? 0;
+
+  const result: AvmResult = {
+    value: row.customValue,
+    low: row.customLow,
+    high: row.customHigh,
+    confidence: (row.customConfidence as AvmResult['confidence']) ?? 'low',
+    compsUsed: comps.used ?? [],
+    compsRejected: comps.rejected ?? [],
+    engineVersion: row.engineVersion ?? '',
+  };
+
+  return {
+    savedAt: new Date(row.createdAt),
+    run: {
+      id: row.id,
+      address: row.address ?? row.normalizedAddress,
+      normalizedAddress: row.normalizedAddress,
+      subject,
+      heldOut: {
+        listingKey: row.heldOutListingKey ?? '',
+        address: null,
+        city: null,
+        closeDate: row.actualSaleDate,
+        closePrice: actual,
+      },
+      result,
+      provider: row.provider
+        ? { name: row.provider, value: row.providerValue, low: row.providerLow, high: row.providerHigh }
+        : null,
+      customErrorPct: row.customValue != null && actual ? (row.customValue - actual) / actual : null,
+      providerErrorPct: row.providerValue != null && actual ? (row.providerValue - actual) / actual : null,
+      compPoolSize: comps.poolSize ?? (comps.used?.length ?? 0) + (comps.rejected?.length ?? 0),
+      notes: row.notes ? row.notes.split(' | ').filter(Boolean) : [],
+    },
+  };
+}
+
+function safeParse<T>(json: string | null): T | null {
+  if (!json) return null;
+  try {
+    return JSON.parse(json) as T;
+  } catch {
+    return null;
+  }
 }
