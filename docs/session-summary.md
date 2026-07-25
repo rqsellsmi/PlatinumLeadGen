@@ -1,3 +1,54 @@
+# Session Summary — Homegrown AVM: backtest harness (Phase 1)
+
+Branch: `feature/custom-avm` (off `refinements-v1`). Migration added: **0031**.
+Design + compliance record: `docs/superpowers/specs/2026-07-23-homegrown-avm-design.md`
+§18 (build) + §19 (Realcomp permission). Final gate: typecheck clean, **182 tests
+across 19 files**, build compiles.
+
+## What this session did
+Mostly a **design + compliance** session that ended in a build. We (1) specced the
+glass-box AVM inspector and the hold-one-out backtest methodology (§18), (2) read
+the full Realcomp IDX Rules + signed Data Access Agreement and mapped exactly which
+clauses gate a homegrown AVM (§19), (3) drafted the permission email to Realcomp,
+and (4) built the internal backtest while awaiting that answer.
+
+## What shipped (Phase 1 — structured-field backtest, admin-only)
+- **Scoreboard** (migration `0031_avm_backtests`): one row per hold-one-out run —
+  subject facts+provenance, held-out sale, provider vs custom vs actual, comps +
+  adjustments JSON, engine version. Re-running an address appends a row.
+- **Pure engine** (`lib/avm/engine.ts`, `tests/avm.test.ts` 16 cases): driver
+  extraction (basement finished/walkout/egress parsed from the RESO enum), the
+  appraiser-style line-item adjustment grid with **editable placeholder
+  coefficients**, weighted reconciliation (value/range/confidence), waterfront+
+  family hard filter. No DB/`@/` imports (vitest-safe).
+- **Valuation over a pool** (`lib/avm/valuate.ts`): reuses `rankSoldComps`/
+  `similarityScore`; returns comps-used (reasons + line items) + comps-rejected.
+- **Hold-one-out flow** (`lib/avm/backtest.ts`): most-recent sale held out
+  entirely (price AND facts); subject from the 2nd-most-recent sale → provider →
+  insufficient; no-look-ahead comp pool; best-effort provider comparison; persists.
+- **Admin inspector** (`/admin/avm-backtest` + AdminNav): actual vs ours vs
+  provider (error %, confidence), subject facts + provenance, the per-comp
+  adjustment grid, excluded comps, and the scoreboard table.
+
+## Deliberately NOT built (see §18.10)
+- **AI condition-from-photos / AI-priced adjustments** — deferred until a
+  **self-hosted (local) model** exists, so no IDX data egresses to a third party
+  (Agreement §7.5/§7.6/§7.7). Structured fields only for now.
+- **On-demand MLS pull** for a subject with no prior sale (falls to provider).
+- **Anything seller/consumer-facing** — gated on Realcomp's written answer (§19).
+- **Coefficient calibration UI** — coefficients are a hardcoded constant; tune in
+  code and watch the scoreboard; regression pass later.
+
+## What still needs to be done (owner)
+- **Send the Realcomp email** (drafted in-thread; also §19) — going seller-facing
+  is a go/no-go on their written yes. The internal backtest is fine to run now.
+- **Apply migration 0031** on every Neon branch the app + Actions use.
+- **Run backtests** on real sold addresses to see whether comp-based beats
+  ATTOM/RentCast, and **tune `DEFAULT_COEFFICIENTS`** against the scoreboard.
+- Coefficients are placeholders — do not trust the numbers until calibrated.
+
+---
+
 # Session Summary — Agent Scoring v4 (Seller Track)
 
 Branch: `refinements-v1`. Migrations added: **0027–0028**. Design +

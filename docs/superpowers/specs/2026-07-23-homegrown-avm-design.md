@@ -517,8 +517,72 @@ TBD in the build plan; not built yet.
 8. **Local-preference quizzes (the Q3 idea):** deferred until the backtest proves
    the core out; "lake type" is where it will eventually plug in (§6.1).
 
-## 18.10 Out of scope this session
+## 18.10 Build status (2026-07-24)
 
-No code. This section is the design. The phased build plan (migrations for the
-scoreboard table + any new IDX fields, the inspector page, the adjustment engine,
-the AI comp-analysis cache, unit tests) comes after owner sign-off.
+**Phase 1 (structured-field backtest) — BUILT** on `feature/custom-avm`, admin-only:
+- `drizzle/migrations/0031_avm_backtests.sql` + `avmBacktests` schema — the
+  re-runnable scoreboard.
+- `lib/avm/engine.ts` — pure engine: driver extraction (incl. basement
+  finished/walkout/egress parsed from the RESO `basement` enum), the line-item
+  adjustment grid with **editable placeholder coefficients** (`DEFAULT_COEFFICIENTS`),
+  weighted reconciliation (value/range/confidence), waterfront+family hard filter.
+  Unit-tested (`tests/avm.test.ts`, 16 cases).
+- `lib/avm/valuate.ts` — value over a comp pool; reuses `rankSoldComps`/
+  `similarityScore`; returns comps-used (reasons + line items) + comps-rejected.
+- `lib/avm/backtest.ts` — hold-one-out: most-recent sale held out entirely (price
+  AND facts), subject from the 2nd-most-recent sale → provider record → insufficient;
+  no-look-ahead comp pool (closed before the sale, near, excludes the home's own
+  listings); best-effort provider AVM comparison; persists to the scoreboard.
+- `app/admin/avm-backtest/page.tsx` (+ AdminNav) — the glass-box inspector:
+  actual vs ours vs provider (error % + confidence), subject facts + provenance,
+  the adjustment grid per comp, excluded comps, and the scoreboard table.
+- Gate: typecheck clean, 182 tests, build compiles.
+
+**Deliberately NOT built yet:**
+- **AI condition-from-photos + AI-priced adjustments** — deferred until a
+  self-hosted (local) model is stood up, so no IDX data egresses to a third party
+  (Agreement §7.5/§7.6/§7.7; §19). The engine's coefficient/driver seam is where
+  it plugs in.
+- **On-demand MLS pull** for a subject with no prior sale in our DB (§18.2 step 2)
+  — currently falls straight to the provider record. Needs live Realcomp creds.
+- **Anything consumer/seller-facing** — gated on Realcomp's answer (§19).
+- **Coefficient calibration UI** — coefficients are a single hard-coded constant
+  for now; tune in code, watch the scoreboard. A regression pass comes later (§7).
+
+## 19. Realcomp permission — the go/no-go for going seller-facing
+
+Full rules read on 2026-07-24 (`IDX_Rules_2024.pdf` + the signed `IDX Data Access
+Agreement`, Rebecca Quasney / DR Joseph DeKroub, RE/MAX Platinum, Login 415786).
+
+**The core finding:** the IDX license is a **display** license, and a homegrown
+valuation is a **use**. Two separate locks:
+- **Rules §18.2.8/§18.2.9** *permit displaying* an automated market-value estimate
+  and the Participant's professional judgment on a property (with a seller opt-out,
+  §18.2.8(b)). Displaying an AVM is fine; the Rules don't restrict its source.
+- **Agreement §4.1** licenses only *display* + *copy-to-deliver-display*;
+  **§7.5** bars "incorporat[ing] the Proprietary Information into any other work or
+  product"; **§18.2.2** limits use to display. So *using the IDX comp data as the
+  computational input* to a valuation is the gated act — and it's gated **even for
+  the internal tool**, though internal + no-egress is the lowest-risk posture.
+- **Third-party AI egress** (sending comp photos/remarks to Anthropic) separately
+  hits §7.5/§7.6/§7.7 — resolved by a **self-hosted/local model** (not a hosted
+  inference API). This is *why* the built Phase 1 uses structured fields only.
+
+**What's clean today:** displaying recent solds / market stats for seller content
+(with the required notices) — that's display, permitted (§18.2.4/§18.2.11/§18.10).
+The current `/thank-you` valuation number comes from ATTOM/RentCast (a non-IDX
+source), so it doesn't implicate §7.5.
+
+**The ask (email drafted, to `idxsupport@realcomp.com`):** framed seller-facing
+(the real goal), leaning on §18.2.8→§7.5: may we use IDX comp data as the
+computational basis for a consumer-facing valuation, and if so what
+license/consent is the right vehicle — with an agent-facing fallback. Penalties
+are real (§18.8 warning→$2,500→$5,000→termination; Agreement §9.2 injunction,
+§9.3 fees), so **going seller-facing is gated on a written yes.** The internal
+backtest proceeds meanwhile.
+
+**Enforcement reality (for the record):** internal admin tool ≈ invisible;
+seller-facing public page is discoverable (ListTrac is required on listing pages
+per Consultant note 4; competitor/consumer complaints are the usual trigger). The
+downside is existential (MLS access is what the whole platform runs on), so the
+written yes is cheap insurance, not optional.
