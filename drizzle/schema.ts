@@ -810,6 +810,9 @@ export const notificationSettings = pgTable('notification_settings', {
   // Shared code an agent must enter on /agent/set-password before setting/
   // resetting their password (migration 0029). Null/empty = setup page closed.
   agentSetupCode: varchar('agent_setup_code', { length: 60 }),
+  // Comma-separated cities excluded from the buyer homepage city tiles ONLY
+  // (migration 0032). Excluded cities still resolve in /homes search.
+  buyerExcludedCities: text('buyer_excluded_cities'),
   // Scoring v2 periodic-reset guards (so the maintenance cron resets each track
   // only once per boundary). Store the period key that was last reset.
   scoreMonthlyResetKey: varchar('score_monthly_reset_key', { length: 7 }), // 'YYYY-MM'

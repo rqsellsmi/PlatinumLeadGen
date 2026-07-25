@@ -13,10 +13,10 @@ export default function SiteHeader() {
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3.5">
         <Logo variant="blue" width={140} priority />
         <nav className="flex items-center gap-7 text-sm font-semibold text-charcoal">
-          <Link href="/" className="hidden hover:text-platinum-blue sm:inline">
-            Home
+          <Link href="/homes" className="hover:text-platinum-blue">
+            Buy
           </Link>
-          <Link href="/sell/home-value" className="hidden hover:text-platinum-blue sm:inline">
+          <Link href="/sell/home-value" className="hover:text-platinum-blue">
             Sell
           </Link>
           <Link href="/sell" className="hidden hover:text-platinum-blue sm:inline">

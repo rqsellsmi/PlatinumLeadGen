@@ -150,6 +150,58 @@ export function coarsenPin(lat: number, lng: number, hidden: boolean): LatLng {
   return { lat: Math.round(lat * 100) / 100, lng: Math.round(lng * 100) / 100 };
 }
 
+export interface CityActiveStat {
+  city: string;
+  count: number;
+  lat: number | null;
+  lng: number | null;
+}
+
+export interface OfficePoint {
+  lat: number | null;
+  lng: number | null;
+}
+
+/**
+ * Select the buyer-homepage city tiles: exclude the admin exclusion list
+ * (tiles-only), keep cities within `radiusMiles` of an office (when office
+ * coordinates exist), rank by active-listing count desc, take `limit`. Pure so
+ * the selection logic is unit-tested independently of the DB.
+ */
+export function rankBuyerCityTiles(
+  stats: CityActiveStat[],
+  offices: OfficePoint[],
+  excluded: string[],
+  limit: number,
+  radiusMiles = 20,
+): CityActiveStat[] {
+  const excludedSet = new Set(excluded.map((c) => c.trim().toLowerCase()).filter(Boolean));
+  const officePts = offices.filter((o) => o.lat != null && o.lng != null) as {
+    lat: number;
+    lng: number;
+  }[];
+
+  let filtered = stats.filter((s) => s.city && !excludedSet.has(s.city.toLowerCase()));
+  if (officePts.length) {
+    filtered = filtered.filter(
+      (s) =>
+        s.lat != null &&
+        s.lng != null &&
+        officePts.some((o) => milesBetween(o.lat, o.lng, s.lat as number, s.lng as number) <= radiusMiles),
+    );
+  }
+  return filtered.sort((a, b) => b.count - a.count).slice(0, limit);
+}
+
+/** Parse a comma/newline-separated excluded-cities setting into a clean list. */
+export function parseExcludedCities(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(/[,\n]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 function num(v: unknown): number | undefined {
   if (v == null) return undefined;
   const n = typeof v === 'number' ? v : parseFloat(String(v));
