@@ -5,12 +5,14 @@ import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import type { SearchFilters, SearchSort } from '@/lib/listingSearch';
 
 const BED_BATH = [0, 1, 2, 3, 4, 5];
+// Values are matched space-insensitively against Realcomp's enum tokens
+// (SingleFamilyResidence / Condominium / MultiFamily / Land) in property_type or
+// property_sub_type — see buildConditions in lib/idxSearch.ts.
 const PROPERTY_TYPES: { label: string; value: string }[] = [
-  { label: 'Houses', value: 'Single Family' },
-  { label: 'Condos', value: 'Condo' },
-  { label: 'Multi-Family', value: 'Multi' },
+  { label: 'Houses', value: 'SingleFamily' },
+  { label: 'Condos', value: 'Condominium' },
+  { label: 'Multi-Family', value: 'MultiFamily' },
   { label: 'Land', value: 'Land' },
-  { label: 'Manufactured', value: 'Manufactured' },
 ];
 const SORTS: { label: string; value: SearchSort }[] = [
   { label: 'Newest', value: 'newest' },
