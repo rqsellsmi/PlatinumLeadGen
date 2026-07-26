@@ -217,4 +217,18 @@ describe('sameProperty (address matching)', () => {
   it('is false for empty input', () => {
     expect(sameProperty(null, '5915 Chickadee Ln, Clarkston, MI 48346')).toBe(false);
   });
+
+  it('matches when one source drops the directional prefix (the Maplewood case)', () => {
+    // Google autocomplete gave no "N"; the MLS stores "41101 N Maplewood Drive".
+    expect(sameProperty('41101 Maplewood Drive, Canton Township, MI 48187, USA', '41101 N Maplewood Drive')).toBe(true);
+  });
+  it('matches a doubled street suffix from the feed', () => {
+    expect(sameProperty('41101 Maplewood Drive, Canton, MI 48187', '41101 Maplewood Drive Drive')).toBe(true);
+  });
+  it('still rejects a different street even with a directional', () => {
+    expect(sameProperty('41101 N Oak St, Canton, MI 48187', '41101 Maplewood Dr, Canton, MI 48187')).toBe(false);
+  });
+  it('matches a multi-word street name across suffix/directional variants', () => {
+    expect(sameProperty('123 Grand River Ave, Brighton, MI 48116', '123 N Grand River Avenue')).toBe(true);
+  });
 });
