@@ -48,6 +48,17 @@ export const notLease = and(
   ),
 );
 
+/**
+ * WHERE fragment: exclude clearly non-residential for-sale categories from the
+ * buyer HOME search — CommercialSale and BusinessOpportunity are "for sale" but
+ * are not homes (leases are already handled by `notLease`). Keeps Residential,
+ * ResidentialIncome (multi-family), and Land.
+ */
+export const notCommercial = and(
+  sql`lower(coalesce(${idxListings.propertyType}, '')) not like '%commercial%'`,
+  sql`lower(coalesce(${idxListings.propertyType}, '')) not like '%business%'`,
+);
+
 /** Null the address when the listing agent hid it (§18.2.3 / spec §2.2). */
 export function gateAddress<T extends IdxListing>(row: T): T {
   if (row.internetAddressDisplayYN === false) return { ...row, address: null };

@@ -7,7 +7,7 @@
 import { and, or, eq, inArray, isNotNull, sql, asc, desc } from 'drizzle-orm';
 import { db } from './db';
 import { idxListings, offices, notificationSettings } from '../drizzle/schema';
-import { canDisplay, notLease, gateAddress, approxMiles, type IdxCard } from './idx';
+import { canDisplay, notLease, notCommercial, gateAddress, approxMiles, type IdxCard } from './idx';
 import {
   FOR_SALE_STATUSES,
   rankBuyerCityTiles,
@@ -23,6 +23,7 @@ const forSaleWhere = and(
   inArray(idxListings.standardStatus, FOR_SALE_STATUSES as unknown as string[]),
   canDisplay,
   notLease,
+  notCommercial, // homes only — exclude commercial/business categories
 );
 
 /** Active offices with coordinates (for the 20-mile service-area geometry). */

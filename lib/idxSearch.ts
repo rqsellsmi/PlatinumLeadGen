@@ -12,7 +12,7 @@
 import { and, or, eq, gte, lte, ilike, inArray, sql, asc, desc } from 'drizzle-orm';
 import { db } from './db';
 import { idxListings } from '../drizzle/schema';
-import { canDisplay, notLease, gateAddress, approxMiles, type IdxCard } from './idx';
+import { canDisplay, notLease, notCommercial, gateAddress, approxMiles, type IdxCard } from './idx';
 import {
   FOR_SALE_STATUSES,
   DEFAULT_PAGE_SIZE,
@@ -42,6 +42,7 @@ function buildConditions(f: SearchFilters, geoBox: BBox | null) {
     inArray(idxListings.standardStatus, FOR_SALE_STATUSES as unknown as string[]),
     canDisplay,
     notLease,
+    notCommercial, // homes search — exclude commercial/business categories
     // NOTE: no photo_url requirement — a for-sale home without a primary photo is
     // still a valid search result (the card renders a placeholder). Requiring a
     // photo here silently hid listings whose photo hadn't synced yet.
