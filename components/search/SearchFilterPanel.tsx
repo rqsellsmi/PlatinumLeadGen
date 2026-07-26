@@ -81,56 +81,61 @@ export default function SearchFilterPanel({
   const searchParams = useSearchParams();
   const [d, setD] = React.useState<Draft>(() => toDraft(filters));
   const [advanced, setAdvanced] = React.useState(advancedOpen);
-
-  // Re-sync when the URL (server-provided filters) changes.
-  React.useEffect(() => {
-    setD(toDraft(filters));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams?.toString()]);
+  const spString = searchParams?.toString() ?? '';
 
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((p) => ({ ...p, [k]: v }));
 
-  function apply(overrides?: Partial<Draft>) {
-    const next = { ...d, ...overrides };
-    const p = new URLSearchParams();
-    // Preserve geo params (map draw / current location) already in the URL.
-    for (const key of ['poly', 'lat', 'lng', 'radius'] as const) {
-      const v = searchParams?.get(key);
-      if (v) p.set(key, v);
-    }
-    if (next.priceMin) p.set('priceMin', next.priceMin);
-    if (next.priceMax) p.set('priceMax', next.priceMax);
-    if (next.bedsMin) p.set('bedsMin', String(next.bedsMin));
-    if (next.bathsMin) p.set('bathsMin', String(next.bathsMin));
-    if (next.city.trim()) p.set('city', next.city.trim());
-    if (next.sqftMin) p.set('sqftMin', next.sqftMin);
-    if (next.sqftMax) p.set('sqftMax', next.sqftMax);
-    if (next.yearMin) p.set('yearMin', next.yearMin);
-    if (next.yearMax) p.set('yearMax', next.yearMax);
-    if (next.lotAcresMin) p.set('lotAcresMin', next.lotAcresMin);
-    if (next.garageMin) p.set('garageMin', next.garageMin);
-    if (next.hoaMax) p.set('hoaMax', next.hoaMax);
-    if (next.domMax) p.set('domMax', next.domMax);
-    if (next.propertyTypes.length) p.set('propertyTypes', next.propertyTypes.join(','));
-    if (next.waterfront) p.set('waterfront', '1');
-    if (next.pool) p.set('pool', '1');
-    if (next.newConstruction) p.set('newConstruction', '1');
-    if (next.basementFinished) p.set('basementFinished', '1');
-    if (next.fireplace) p.set('fireplace', '1');
-    if (next.sort && next.sort !== 'newest') p.set('sort', next.sort);
-    router.push(`${pathname}?${p.toString()}`);
-  }
+  // Build the querystring for a draft, preserving map/geo params already in the URL.
+  const buildQs = React.useCallback(
+    (next: Draft): string => {
+      const p = new URLSearchParams();
+      for (const key of ['poly', 'lat', 'lng', 'radius'] as const) {
+        const v = searchParams?.get(key);
+        if (v) p.set(key, v);
+      }
+      if (next.priceMin) p.set('priceMin', next.priceMin);
+      if (next.priceMax) p.set('priceMax', next.priceMax);
+      if (next.bedsMin) p.set('bedsMin', String(next.bedsMin));
+      if (next.bathsMin) p.set('bathsMin', String(next.bathsMin));
+      if (next.city.trim()) p.set('city', next.city.trim());
+      if (next.sqftMin) p.set('sqftMin', next.sqftMin);
+      if (next.sqftMax) p.set('sqftMax', next.sqftMax);
+      if (next.yearMin) p.set('yearMin', next.yearMin);
+      if (next.yearMax) p.set('yearMax', next.yearMax);
+      if (next.lotAcresMin) p.set('lotAcresMin', next.lotAcresMin);
+      if (next.garageMin) p.set('garageMin', next.garageMin);
+      if (next.hoaMax) p.set('hoaMax', next.hoaMax);
+      if (next.domMax) p.set('domMax', next.domMax);
+      if (next.propertyTypes.length) p.set('propertyTypes', next.propertyTypes.join(','));
+      if (next.waterfront) p.set('waterfront', '1');
+      if (next.pool) p.set('pool', '1');
+      if (next.newConstruction) p.set('newConstruction', '1');
+      if (next.basementFinished) p.set('basementFinished', '1');
+      if (next.fireplace) p.set('fireplace', '1');
+      if (next.sort && next.sort !== 'newest') p.set('sort', next.sort);
+      return p.toString();
+    },
+    [searchParams],
+  );
+
+  // Re-sync the draft when the URL changes from outside (city tile, map, back).
+  React.useEffect(() => {
+    setD(toDraft(filters));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spString]);
+
+  // Auto-apply: whenever the draft differs from the URL's filter state, push it
+  // (debounced) so results update live — no Apply button needed.
+  React.useEffect(() => {
+    const target = buildQs(d);
+    if (target === buildQs(toDraft(filters))) return; // already in sync
+    const t = setTimeout(() => router.push(`${pathname}?${target}`), 350);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [d]);
 
   function reset() {
-    setD(
-      toDraft({
-        // keep city if present so a city landing page stays scoped
-        city: filters.city,
-      }),
-    );
-    const p = new URLSearchParams();
-    if (filters.city) p.set('city', filters.city);
-    router.push(`${pathname}?${p.toString()}`);
+    router.push(pathname);
   }
 
   const toggleType = (v: string) =>
@@ -154,7 +159,6 @@ export default function SearchFilterPanel({
           <input
             value={d.city}
             onChange={(e) => set('city', e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && apply()}
             placeholder="e.g. Fenton"
             className="mt-1 w-40 rounded-md border border-line px-3 py-2 text-sm text-charcoal"
           />
@@ -183,7 +187,7 @@ export default function SearchFilterPanel({
           Sort
           <select
             value={d.sort}
-            onChange={(e) => apply({ sort: e.target.value as SearchSort })}
+            onChange={(e) => set('sort', e.target.value as SearchSort)}
             className="mt-1 rounded-md border border-line px-3 py-2 text-sm text-charcoal"
           >
             {SORTS.map((s) => (
@@ -256,16 +260,9 @@ export default function SearchFilterPanel({
           {advanced ? 'Hide advanced' : 'Advanced search'}
         </button>
         <div className="flex items-center gap-3">
-          <span className="text-sm text-mute">{resultCount.toLocaleString()} homes</span>
+          <span className="text-sm font-semibold text-charcoal">{resultCount.toLocaleString()} homes</span>
           <button type="button" onClick={reset} className="text-sm font-semibold text-mute hover:text-charcoal">
-            Reset
-          </button>
-          <button
-            type="button"
-            onClick={() => apply()}
-            className="rounded-pill bg-platinum-red px-5 py-2 text-sm font-semibold text-white hover:bg-platinum-redHover"
-          >
-            Apply
+            Reset all
           </button>
         </div>
       </div>

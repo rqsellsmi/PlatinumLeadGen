@@ -61,11 +61,19 @@ function buildConditions(f: SearchFilters, geoBox: BBox | null) {
   if (f.yearMin != null) conds.push(gte(idxListings.yearBuilt, Math.round(f.yearMin)));
   if (f.yearMax != null) conds.push(lte(idxListings.yearBuilt, Math.round(f.yearMax)));
   if (f.propertyTypes && f.propertyTypes.length) {
+    // Space-insensitive match: Realcomp may return spaced ("Single Family
+    // Residence") OR space-less enum tokens ("SingleFamilyResidence"), and may
+    // carry the detail in property_type OR property_sub_type. Strip spaces on both
+    // sides before comparing so either form matches.
     conds.push(
       or(
-        ...f.propertyTypes.map((t) =>
-          or(ilike(idxListings.propertyType, `%${t}%`), ilike(idxListings.propertySubType, `%${t}%`)),
-        ),
+        ...f.propertyTypes.map((t) => {
+          const needle = `%${t.toLowerCase().replace(/\s+/g, '')}%`;
+          return or(
+            sql`replace(lower(coalesce(${idxListings.propertyType}, '')), ' ', '') like ${needle}`,
+            sql`replace(lower(coalesce(${idxListings.propertySubType}, '')), ' ', '') like ${needle}`,
+          );
+        }),
       ),
     );
   }
