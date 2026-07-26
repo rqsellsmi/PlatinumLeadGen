@@ -9,7 +9,7 @@
  * interiorFeatures, appliances, parkingFeatures, lotFeatures, associationAmenities)
  * — they are NULL in the DB (lessons §16b).
  */
-import { and, or, eq, gte, lte, ilike, inArray, isNotNull, sql, asc, desc } from 'drizzle-orm';
+import { and, or, eq, gte, lte, ilike, inArray, sql, asc, desc } from 'drizzle-orm';
 import { db } from './db';
 import { idxListings } from '../drizzle/schema';
 import { canDisplay, notLease, gateAddress, approxMiles, type IdxCard } from './idx';
@@ -42,13 +42,20 @@ function buildConditions(f: SearchFilters, geoBox: BBox | null) {
     inArray(idxListings.standardStatus, FOR_SALE_STATUSES as unknown as string[]),
     canDisplay,
     notLease,
-    isNotNull(idxListings.photoUrl),
+    // NOTE: no photo_url requirement — a for-sale home without a primary photo is
+    // still a valid search result (the card renders a placeholder). Requiring a
+    // photo here silently hid listings whose photo hadn't synced yet.
   ];
   if (f.priceMin != null) conds.push(gte(idxListings.listPrice, Math.round(f.priceMin)));
   if (f.priceMax != null) conds.push(lte(idxListings.listPrice, Math.round(f.priceMax)));
   if (f.bedsMin != null) conds.push(gte(idxListings.bedsTotal, Math.round(f.bedsMin)));
   if (f.bathsMin != null) conds.push(gte(idxListings.bathsTotal, f.bathsMin));
-  if (f.city) conds.push(ilike(idxListings.city, f.city));
+  if (f.city) {
+    // Tolerant match: the core city token as a substring, so "Fenton, MI" or
+    // "Fenton Twp" still finds a stored city of "Fenton" (and vice-versa).
+    const core = f.city.split(',')[0].trim();
+    if (core) conds.push(ilike(idxListings.city, `%${core}%`));
+  }
   if (f.sqftMin != null) conds.push(gte(idxListings.livingArea, Math.round(f.sqftMin)));
   if (f.sqftMax != null) conds.push(lte(idxListings.livingArea, Math.round(f.sqftMax)));
   if (f.yearMin != null) conds.push(gte(idxListings.yearBuilt, Math.round(f.yearMin)));

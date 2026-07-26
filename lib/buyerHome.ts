@@ -23,7 +23,6 @@ const forSaleWhere = and(
   inArray(idxListings.standardStatus, FOR_SALE_STATUSES as unknown as string[]),
   canDisplay,
   notLease,
-  isNotNull(idxListings.photoUrl),
 );
 
 /** Active offices with coordinates (for the 20-mile service-area geometry). */
