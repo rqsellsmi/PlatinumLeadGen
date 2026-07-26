@@ -73,7 +73,8 @@ function noSaleMessage(
     const others = pull.rows.map((r) => r.address).filter(Boolean).slice(0, 5).join('; ');
     return `The MLS returned ${pull.rows.length} listing(s) at #${streetNum} but none on this street (${others}). This home's sale likely predates what the IDX feed serves, or the seller opted out of internet display — either way it isn't in the feed.`;
   }
-  return `No closed sale for "${raw}" — the MLS returned nothing for this address. It likely predates what the IDX feed serves (Realcomp provides solds back to 2012), or the seller opted out of internet display.`;
+  const f = pull.filter ? ` [query: ${pull.filter}]` : '';
+  return `No closed sale for "${raw}" — the MLS returned zero listings for this address${f}. If a recent sale exists, this points to the address filter (field name/value) rather than feed coverage; otherwise the sale predates the feed or the seller opted out of internet display.`;
 }
 
 function subjectFromListing(l: IdxListing, factsSource: string, fallback: IdxListing): AvmSubject {

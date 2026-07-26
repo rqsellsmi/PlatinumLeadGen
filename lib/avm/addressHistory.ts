@@ -32,6 +32,8 @@ export interface AddressHistoryResult {
   fetched: number;
   upserted: number;
   reason?: string;
+  /** The OData $filter actually used (for diagnostics). */
+  filter?: string;
   /** Up to ~20 of the listings returned, so the caller can explain a no-match. */
   rows: FetchedRowSummary[];
 }
@@ -63,22 +65,21 @@ export async function fetchAddressHistoryFromMls(address: string): Promise<Addre
   if (!streetNum) return { ok: false, fetched: 0, upserted: 0, reason: 'no house number in address', rows: [] };
 
   const zip = normalizeAddress(raw).zip;
-  const clauses = [`StreetNumber eq ${odataStr(streetNum)}`];
-  if (zip) clauses.push(`PostalCode eq ${odataStr(zip)}`);
-  const filter = clauses.join(' and ');
 
-  let fetched = 0;
-  let upserted = 0;
-  const rows: FetchedRowSummary[] = [];
-  try {
+  // Run one $filter to exhaustion: map each row for the diagnostic summary and
+  // upsert every page. Returns fresh counts/rows per call.
+  const runQuery = async (filter: string): Promise<{ fetched: number; upserted: number; rows: FetchedRowSummary[] }> => {
+    let fetched = 0;
+    let upserted = 0;
+    const rows: FetchedRowSummary[] = [];
     await realcompFetchPages(
       'Property',
       { $select: SELECT_FIELDS, $expand: MEDIA_EXPAND, $filter: filter },
       async (page) => {
         fetched += page.length;
-        for (const raw of page) {
+        for (const r of page) {
           if (rows.length >= 20) break;
-          const m = mapRealcompListing(raw as Record<string, unknown>);
+          const m = mapRealcompListing(r as Record<string, unknown>);
           if (!m) continue;
           rows.push({
             address: m.address ?? null,
@@ -91,8 +92,23 @@ export async function fetchAddressHistoryFromMls(address: string): Promise<Addre
       },
       { pageSize: 100, timeoutMs: 30_000, label: 'avm-addr' },
     );
+    return { fetched, upserted, rows };
+  };
+
+  try {
+    // Try the tight filter first (fewer results). PostalCode is brittle — it can be
+    // absent, ZIP+4, or stored differently per record — so if the tight filter
+    // returns nothing, fall back to StreetNumber alone and let the caller match
+    // precisely by normalized address in JS. StreetNumber is a discrete, confirmed-
+    // filterable field.
+    let filter = zip ? `StreetNumber eq ${odataStr(streetNum)} and PostalCode eq ${odataStr(zip)}` : `StreetNumber eq ${odataStr(streetNum)}`;
+    let r = await runQuery(filter);
+    if (r.fetched === 0 && zip) {
+      filter = `StreetNumber eq ${odataStr(streetNum)}`;
+      r = await runQuery(filter);
+    }
+    return { ok: true, fetched: r.fetched, upserted: r.upserted, rows: r.rows, filter };
   } catch (err) {
-    return { ok: false, fetched, upserted, reason: err instanceof Error ? err.message : 'fetch failed', rows };
+    return { ok: false, fetched: 0, upserted: 0, reason: err instanceof Error ? err.message : 'fetch failed', rows: [] };
   }
-  return { ok: true, fetched, upserted, rows };
 }
