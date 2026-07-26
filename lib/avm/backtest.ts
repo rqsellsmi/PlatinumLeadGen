@@ -47,6 +47,35 @@ export interface BacktestRun {
 
 export type BacktestOutcome = { ok: true; run: BacktestRun } | { ok: false; error: string };
 
+/** Build a precise "why no sale" message from what the on-demand MLS pull returned. */
+function noSaleMessage(
+  raw: string,
+  streetNum: string,
+  pull: Awaited<ReturnType<typeof fetchAddressHistoryFromMls>> | null,
+): string {
+  if (!pull || (!pull.ok && pull.reason === 'Realcomp not configured')) {
+    return `No closed sale on record for "${raw}" in our data (MLS lookup not configured).`;
+  }
+  if (!pull.ok) {
+    return `No closed sale for "${raw}" — MLS lookup failed: ${pull.reason}.`;
+  }
+  const matched = pull.rows.filter((r) => sameProperty(r.address, raw));
+  if (matched.length > 0) {
+    const desc = matched
+      .map(
+        (r) =>
+          `${r.standardStatus}${r.closePrice != null ? ` $${r.closePrice.toLocaleString('en-US')}` : ' (no price)'}${r.closeDate ? ` on ${r.closeDate}` : ''}`,
+      )
+      .join('; ');
+    return `Found this address in the MLS but no usable closed sale to grade against — ${matched.length} listing(s): ${desc}. (A sale needs both a close date and a close price in the feed.)`;
+  }
+  if (pull.rows.length > 0) {
+    const others = pull.rows.map((r) => r.address).filter(Boolean).slice(0, 5).join('; ');
+    return `The MLS returned ${pull.rows.length} listing(s) at #${streetNum} but none on this street (${others}). This home's sale likely predates what the IDX feed serves, or the seller opted out of internet display — either way it isn't in the feed.`;
+  }
+  return `No closed sale for "${raw}" — the MLS returned nothing for this address. It likely predates what the IDX feed serves (Realcomp provides solds back to 2012), or the seller opted out of internet display.`;
+}
+
 function subjectFromListing(l: IdxListing, factsSource: string, fallback: IdxListing): AvmSubject {
   return {
     address: l.address,
@@ -120,28 +149,19 @@ export async function runBacktest(inputAddress: string, updates?: SubjectUpdates
   // the subject). If our data doesn't hold both, pull this address's history from
   // the MLS feed on demand (spec §18.2 step 2), then re-read — this also
   // opportunistically deepens our store. No-ops safely without Realcomp creds.
-  let pullSummary = '';
+  let pull: Awaited<ReturnType<typeof fetchAddressHistoryFromMls>> | null = null;
   if (closedSales.length < 2) {
-    const pull = await fetchAddressHistoryFromMls(raw);
-    if (pull.ok) {
-      pullSummary = `MLS pull: fetched ${pull.fetched}, upserted ${pull.upserted}`;
-      if (pull.upserted > 0) {
-        notes.push(`Pulled ${pull.upserted} listing(s) for this address from the MLS feed.`);
-        closedSales = await findClosedSales();
-      }
-    } else {
-      pullSummary = `MLS pull: ${pull.reason ?? 'unavailable'}`;
-      if (pull.reason && pull.reason !== 'Realcomp not configured') {
-        notes.push(`MLS address lookup unavailable: ${pull.reason}`);
-      }
+    pull = await fetchAddressHistoryFromMls(raw);
+    if (pull.ok && pull.upserted > 0) {
+      notes.push(`Pulled ${pull.upserted} listing(s) at #${streetNum} from the MLS feed.`);
+      closedSales = await findClosedSales();
+    } else if (!pull.ok && pull.reason && pull.reason !== 'Realcomp not configured') {
+      notes.push(`MLS address lookup unavailable: ${pull.reason}`);
     }
   }
 
   if (closedSales.length === 0) {
-    return {
-      ok: false,
-      error: `No closed sale on record for "${raw}" in our data${pullSummary ? ` (${pullSummary})` : ''}.`,
-    };
+    return { ok: false, error: noSaleMessage(raw, streetNum, pull) };
   }
 
   const heldOut = closedSales[0]; // most-recent sale — the graded answer, held out entirely

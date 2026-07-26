@@ -16,14 +16,24 @@
  * throwing, so the backtest falls through to the provider fallback.
  */
 import { realcompFetchPages, isRealcompConfigured } from '../realcomp';
-import { SELECT_FIELDS, MEDIA_EXPAND, upsertRawListings } from '../idxSync';
+import { SELECT_FIELDS, MEDIA_EXPAND, upsertRawListings, mapRealcompListing } from '../idxSync';
 import { normalizeAddress } from '../addressNormalization';
+
+/** A lightweight description of a listing the pull returned (for diagnostics). */
+export interface FetchedRowSummary {
+  address: string | null;
+  standardStatus: string;
+  closeDate: string | null; // ISO date
+  closePrice: number | null;
+}
 
 export interface AddressHistoryResult {
   ok: boolean;
   fetched: number;
   upserted: number;
   reason?: string;
+  /** Up to ~20 of the listings returned, so the caller can explain a no-match. */
+  rows: FetchedRowSummary[];
 }
 
 /** OData single-quoted string literal (doubles embedded quotes). */
@@ -46,11 +56,11 @@ function odataStr(s: string): string {
  */
 export async function fetchAddressHistoryFromMls(address: string): Promise<AddressHistoryResult> {
   if (!isRealcompConfigured()) {
-    return { ok: false, fetched: 0, upserted: 0, reason: 'Realcomp not configured' };
+    return { ok: false, fetched: 0, upserted: 0, reason: 'Realcomp not configured', rows: [] };
   }
   const raw = address.trim();
   const streetNum = (raw.match(/^\s*(\d+)/) ?? [])[1];
-  if (!streetNum) return { ok: false, fetched: 0, upserted: 0, reason: 'no house number in address' };
+  if (!streetNum) return { ok: false, fetched: 0, upserted: 0, reason: 'no house number in address', rows: [] };
 
   const zip = normalizeAddress(raw).zip;
   const clauses = [`StreetNumber eq ${odataStr(streetNum)}`];
@@ -59,18 +69,30 @@ export async function fetchAddressHistoryFromMls(address: string): Promise<Addre
 
   let fetched = 0;
   let upserted = 0;
+  const rows: FetchedRowSummary[] = [];
   try {
     await realcompFetchPages(
       'Property',
       { $select: SELECT_FIELDS, $expand: MEDIA_EXPAND, $filter: filter },
       async (page) => {
         fetched += page.length;
+        for (const raw of page) {
+          if (rows.length >= 20) break;
+          const m = mapRealcompListing(raw as Record<string, unknown>);
+          if (!m) continue;
+          rows.push({
+            address: m.address ?? null,
+            standardStatus: m.standardStatus,
+            closeDate: m.closeDate ? new Date(m.closeDate).toISOString().slice(0, 10) : null,
+            closePrice: m.closePrice ?? null,
+          });
+        }
         upserted += await upsertRawListings(page as Record<string, unknown>[]);
       },
       { pageSize: 100, timeoutMs: 30_000, label: 'avm-addr' },
     );
   } catch (err) {
-    return { ok: false, fetched, upserted, reason: err instanceof Error ? err.message : 'fetch failed' };
+    return { ok: false, fetched, upserted, reason: err instanceof Error ? err.message : 'fetch failed', rows };
   }
-  return { ok: true, fetched, upserted };
+  return { ok: true, fetched, upserted, rows };
 }
