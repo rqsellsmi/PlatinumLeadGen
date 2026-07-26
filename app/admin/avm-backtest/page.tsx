@@ -242,6 +242,8 @@ function RunView({ run }: { run: BacktestRun }) {
             Facts source: <span className="font-semibold text-mute">{subject.factsSource}</span> · comp pool: {run.compPoolSize} sales
           </p>
           <div className="flex flex-wrap gap-x-6 gap-y-1 text-mute">
+            <Fact k="Type" v={subject.propertySubType ?? subject.propertyType} />
+            <Fact k="Stories" v={subject.stories} />
             <Fact k="Beds" v={subject.beds} />
             <Fact k="Baths" v={subject.baths} />
             <Fact k="Sqft" v={subject.sqft} />

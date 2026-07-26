@@ -24,6 +24,7 @@ import { valuateFromComps, type AvmResult, type AvmSubject } from './valuate';
 import { fetchAddressHistoryFromMls } from './addressHistory';
 import { sameProperty } from './addressMatch';
 import { applyUpdates, hasUpdates, type SubjectUpdates } from './updates';
+import { parseStories } from './engine';
 
 export interface BacktestRun {
   id: number | null;
@@ -88,6 +89,8 @@ function subjectFromListing(l: IdxListing, factsSource: string, fallback: IdxLis
     sqft: l.livingArea,
     yearBuilt: l.yearBuilt,
     propertyType: l.propertyType ?? l.propertySubType,
+    propertySubType: l.propertySubType,
+    stories: parseStories(l.storiesTotal, l.levels),
     lotSizeAcres: l.lotSizeAcres,
     garageSpaces: l.garageSpaces,
     basement: l.basement,
@@ -198,6 +201,8 @@ export async function runBacktest(inputAddress: string, updates?: SubjectUpdates
           sqft: r.sqft,
           yearBuilt: r.yearBuilt,
           propertyType: r.propertyType,
+          propertySubType: heldOut.propertySubType, // property family is identity, not a valuation fact
+          stories: r.stories ?? parseStories(heldOut.storiesTotal, heldOut.levels),
           lotSizeAcres: r.lotSizeAcres,
           garageSpaces: r.garageSpaces,
           basement: null, // provider is blind to basement finish/walkout/egress
@@ -218,6 +223,8 @@ export async function runBacktest(inputAddress: string, updates?: SubjectUpdates
         latitude: heldOut.latitude,
         longitude: heldOut.longitude,
         beds: null, baths: null, sqft: null, yearBuilt: null, propertyType: heldOut.propertyType,
+        propertySubType: heldOut.propertySubType, // family/stories are identity, not valuation facts
+        stories: parseStories(heldOut.storiesTotal, heldOut.levels),
         lotSizeAcres: null, garageSpaces: null, basement: null, waterfront: null, frontageFeet: null, pool: null,
         factsSource: 'insufficient (no prior sale, no provider record)',
       };

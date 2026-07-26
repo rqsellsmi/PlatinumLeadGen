@@ -5,6 +5,7 @@ import {
   adjustComp,
   reconcile,
   hardFilterReason,
+  parseStories,
   propertyFamily,
   statusReliability,
   DEFAULT_COEFFICIENTS,
@@ -136,6 +137,7 @@ describe('applyUpdates (upgrades since last sale)', () => {
   const subject: AvmSubject = {
     address: '5915 Chickadee Ln', city: 'Clarkston', latitude: 42.7, longitude: -83.4,
     beds: 3, baths: 2, sqft: 1800, yearBuilt: 1995, propertyType: 'Single Family Residence',
+    propertySubType: 'Single Family Residence', stories: 1,
     lotSizeAcres: 1, garageSpaces: 2, basement: 'Unfinished', waterfront: false, frontageFeet: null,
     pool: null, factsSource: 'MLS prior sale',
   };
@@ -189,6 +191,29 @@ describe('propertyFamily', () => {
   it('buckets single-family and condo', () => {
     expect(propertyFamily('Single Family Residence')).toBe('single');
     expect(propertyFamily('Condominium')).toBe('condo');
+  });
+  it('classifies a condo from subType even when PropertyType is "Residential"', () => {
+    // The bug: a condo's PropertyType is "Residential" → looked "single". Passing
+    // subType + type (as the engine now does) classifies it correctly.
+    expect(propertyFamily('Condominium', 'Residential')).toBe('condo');
+    expect(propertyFamily('Single Family Residence', 'Residential')).toBe('single');
+  });
+});
+
+describe('parseStories', () => {
+  it('prefers the numeric StoriesTotal', () => {
+    expect(parseStories(2, 'One')).toBe(2);
+  });
+  it('parses the Levels enum text', () => {
+    expect(parseStories(null, 'One')).toBe(1);
+    expect(parseStories(null, 'Two')).toBe(2);
+    expect(parseStories(null, 'Tri-Level')).toBe(3);
+    expect(parseStories(null, 'One and One Half')).toBe(1.5);
+    expect(parseStories(null, 'Bi-Level')).toBe(2);
+  });
+  it('is null when unknown', () => {
+    expect(parseStories(null, null)).toBeNull();
+    expect(parseStories(null, '')).toBeNull();
   });
 });
 

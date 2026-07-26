@@ -22,6 +22,7 @@ import {
   adjustComp,
   hardFilterReason,
   makeDriverSet,
+  parseStories,
   propertyFamily,
   reconcile,
   statusReliability,
@@ -61,6 +62,8 @@ export interface AvmSubject {
   sqft: number | null;
   yearBuilt: number | null;
   propertyType: string | null;
+  propertySubType: string | null; // e.g. "Condominium" vs "Single Family Residence"
+  stories: number | null;
   lotSizeAcres: number | null;
   garageSpaces: number | null;
   basement: string | null;
@@ -168,7 +171,9 @@ export function valuateFromComps(
 ): AvmResult {
   const { limit = 8, minComps = 5, maxRadiusMiles = 12, now = new Date(), coeffs = DEFAULT_COEFFICIENTS } = options;
 
-  const subjFamily = propertyFamily(subject.propertyType);
+  // Family from subType + type (a condo's PropertyType is "Residential" — only the
+  // subType "Condominium" reveals it), matching how comps are classified.
+  const subjFamily = propertyFamily(subject.propertySubType, subject.propertyType);
   const subjComparable: ComparableSubject = {
     latitude: subject.latitude,
     longitude: subject.longitude,
@@ -177,7 +182,8 @@ export function valuateFromComps(
     baths: subject.baths,
     sqft: subject.sqft,
     yearBuilt: subject.yearBuilt,
-    propertyType: subject.propertyType,
+    // Pass the more specific subtype so similarityScore's family term is right too.
+    propertyType: subject.propertySubType ?? subject.propertyType,
     estimatedValue: null,
   };
   const subjDrivers = subjectDrivers(subject);
@@ -199,13 +205,20 @@ export function valuateFromComps(
     passing.push(comp);
   }
 
-  // Score every passing comp on distance + attribute similarity.
+  // Score every passing comp: attribute similarity, PLUS a same-#-of-floors
+  // preference (a ranch and a 2-story of equal sqft are different products) and an
+  // EXTRA proximity emphasis on top of similarityScore's mild distance term, so the
+  // closest comps are weighted more (owner direction). Lower = more comparable.
   const scored = passing.map((comp) => {
     const dist =
       subject.latitude != null && subject.longitude != null && comp.latitude != null && comp.longitude != null
         ? approxMiles(subject.latitude, subject.longitude, comp.latitude, comp.longitude)
         : null;
-    return { comp, dist, similarity: similarityScore(subjComparable, comp) };
+    const base = similarityScore(subjComparable, comp);
+    const compStories = parseStories(comp.storiesTotal, comp.levels);
+    const storyPenalty = subject.stories != null && compStories != null ? Math.abs(subject.stories - compStories) * 2 : 0;
+    const distPenalty = dist != null ? dist * 0.5 : 0;
+    return { comp, dist, similarity: base + storyPenalty + distPenalty };
   });
 
   // CLOSEST-FIRST ring expansion: use the tightest radius that yields at least
@@ -245,6 +258,8 @@ export function valuateFromComps(
     else if (sameCity) reasonBits.push('same city');
     if (comp.bedsTotal != null || comp.bathsTotal != null) reasonBits.push(`${comp.bedsTotal ?? '?'}bd/${comp.bathsTotal ?? '?'}ba`);
     if (comp.livingArea != null) reasonBits.push(`${comp.livingArea.toLocaleString('en-US')} sqft`);
+    const cs = parseStories(comp.storiesTotal, comp.levels);
+    if (cs != null) reasonBits.push(cs === 1 ? '1-story' : `${cs}-story`);
     if (isClosed) {
       const m = monthsAgo(comp.closeDate, now);
       reasonBits.push(m != null ? `sold ${m} mo before` : 'sold');

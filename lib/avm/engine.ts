@@ -308,6 +308,28 @@ export function reconcile(comps: ReconInput[]): Reconciliation {
   return { value: Math.round(value), low, high, confidence, compsUsed: usable.length };
 }
 
+/**
+ * Story/level count from the structured fields. Prefers the numeric
+ * `StoriesTotal`; else parses the RESO `Levels` enum text ("One", "Two",
+ * "Tri-Level", "One and One Half", "Bi-Level", "Quad-Level"). Null when unknown.
+ */
+export function parseStories(
+  storiesTotal: number | null | undefined,
+  levels: string | null | undefined,
+): number | null {
+  if (storiesTotal != null && storiesTotal > 0) return storiesTotal;
+  const s = (levels ?? '').toLowerCase();
+  if (!s) return null;
+  if (/one and one half|1 1\/2|1\.5/.test(s)) return 1.5;
+  if (/two and|2\.5/.test(s)) return 2.5;
+  if (/tri|three/.test(s)) return 3;
+  if (/quad|four/.test(s)) return 4;
+  if (/bi-?level/.test(s)) return 2;
+  if (/\btwo\b|\b2\b/.test(s)) return 2;
+  if (/\bone\b|\b1\b/.test(s)) return 1;
+  return null;
+}
+
 /** Coarse property-family bucket (mirrors lib/idx.propertyFamily, kept local & pure). */
 export function propertyFamily(...values: (string | null | undefined)[]): string | null {
   const s = values.filter(Boolean).join(' ').toLowerCase();
