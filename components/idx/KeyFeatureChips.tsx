@@ -1,4 +1,5 @@
 import type { KeyFeature, KeyFeatureIcon } from '@/lib/listingFeatures';
+import { humanizeEnum } from '@/lib/prettyEnum';
 
 /** Inline SVG icons for the key-feature chips (same style as AreaHighlights). */
 function Icon({ name }: { name: KeyFeatureIcon }) {
@@ -102,7 +103,7 @@ export default function KeyFeatureChips({ features }: { features: KeyFeature[] }
           <span className="text-platinum-blue">
             <Icon name={f.icon} />
           </span>
-          {f.label}
+          {humanizeEnum(f.label)}
         </span>
       ))}
     </div>

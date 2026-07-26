@@ -11,6 +11,7 @@ import ListingContact from '@/components/idx/ListingContact';
 import AreaHighlights from '@/components/idx/AreaHighlights';
 import MarketReport from '@/components/idx/MarketReport';
 import { buildKeyFeatures } from '@/lib/listingFeatures';
+import { humanizeEnum } from '@/lib/prettyEnum';
 import RealcompLogo from '@/components/idx/RealcompLogo';
 import IdxCompliance from '@/components/idx/IdxCompliance';
 import { getListingByKey, getListingPhotos, getCityMarketReport, type IdxCard, type CityMarketReport } from '@/lib/idx';
@@ -377,7 +378,7 @@ export default async function ListingDetailPage({
                         }`}
                       >
                         <dt className="text-mute">{f.label}</dt>
-                        <dd className="text-right font-semibold text-charcoal">{f.value}</dd>
+                        <dd className="text-right font-semibold text-charcoal">{humanizeEnum(f.value)}</dd>
                       </div>
                     ))}
                   </dl>
