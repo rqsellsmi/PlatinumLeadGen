@@ -24,7 +24,7 @@ import { valuateFromComps, type AvmResult, type AvmSubject } from './valuate';
 import { fetchAddressHistoryFromMls } from './addressHistory';
 import { sameProperty } from './addressMatch';
 import { applyUpdates, hasUpdates, type SubjectUpdates } from './updates';
-import { parseStories } from './engine';
+import { parseStories, inferWaterfront, waterClass, detectPoleBarn } from './engine';
 
 export interface BacktestRun {
   id: number | null;
@@ -94,9 +94,13 @@ function subjectFromListing(l: IdxListing, factsSource: string, fallback: IdxLis
     lotSizeAcres: l.lotSizeAcres,
     garageSpaces: l.garageSpaces,
     basement: l.basement,
-    waterfront: l.waterfrontYN,
+    waterfront: inferWaterfront(l.waterfrontYN, l.waterBodyName, l.waterfrontFeatures, l.waterFrontageFeet),
     frontageFeet: l.waterFrontageFeet,
+    waterBodyName: l.waterBodyName,
+    waterFeatures: l.waterfrontFeatures,
+    waterClass: waterClass(l.waterfrontYN, l.waterBodyName, l.waterfrontFeatures, l.waterFrontageFeet),
     pool: l.poolPrivateYN,
+    poleBarn: detectPoleBarn(l.exteriorFeatures, l.publicRemarks),
     factsSource,
   };
 }
@@ -206,9 +210,13 @@ export async function runBacktest(inputAddress: string, updates?: SubjectUpdates
           lotSizeAcres: r.lotSizeAcres,
           garageSpaces: r.garageSpaces,
           basement: null, // provider is blind to basement finish/walkout/egress
-          waterfront: null,
-          frontageFeet: null,
+          waterfront: inferWaterfront(heldOut.waterfrontYN, heldOut.waterBodyName, heldOut.waterfrontFeatures, heldOut.waterFrontageFeet),
+          frontageFeet: heldOut.waterFrontageFeet,
+          waterBodyName: heldOut.waterBodyName,
+          waterFeatures: heldOut.waterfrontFeatures,
+          waterClass: waterClass(heldOut.waterfrontYN, heldOut.waterBodyName, heldOut.waterfrontFeatures, heldOut.waterFrontageFeet),
           pool: r.pool,
+          poleBarn: detectPoleBarn(heldOut.exteriorFeatures, heldOut.publicRemarks),
           factsSource: `provider record (${pr.provider})`,
         };
         notes.push('No prior MLS sale; subject characterized from the provider record (blind to non-standard drivers).');
@@ -223,9 +231,16 @@ export async function runBacktest(inputAddress: string, updates?: SubjectUpdates
         latitude: heldOut.latitude,
         longitude: heldOut.longitude,
         beds: null, baths: null, sqft: null, yearBuilt: null, propertyType: heldOut.propertyType,
-        propertySubType: heldOut.propertySubType, // family/stories are identity, not valuation facts
+        propertySubType: heldOut.propertySubType, // family/stories/waterfront are identity, not valuation facts
         stories: parseStories(heldOut.storiesTotal, heldOut.levels),
-        lotSizeAcres: null, garageSpaces: null, basement: null, waterfront: null, frontageFeet: null, pool: null,
+        lotSizeAcres: null, garageSpaces: null, basement: null,
+        waterfront: inferWaterfront(heldOut.waterfrontYN, heldOut.waterBodyName, heldOut.waterfrontFeatures, heldOut.waterFrontageFeet),
+        frontageFeet: heldOut.waterFrontageFeet,
+        waterBodyName: heldOut.waterBodyName,
+        waterFeatures: heldOut.waterfrontFeatures,
+        waterClass: waterClass(heldOut.waterfrontYN, heldOut.waterBodyName, heldOut.waterfrontFeatures, heldOut.waterFrontageFeet),
+        pool: null,
+        poleBarn: detectPoleBarn(heldOut.exteriorFeatures, heldOut.publicRemarks),
         factsSource: 'insufficient (no prior sale, no provider record)',
       };
       notes.push('No prior sale and no provider record — subject facts are minimal, so adjustments are limited.');

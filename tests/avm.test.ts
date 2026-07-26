@@ -5,6 +5,11 @@ import {
   adjustComp,
   reconcile,
   hardFilterReason,
+  inferWaterfront,
+  waterClass,
+  lakeType,
+  lakeTypeAdjustment,
+  detectPoleBarn,
   parseStories,
   propertyFamily,
   statusReliability,
@@ -81,6 +86,25 @@ describe('adjustComp', () => {
     const r = adjustComp(subject, comp, 250_000);
     // finished 20k + walkout 15k + egress 3k = +38k
     expect(r.adjustedPrice).toBe(288_000);
+  });
+
+  it('adds a pole-barn premium when the subject has one and the comp does not', () => {
+    const subject = makeDriverSet({ ...baseInput, poleBarn: true });
+    const comp = makeDriverSet({ ...baseInput, poleBarn: false });
+    expect(adjustComp(subject, comp, 300_000).adjustedPrice).toBe(330_000);
+    // No premium when both have one.
+    const compWithBarn = makeDriverSet({ ...baseInput, poleBarn: true });
+    expect(adjustComp(subject, compWithBarn, 300_000).adjustedPrice).toBe(300_000);
+  });
+});
+
+describe('detectPoleBarn', () => {
+  it('detects a pole barn from remarks/features', () => {
+    expect(detectPoleBarn('Huge 30x40 pole barn with concrete')).toBe(true);
+    expect(detectPoleBarn(null, 'Includes an outbuilding')).toBe(true);
+  });
+  it('is false with no mention', () => {
+    expect(detectPoleBarn('Updated kitchen, new roof')).toBe(false);
   });
 });
 
@@ -174,16 +198,22 @@ function reconcileInput(p: number): ReconInput {
 
 describe('hardFilterReason', () => {
   it('rejects an off-water comp for a waterfront subject', () => {
-    expect(hardFilterReason(true, 'single', false, 'single')).toMatch(/off-water/);
+    expect(hardFilterReason('frontage', 'single', 'none', 'single')).toMatch(/off-water/);
   });
-  it('rejects a waterfront comp for a non-waterfront subject', () => {
-    expect(hardFilterReason(false, 'single', true, 'single')).toMatch(/waterfront/);
+  it('rejects a lake-access comp for a waterfront subject', () => {
+    expect(hardFilterReason('frontage', 'single', 'access', 'single')).toMatch(/lake-access/);
+  });
+  it('rejects a waterfront comp for an off-water subject', () => {
+    expect(hardFilterReason('none', 'single', 'frontage', 'single')).toMatch(/waterfront/);
+  });
+  it('treats across-road frontage as the same water group as direct frontage', () => {
+    expect(hardFilterReason('frontage', 'single', 'across_road', 'single')).toBeNull();
   });
   it('rejects a different property family', () => {
-    expect(hardFilterReason(false, 'single', false, 'condo')).toMatch(/different property type/);
+    expect(hardFilterReason('none', 'single', 'none', 'condo')).toMatch(/different property type/);
   });
   it('passes a matching comp', () => {
-    expect(hardFilterReason(true, 'single', true, 'single')).toBeNull();
+    expect(hardFilterReason('frontage', 'single', 'frontage', 'single')).toBeNull();
   });
 });
 
@@ -197,6 +227,61 @@ describe('propertyFamily', () => {
     // subType + type (as the engine now does) classifies it correctly.
     expect(propertyFamily('Condominium', 'Residential')).toBe('condo');
     expect(propertyFamily('Single Family Residence', 'Residential')).toBe('single');
+  });
+});
+
+describe('inferWaterfront', () => {
+  it('treats a named lake as waterfront even when WaterfrontYN is unchecked', () => {
+    // The Deer Lake case: WaterfrontYN false/null but WaterBodyName + "All Sports Lake".
+    expect(inferWaterfront(null, 'Deer Lake', 'All Sports Lake', null)).toBe(true);
+    expect(inferWaterfront(false, 'Deer Lake', null, null)).toBe(true);
+  });
+  it('treats frontage feet or the YN flag as waterfront', () => {
+    expect(inferWaterfront(true, null, null, null)).toBe(true);
+    expect(inferWaterfront(null, null, null, 80)).toBe(true);
+  });
+  it('is not waterfront for an off-water home', () => {
+    expect(inferWaterfront(false, null, null, null)).toBe(false);
+  });
+  it('does not flip on a bare "water view" feature', () => {
+    expect(inferWaterfront(null, null, 'Water View', null)).toBe(false);
+  });
+});
+
+describe('waterClass', () => {
+  it('classifies direct frontage from a named lake / all-sports', () => {
+    expect(waterClass(null, 'Deer Lake', 'All Sports Lake', null)).toBe('frontage');
+    expect(waterClass(true, null, null, null)).toBe('frontage');
+  });
+  it('classifies lake access separately from frontage', () => {
+    expect(waterClass(false, 'Deer Lake', 'Lake Privileges, Shared Frontage', null)).toBe('access');
+  });
+  it('classifies across-road waterfront', () => {
+    expect(waterClass(null, 'Deer Lake', 'Water Frontage Across Road', null)).toBe('across_road');
+  });
+  it('classifies view and none', () => {
+    expect(waterClass(null, null, 'Water View', null)).toBe('view');
+    expect(waterClass(false, null, null, null)).toBe('none');
+  });
+});
+
+describe('lakeType + lakeTypeAdjustment', () => {
+  it('detects all-sports vs no-wake', () => {
+    expect(lakeType('All Sports Lake')).toBe('all_sports');
+    expect(lakeType('No Wake Lake')).toBe('no_wake');
+    expect(lakeType('Lake Front')).toBeNull();
+  });
+  it('adjusts a no-wake comp UP toward an all-sports subject', () => {
+    const li = lakeTypeAdjustment('all_sports', 'no_wake');
+    expect(li?.amount).toBeGreaterThan(0);
+  });
+  it('adjusts an all-sports comp DOWN toward a no-wake subject', () => {
+    const li = lakeTypeAdjustment('no_wake', 'all_sports');
+    expect(li?.amount).toBeLessThan(0);
+  });
+  it('is null when types match or are unknown', () => {
+    expect(lakeTypeAdjustment('all_sports', 'all_sports')).toBeNull();
+    expect(lakeTypeAdjustment('all_sports', null)).toBeNull();
   });
 });
 

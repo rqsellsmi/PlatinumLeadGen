@@ -23,6 +23,7 @@ export interface SubjectUpdates {
   addedWalkout?: boolean;
   addedEgress?: boolean;
   addedPool?: boolean;
+  addedPoleBarn?: boolean;
 }
 
 /** True if any update field is set. */
@@ -30,7 +31,7 @@ export function hasUpdates(u: SubjectUpdates | null | undefined): boolean {
   if (!u) return false;
   return Boolean(
     u.addedBeds || u.addedBaths || u.addedSqft || u.addedGarageBays ||
-      u.finishedBasement || u.addedWalkout || u.addedEgress || u.addedPool,
+      u.finishedBasement || u.addedWalkout || u.addedEgress || u.addedPool || u.addedPoleBarn,
   );
 }
 
@@ -69,6 +70,7 @@ export function applyUpdates(
   if (basementParts.length) s.basement = [s.basement, ...basementParts].filter(Boolean).join(', ');
 
   if (u.addedPool) { s.pool = true; applied.push('pool'); }
+  if (u.addedPoleBarn) { s.poleBarn = true; applied.push('pole barn'); }
 
   if (applied.length) s.factsSource = `${subject.factsSource} + updates (${applied.join(', ')})`;
   return { subject: s, applied, skipped };

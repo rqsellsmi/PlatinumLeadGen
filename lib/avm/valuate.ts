@@ -20,16 +20,22 @@ import {
   DEFAULT_COEFFICIENTS,
   ENGINE_VERSION,
   adjustComp,
+  detectPoleBarn,
   hardFilterReason,
+  inferWaterfront,
+  lakeType,
+  lakeTypeAdjustment,
   makeDriverSet,
   parseStories,
   propertyFamily,
   reconcile,
   statusReliability,
+  waterClass,
   type AvmCoefficients,
   type Confidence,
   type LineItem,
   type ReconInput,
+  type WaterClass,
 } from './engine';
 
 /** Radius rings (miles) tried in order — the tightest with enough comps wins. */
@@ -69,7 +75,11 @@ export interface AvmSubject {
   basement: string | null;
   waterfront: boolean | null;
   frontageFeet: number | null;
+  waterBodyName?: string | null; // e.g. "Deer Lake" — for display / why-waterfront
+  waterFeatures?: string | null; // raw WaterfrontFeatures (for lake type)
+  waterClass?: WaterClass | null; // frontage | across_road | access | view | none
   pool: boolean | null;
+  poleBarn?: boolean | null;
   /** Provenance label — where these facts came from (spec §18.3). */
   factsSource: string;
 }
@@ -79,6 +89,7 @@ export interface AvmCompDetail {
   address: string | null;
   city: string | null;
   status: string; // Closed | Pending | ActiveUnderContract | Active
+  waterClass: WaterClass | null;
   daysOnMarket: number | null;
   closeDate: Date | null;
   distanceMiles: number | null;
@@ -134,8 +145,13 @@ function subjectDrivers(s: AvmSubject) {
     frontageFeet: s.frontageFeet,
     basement: s.basement,
     pool: s.pool,
+    poleBarn: s.poleBarn,
     yearBuilt: s.yearBuilt,
   });
+}
+
+function compWaterfront(c: IdxListing): boolean | null {
+  return inferWaterfront(c.waterfrontYN, c.waterBodyName, c.waterfrontFeatures, c.waterFrontageFeet);
 }
 
 function compDrivers(c: IdxListing) {
@@ -145,10 +161,11 @@ function compDrivers(c: IdxListing) {
     baths: c.bathsTotal,
     garageSpaces: c.garageSpaces,
     acreage: c.lotSizeAcres,
-    waterfront: c.waterfrontYN,
+    waterfront: compWaterfront(c),
     frontageFeet: c.waterFrontageFeet,
     basement: c.basement,
     pool: c.poolPrivateYN,
+    poleBarn: detectPoleBarn(c.exteriorFeatures, c.publicRemarks),
     yearBuilt: c.yearBuilt,
   });
 }
@@ -187,6 +204,10 @@ export function valuateFromComps(
     estimatedValue: null,
   };
   const subjDrivers = subjectDrivers(subject);
+  const subjWaterClass =
+    subject.waterClass ?? waterClass(null, subject.waterBodyName, subject.waterFeatures, subject.frontageFeet);
+  const subjLakeType = lakeType(subject.waterFeatures);
+  const subjBody = subject.waterBodyName?.trim().toLowerCase() || null;
 
   const rejected: AvmRejected[] = [];
   const passing: IdxListing[] = [];
@@ -197,7 +218,8 @@ export function valuateFromComps(
       continue;
     }
     const compFamily = propertyFamily(comp.propertySubType, comp.propertyType);
-    const reason = hardFilterReason(subject.waterfront, subjFamily, comp.waterfrontYN, compFamily);
+    const cWaterClass = waterClass(comp.waterfrontYN, comp.waterBodyName, comp.waterfrontFeatures, comp.waterFrontageFeet);
+    const reason = hardFilterReason(subjWaterClass, subjFamily, cWaterClass, compFamily);
     if (reason) {
       rejected.push({ listingKey: comp.listingKey, address: comp.address, reason: `excluded — ${reason}` });
       continue;
@@ -206,8 +228,9 @@ export function valuateFromComps(
   }
 
   // Score every passing comp: attribute similarity, PLUS a same-#-of-floors
-  // preference (a ranch and a 2-story of equal sqft are different products) and an
-  // EXTRA proximity emphasis on top of similarityScore's mild distance term, so the
+  // preference (a ranch and a 2-story of equal sqft are different products), a
+  // water preference (same lake > same lake-type > different type), and an EXTRA
+  // proximity emphasis on top of similarityScore's mild distance term, so the
   // closest comps are weighted more (owner direction). Lower = more comparable.
   const scored = passing.map((comp) => {
     const dist =
@@ -218,7 +241,18 @@ export function valuateFromComps(
     const compStories = parseStories(comp.storiesTotal, comp.levels);
     const storyPenalty = subject.stories != null && compStories != null ? Math.abs(subject.stories - compStories) * 2 : 0;
     const distPenalty = dist != null ? dist * 0.5 : 0;
-    return { comp, dist, similarity: base + storyPenalty + distPenalty };
+
+    // Water preference (only meaningful for on-water subjects): a comp on the SAME
+    // lake is ideal; else same motor policy (all-sports/no-wake) beats a different one.
+    let waterPenalty = 0;
+    if (subjWaterClass === 'frontage' || subjWaterClass === 'across_road') {
+      const compBody = comp.waterBodyName?.trim().toLowerCase() || null;
+      const compLake = lakeType(comp.waterfrontFeatures);
+      if (subjBody && compBody && subjBody === compBody) waterPenalty = 0;
+      else if (subjLakeType && compLake) waterPenalty = subjLakeType === compLake ? 0.5 : 2.5;
+      else waterPenalty = 1;
+    }
+    return { comp, dist, similarity: base + storyPenalty + distPenalty + waterPenalty };
   });
 
   // CLOSEST-FIRST ring expansion: use the tightest radius that yields at least
@@ -247,6 +281,22 @@ export function valuateFromComps(
   for (const { comp, dist, similarity } of chosen) {
     const rawPrice = (comp.closePrice ?? comp.listPrice)!;
     const adj = adjustComp(subjDrivers, compDrivers(comp), rawPrice, coeffs);
+
+    // Lake-type premium (all-sports vs no-wake), on top of the structured grid,
+    // when both homes are on the water.
+    let lineItems = adj.lineItems;
+    let adjustedPrice = adj.adjustedPrice;
+    let totalAdjustment = adj.totalAdjustment;
+    const cWaterClass = waterClass(comp.waterfrontYN, comp.waterBodyName, comp.waterfrontFeatures, comp.waterFrontageFeet);
+    if ((subjWaterClass === 'frontage' || subjWaterClass === 'across_road') && (cWaterClass === 'frontage' || cWaterClass === 'across_road')) {
+      const lt = lakeTypeAdjustment(subjLakeType, lakeType(comp.waterfrontFeatures), coeffs);
+      if (lt) {
+        lineItems = [...lineItems, lt];
+        adjustedPrice += lt.amount;
+        totalAdjustment += Math.abs(lt.amount);
+      }
+    }
+
     const withinRadius = dist != null && dist <= maxRadiusMiles;
     const reliability = statusReliability(comp.standardStatus);
     const isClosed = comp.standardStatus === 'Closed';
@@ -260,6 +310,11 @@ export function valuateFromComps(
     if (comp.livingArea != null) reasonBits.push(`${comp.livingArea.toLocaleString('en-US')} sqft`);
     const cs = parseStories(comp.storiesTotal, comp.levels);
     if (cs != null) reasonBits.push(cs === 1 ? '1-story' : `${cs}-story`);
+    if (cWaterClass && cWaterClass !== 'none') {
+      const wl = cWaterClass === 'across_road' ? 'across-road WF' : cWaterClass;
+      const lk = comp.waterBodyName?.trim();
+      reasonBits.push(lk ? `${wl} (${lk})` : wl);
+    }
     if (isClosed) {
       const m = monthsAgo(comp.closeDate, now);
       reasonBits.push(m != null ? `sold ${m} mo before` : 'sold');
@@ -273,22 +328,23 @@ export function valuateFromComps(
       address: comp.internetAddressDisplayYN === false ? null : comp.address,
       city: comp.city,
       status: comp.standardStatus,
+      waterClass: cWaterClass,
       daysOnMarket: comp.daysOnMarket,
       closeDate: comp.closeDate,
       distanceMiles: dist,
       rawPrice,
-      adjustedPrice: adj.adjustedPrice,
+      adjustedPrice,
       similarity,
-      totalAdjustment: adj.totalAdjustment,
+      totalAdjustment,
       reliability,
-      lineItems: adj.lineItems,
+      lineItems,
       reason: reasonBits.join(' · '),
     });
     reconInputs.push({
-      adjustedPrice: adj.adjustedPrice,
+      adjustedPrice,
       rawPrice,
       similarity,
-      totalAdjustment: adj.totalAdjustment,
+      totalAdjustment,
       withinRadius,
       statusWeight: reliability,
     });

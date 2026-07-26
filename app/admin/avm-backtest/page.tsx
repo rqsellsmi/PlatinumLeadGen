@@ -10,7 +10,7 @@ import {
   type BacktestRun,
   type BacktestOutcome,
 } from '@/lib/avm/backtest';
-import { formatLineItem } from '@/lib/avm/engine';
+import { formatLineItem, lakeType } from '@/lib/avm/engine';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'AVM Backtest | Admin' };
@@ -38,6 +38,20 @@ function compStatusLabel(status: string): string {
   if (status === 'Pending') return 'Pending';
   if (status === 'Active') return 'Active';
   return status || 'Listed';
+}
+function waterClassLabel(c: string | null | undefined): string | null {
+  if (!c) return null;
+  if (c === 'frontage') return 'waterfront';
+  if (c === 'across_road') return 'waterfront (across road)';
+  if (c === 'access') return 'lake access';
+  if (c === 'view') return 'water view';
+  if (c === 'none') return 'off-water';
+  return c;
+}
+function lakeTypeLabel(t: string | null | undefined): string | null {
+  if (t === 'all_sports') return 'all-sports';
+  if (t === 'no_wake') return 'no-wake';
+  return null;
 }
 function compStatusTone(status: string): PillTone {
   if (status === 'Closed') return 'success';
@@ -77,6 +91,7 @@ export default async function AvmBacktestPage({
     addedWalkout: flag(searchParams.add_walkout),
     addedEgress: flag(searchParams.add_egress),
     addedPool: flag(searchParams.add_pool),
+    addedPoleBarn: flag(searchParams.add_pole_barn),
   };
 
   // `?run=<id>` re-opens a SAVED run (rebuilt from the stored row — no re-query,
@@ -128,6 +143,7 @@ export default async function AvmBacktestPage({
               add_walkout: flag(searchParams.add_walkout),
               add_egress: flag(searchParams.add_egress),
               add_pool: flag(searchParams.add_pool),
+              add_pole_barn: flag(searchParams.add_pole_barn),
             }}
           />
         </CardBody>
@@ -250,7 +266,9 @@ function RunView({ run }: { run: BacktestRun }) {
             <Fact k="Year" v={subject.yearBuilt} />
             <Fact k="Acreage" v={subject.lotSizeAcres} />
             <Fact k="Garage" v={subject.garageSpaces} />
-            <Fact k="Waterfront" v={subject.waterfront == null ? null : subject.waterfront ? 'yes' : 'no'} />
+            <Fact k="Water" v={waterClassLabel(subject.waterClass) ?? (subject.waterfront == null ? null : subject.waterfront ? 'waterfront' : 'off-water')} />
+            <Fact k="Lake" v={subject.waterBodyName} />
+            <Fact k="Lake type" v={lakeTypeLabel(lakeType(subject.waterFeatures))} />
             <Fact k="Frontage ft" v={subject.frontageFeet} />
             <Fact k="Basement" v={subject.basement} />
           </div>

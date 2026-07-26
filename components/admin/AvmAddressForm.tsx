@@ -13,6 +13,7 @@ export interface UpdateDefaults {
   add_walkout: boolean;
   add_egress: boolean;
   add_pool: boolean;
+  add_pole_barn: boolean;
 }
 
 /**
@@ -56,7 +57,7 @@ export default function AvmAddressForm({
   const hasUpdates =
     !!u &&
     (!!u.add_beds || !!u.add_baths || !!u.add_sqft || !!u.add_garage ||
-      u.fin_basement || u.add_walkout || u.add_egress || u.add_pool);
+      u.fin_basement || u.add_walkout || u.add_egress || u.add_pool || u.add_pole_barn);
 
   return (
     <>
@@ -97,6 +98,7 @@ export default function AvmAddressForm({
             <CheckField name="add_walkout" label="Added a walkout" defaultChecked={u?.add_walkout} />
             <CheckField name="add_egress" label="Added an egress window" defaultChecked={u?.add_egress} />
             <CheckField name="add_pool" label="Added an in-ground pool" defaultChecked={u?.add_pool} />
+            <CheckField name="add_pole_barn" label="Added a pole barn" defaultChecked={u?.add_pole_barn} />
           </div>
         </details>
       </form>

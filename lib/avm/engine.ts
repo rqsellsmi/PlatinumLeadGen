@@ -44,6 +44,8 @@ export interface AvmCoefficients {
   basementEgress: number; // $ for an egress window (bedroom-legal lower level)
   pool: number; // $ for an in-ground pool
   perYearNewer: number; // $ per year of effective-age difference
+  allSportsPremium: number; // $ premium of an all-sports lake over a no-wake lake
+  poleBarn: number; // $ for a pole barn / large outbuilding
 }
 
 export const DEFAULT_COEFFICIENTS: AvmCoefficients = {
@@ -58,7 +60,16 @@ export const DEFAULT_COEFFICIENTS: AvmCoefficients = {
   basementEgress: 3_000,
   pool: 20_000,
   perYearNewer: 500,
+  allSportsPremium: 30_000,
+  poleBarn: 30_000,
 };
+
+/** Detect a pole barn / large outbuilding from exterior features or remarks text. */
+export function detectPoleBarn(...texts: (string | null | undefined)[]): boolean {
+  const s = texts.filter(Boolean).join(' ').toLowerCase();
+  if (!s) return false;
+  return /pole ?barn|pole ?building|morton building|out ?building|outbuilding|second garage|\bshop\b/.test(s);
+}
 
 // ---------------------------------------------------------------------------
 // Drivers — the normalized value-driver view of a home.
@@ -76,6 +87,7 @@ export interface DriverSet {
   basementWalkout: boolean;
   basementEgress: boolean;
   pool: boolean | null;
+  poleBarn: boolean | null;
   yearBuilt: number | null;
 }
 
@@ -106,6 +118,7 @@ export interface DriverInput {
   frontageFeet: number | null;
   basement: string | null;
   pool: boolean | null;
+  poleBarn?: boolean | null;
   yearBuilt: number | null;
 }
 
@@ -124,6 +137,7 @@ export function makeDriverSet(f: DriverInput): DriverSet {
     basementWalkout: b.walkout,
     basementEgress: b.egress,
     pool: f.pool,
+    poleBarn: f.poleBarn ?? null,
     yearBuilt: f.yearBuilt,
   };
 }
@@ -204,6 +218,13 @@ export function adjustComp(
   if (subject.pool != null && comp.pool != null) {
     const d = (subject.pool ? 1 : 0) - (comp.pool ? 1 : 0);
     add('Pool', `${subject.pool ? 'yes' : 'no'} vs ${comp.pool ? 'yes' : 'no'}`, d * coeffs.pool);
+  }
+  // Pole barn: only add the premium when the SUBJECT is known to have one (pole
+  // barns aren't a clean structured field, so an undetected comp is treated as
+  // "none"; a comp we DID detect one on cancels the adjustment).
+  if (subject.poleBarn === true) {
+    const compHas = comp.poleBarn === true ? 1 : 0;
+    add('Pole barn', compHas ? 'both have one' : 'subject has one', (1 - compHas) * coeffs.poleBarn);
   }
   if (subject.yearBuilt != null && comp.yearBuilt != null) {
     const d = subject.yearBuilt - comp.yearBuilt;
@@ -330,6 +351,66 @@ export function parseStories(
   return null;
 }
 
+/**
+ * A home's relationship to water — these price and comp very differently:
+ *   - `frontage`   : direct water frontage (on the lake/river).
+ *   - `across_road`: waterfront across a road (common up-north; a discount to direct).
+ *   - `access`     : lake access / deeded / shared / association — no direct frontage.
+ *   - `view`       : water view only.
+ *   - `none`       : off water.
+ * The RESO `WaterfrontYN` boolean is often left unchecked even when the listing is
+ * clearly on a named lake, so we infer from all the water fields. Null = no signal.
+ */
+export type WaterClass = 'frontage' | 'across_road' | 'access' | 'view' | 'none';
+
+export function waterClass(
+  waterfrontYN: boolean | null | undefined,
+  waterBodyName: string | null | undefined,
+  waterfrontFeatures: string | null | undefined,
+  waterFrontageFeet: number | null | undefined,
+): WaterClass | null {
+  const f = (waterfrontFeatures ?? '').toLowerCase();
+  // Hard direct-frontage evidence (an agent-checked YN or entered frontage feet).
+  const directEvidence = waterfrontYN === true || (waterFrontageFeet != null && waterFrontageFeet > 0);
+  if (/across.?(the.?)?(road|street)/.test(f)) return 'across_road';
+  // Access / privileges (shared/deeded/common) — beats a bare "frontage" mention
+  // (e.g. "Shared Frontage"), but NOT hard direct evidence.
+  if (
+    !directEvidence &&
+    /(access|privile|shared|common|deeded|beach|boat ?launch|association|club)/.test(f)
+  ) {
+    return 'access';
+  }
+  if (directEvidence) return 'frontage';
+  if (/(water ?front|lake ?front|river ?front|\bfrontage\b|\bdock\b|sea ?wall|\bcanal\b|\bchannel\b|no ?wake|all ?sports)/.test(f)) {
+    return 'frontage';
+  }
+  if (waterBodyName && waterBodyName.trim()) return 'frontage'; // named body, no access keyword → assume frontage
+  if (/view/.test(f)) return 'view';
+  if (waterfrontYN === false) return 'none';
+  return null;
+}
+
+/** Coarse comp group for the hard filter: frontage/across-road together, access, dry. */
+export function waterGroup(c: WaterClass | null): 'frontage' | 'access' | 'dry' | null {
+  if (c == null) return null;
+  if (c === 'frontage' || c === 'across_road') return 'frontage';
+  if (c === 'access') return 'access';
+  return 'dry'; // view + none
+}
+
+/** Boolean "has water frontage" — used to gate the frontage $ adjustment + display. */
+export function inferWaterfront(
+  waterfrontYN: boolean | null | undefined,
+  waterBodyName: string | null | undefined,
+  waterfrontFeatures: string | null | undefined,
+  waterFrontageFeet: number | null | undefined,
+): boolean | null {
+  const c = waterClass(waterfrontYN, waterBodyName, waterfrontFeatures, waterFrontageFeet);
+  if (c == null) return null;
+  return c === 'frontage' || c === 'across_road';
+}
+
 /** Coarse property-family bucket (mirrors lib/idx.propertyFamily, kept local & pure). */
 export function propertyFamily(...values: (string | null | undefined)[]): string | null {
   const s = values.filter(Boolean).join(' ').toLowerCase();
@@ -341,19 +422,47 @@ export function propertyFamily(...values: (string | null | undefined)[]): string
   return null;
 }
 
+/** Lake motor policy — an all-sports lake commands a premium over a no-wake one. */
+export function lakeType(waterfrontFeatures: string | null | undefined): 'all_sports' | 'no_wake' | null {
+  const f = (waterfrontFeatures ?? '').toLowerCase();
+  if (/all ?sports?/.test(f)) return 'all_sports';
+  if (/no ?wake|no ?motor|electric ?only|non-?motor|all ?sports? restricted/.test(f)) return 'no_wake';
+  return null;
+}
+
 /**
- * Hard filter: a comp must share the subject's waterfront status (never comp
- * on-water against off-water — the single biggest lever, spec §6.1) and property
- * family. Returns a rejection reason, or null if the comp passes.
+ * Priced line item for a lake-type difference (all-sports vs no-wake), applied
+ * only when both homes are on the water. subject all-sports vs comp no-wake → the
+ * comp would be worth more AS the subject, so adjust it UP (and vice versa).
+ */
+export function lakeTypeAdjustment(
+  subjectType: 'all_sports' | 'no_wake' | null,
+  compType: 'all_sports' | 'no_wake' | null,
+  coeffs: AvmCoefficients = DEFAULT_COEFFICIENTS,
+): LineItem | null {
+  if (!subjectType || !compType || subjectType === compType) return null;
+  const amount = subjectType === 'all_sports' ? coeffs.allSportsPremium : -coeffs.allSportsPremium;
+  return { driver: 'Lake type', detail: `${compType.replace('_', '-')} → ${subjectType.replace('_', '-')}`, amount };
+}
+
+/**
+ * Hard filter: a comp must share the subject's WATER GROUP (frontage/across-road
+ * vs lake-access vs dry — never comp a lakefront against an access or off-water
+ * home, the single biggest lever, spec §6.1) and property family. Returns a
+ * rejection reason, or null if the comp passes.
  */
 export function hardFilterReason(
-  subjectWaterfront: boolean | null,
+  subjectWater: WaterClass | null,
   subjectFamily: string | null,
-  compWaterfront: boolean | null,
+  compWater: WaterClass | null,
   compFamily: string | null,
 ): string | null {
-  if (subjectWaterfront === true && compWaterfront !== true) return 'off-water (subject is waterfront)';
-  if (subjectWaterfront === false && compWaterfront === true) return 'waterfront (subject is not)';
+  const sg = waterGroup(subjectWater);
+  const cg = waterGroup(compWater);
+  if (sg && cg && sg !== cg) {
+    const label = (g: string) => (g === 'frontage' ? 'waterfront' : g === 'access' ? 'lake-access' : 'off-water');
+    return `${label(cg)} (subject is ${label(sg)})`;
+  }
   if (subjectFamily && compFamily && subjectFamily !== compFamily) {
     return `different property type (${compFamily} vs ${subjectFamily})`;
   }
