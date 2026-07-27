@@ -11,9 +11,20 @@
  * No secrets live in source.
  */
 
-export type OutboxMilestone = 'valid_seller_lead' | 'listing_signed' | 'closed';
+export type OutboxMilestone =
+  // Website / acquisition (fired when the lead is captured)
+  | 'seller_valuation'
+  | 'guide_download'
+  | 'appointment_requested'
+  // Pipeline / outcome (fired server-side from the CRM status flow)
+  | 'valid_seller_lead'
+  | 'listing_signed'
+  | 'closed';
 
 export const OUTBOX_MILESTONES: readonly OutboxMilestone[] = [
+  'seller_valuation',
+  'guide_download',
+  'appointment_requested',
   'valid_seller_lead',
   'listing_signed',
   'closed',
@@ -32,6 +43,12 @@ export function googleAdsCustomerId(): string {
 /** The offline conversion action id (Data Manager productDestinationId) per milestone. */
 export function conversionActionId(milestone: OutboxMilestone): string {
   switch (milestone) {
+    case 'seller_valuation':
+      return process.env.GOOGLE_ADS_ACTION_ID_SELLER_VALUATION || '';
+    case 'guide_download':
+      return process.env.GOOGLE_ADS_ACTION_ID_GUIDE_DOWNLOAD || '';
+    case 'appointment_requested':
+      return process.env.GOOGLE_ADS_ACTION_ID_APPOINTMENT || '';
     case 'valid_seller_lead':
       return process.env.GOOGLE_ADS_ACTION_ID_VALID_SELLER_LEAD || '';
     case 'listing_signed':

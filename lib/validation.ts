@@ -82,6 +82,9 @@ export const leadSubmitSchema = z.object({
   valuationToken: z.string().max(64).optional().nullable(),
   locationSlug: z.string().max(120).optional().nullable(),
   pageVariant: z.enum(['seo', 'ads']).optional().nullable(),
+  // Which downloadable guide this came from (seller_guide leads), for per-guide
+  // reporting (migration 0032). Sent by GuideDownloadBlock.
+  guideId: z.number().int().positive().optional().nullable(),
   ...attributionFields,
 });
 

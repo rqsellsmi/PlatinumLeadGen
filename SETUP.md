@@ -249,37 +249,53 @@ forwarded to the owner by email as unrecognized):
 
 ## 8. Google Ads offline conversions (lead-stage tracking)
 
-The platform already fires four **client-side** Google Ads conversions when a
-visitor submits a form. This section is the separate **server-side** pipeline
-that reports three **CRM pipeline milestones** back to Google Ads so bidding can
-optimize toward real listing opportunities, not just form fills:
+This reports lead events back to Google Ads **server-side** (via the Data Manager
+API) so bidding can optimize toward real listing opportunities, not just form
+fills. Two layers, six seller conversions (see
+`docs/superpowers/specs/2026-07-27-conversion-taxonomy-design.md` for the full
+taxonomy incl. the future buyer track):
 
-| CRM milestone (first time only) | Google conversion |
-|---|---|
-| Lead reaches **Nurturing** | **Valid Seller Lead** (the best bidding signal) |
-| Lead reaches **Signed** | **Listing Agreement Signed** |
-| Lead reaches **Closed** | **Closed Seller Listing** |
+**Website / acquisition** (fired when the lead is captured):
 
-The CRM is the source of truth: a qualifying first entry writes one row to
-`google_ads_conversion_outbox`, and a background worker
-(`/api/cron/google-ads-dispatch`, pinged by `cron.yml`) delivers it to Google's
-**Data Manager API**. The whole feature **no-ops silently** until the config
-below is set — nothing breaks if you never turn it on.
+| Event | Google conversion | Env var |
+|---|---|---|
+| Valuation form submitted | **Seller Valuation** | `GOOGLE_ADS_ACTION_ID_SELLER_VALUATION` |
+| Any seller-guide download | **Seller Guide Download** | `GOOGLE_ADS_ACTION_ID_GUIDE_DOWNLOAD` |
+| Appointment requested | **Appointment Requested** | `GOOGLE_ADS_ACTION_ID_APPOINTMENT` |
+
+**Pipeline / outcome** (first time the lead reaches the stage):
+
+| CRM milestone (first time only) | Google conversion | Env var |
+|---|---|---|
+| **Nurturing** | **Valid Seller Lead** (best bidding signal) | `GOOGLE_ADS_ACTION_ID_VALID_SELLER_LEAD` |
+| **Signed** | **Listing Agreement Signed** | `GOOGLE_ADS_ACTION_ID_LISTING_SIGNED` |
+| **Closed** | **Closed Seller Listing** | `GOOGLE_ADS_ACTION_ID_CLOSED` |
+
+The CRM is the source of truth: each qualifying event writes one row to
+`google_ads_conversion_outbox` (deduped once per lead by a UNIQUE index), and a
+background worker (`/api/cron/google-ads-dispatch`, pinged by `cron.yml`)
+delivers it to Google's **Data Manager API**. This runs **in parallel** with the
+existing client-side conversions — create the six as **Secondary** so nothing
+disturbs your current bidding, validate them, then retire the client-side ones
+and promote the server-side set. The whole feature **no-ops silently** until the
+config below is set.
 
 ### What you need from Google (and how to get it)
 
 1. **A Google Ads customer ID.** Google Ads → click your account; the 10-digit
    number (top right, `123-456-7890`) is it. Store **digits only** as
    `GOOGLE_ADS_CUSTOMER_ID`.
-2. **Three offline conversion actions.** Google Ads → **Goals → Conversions →
-   New conversion action → Import → Manual / Data Manager API**. Create three,
-   each with **"Count" = One**:
-   - *Valid Seller Lead* — category "Qualified lead"
-   - *Listing Agreement Signed* — category "Converted lead"
-   - *Closed Seller Listing* — category "Converted lead"
-   After creating each, copy its **conversion action ID** into
-   `GOOGLE_ADS_ACTION_ID_VALID_SELLER_LEAD` / `_LISTING_SIGNED` / `_CLOSED`.
-   Keep all three **Secondary** (not a bidding goal) during validation.
+2. **Six offline conversion actions.** Google Ads → **Goals → Conversions →
+   New conversion action → Import → Manual / Data Manager API**. Create each with
+   **"Count" = One** and set as **Secondary** (not a bidding goal) during
+   validation:
+   - *Seller Valuation* — category "Submit lead form" → `GOOGLE_ADS_ACTION_ID_SELLER_VALUATION`
+   - *Seller Guide Download* — category "Submit lead form" → `GOOGLE_ADS_ACTION_ID_GUIDE_DOWNLOAD`
+   - *Appointment Requested* — category "Book appointment" → `GOOGLE_ADS_ACTION_ID_APPOINTMENT`
+   - *Valid Seller Lead* — category "Qualified lead" → `GOOGLE_ADS_ACTION_ID_VALID_SELLER_LEAD`
+   - *Listing Agreement Signed* — category "Converted lead" → `GOOGLE_ADS_ACTION_ID_LISTING_SIGNED`
+   - *Closed Seller Listing* — category "Converted lead" → `GOOGLE_ADS_ACTION_ID_CLOSED`
+   After creating each, copy its **conversion action ID** into the matching env var.
 3. **A Google Cloud project with the Data Manager API enabled.** Google Cloud
    Console → APIs & Services → **Enable APIs** → search **"Data Manager API"** →
    Enable. (The API itself is **free** — you're billed only for ads, never for

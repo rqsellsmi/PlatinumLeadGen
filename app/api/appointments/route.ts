@@ -7,6 +7,7 @@ import { appointmentRequests, leadEvents } from '@/drizzle/schema';
 import { appointmentSchema } from '@/lib/validation';
 import { sendEmail, appointmentNotificationEmail } from '@/lib/email';
 import { attributionColumns } from '@/lib/attributionServer';
+import { enqueueGoogleAdsAppointment } from '@/lib/googleAdsOutbox';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -33,15 +34,27 @@ export async function POST(req: NextRequest) {
 
     // Lead event timeline (§D.4) — link the appointment to its originating lead.
     if (input.leadId != null) {
+      let apptEventId: number | null = null;
       try {
-        await db.insert(leadEvents).values({
-          leadId: input.leadId,
-          eventType: 'appointment_requested',
-          note: input.preferredTime ? `Preferred: ${input.preferredTime}` : null,
-        });
+        const rows = await db
+          .insert(leadEvents)
+          .values({
+            leadId: input.leadId,
+            eventType: 'appointment_requested',
+            note: input.preferredTime ? `Preferred: ${input.preferredTime}` : null,
+          })
+          .returning({ id: leadEvents.id });
+        apptEventId = rows[0]?.id ?? null;
       } catch (err) {
         console.error('[api/appointments] lead event failed:', err);
       }
+      // Google Ads appointment-requested conversion (best-effort, no-op until
+      // configured; deduped once per lead by the outbox unique index).
+      await enqueueGoogleAdsAppointment({
+        leadId: input.leadId,
+        sourceEventId: apptEventId,
+        occurredAt: new Date(),
+      });
     }
 
     try {

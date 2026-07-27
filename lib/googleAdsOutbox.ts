@@ -25,7 +25,7 @@ import { hashedEmail, hashedPhone } from './googleAdsHash';
 
 export type UpdateChannel = 'web' | 'phone' | 'other';
 
-/** Map a lead status to its Google conversion milestone, or null if it isn't a trigger. */
+/** Map a lead status to its pipeline conversion milestone, or null if not a trigger. */
 export function milestoneFor(status: string): OutboxMilestone | null {
   switch (status) {
     case 'nurturing':
@@ -36,6 +36,18 @@ export function milestoneFor(status: string): OutboxMilestone | null {
       return 'closed';
     default:
       return null;
+  }
+}
+
+/** Map a lead type to its website/acquisition conversion milestone, or null. */
+export function acquisitionMilestoneFor(leadType: string | null | undefined): OutboxMilestone | null {
+  switch (leadType) {
+    case 'valuation':
+      return 'seller_valuation';
+    case 'seller_guide':
+      return 'guide_download';
+    default:
+      return null; // 'webhook' and anything else: no acquisition conversion
   }
 }
 
@@ -122,10 +134,40 @@ export function buildIngestRequest(input: BuildIngestInput): Record<string, unkn
 }
 
 /**
- * Enqueue one outbox row for a first-time milestone. Best-effort — never throws
- * (a Google-outbox hiccup must not break an agent's status update). No-ops when
- * the integration isn't configured or the status isn't a trigger. The unique
- * index makes a repeat entry (backward-then-forward) a silent no-op.
+ * Insert one outbox row. Best-effort — never throws (a Google-outbox hiccup must
+ * not break the surrounding request). No-ops until the integration is configured.
+ * The UNIQUE(lead_id, milestone) index makes a repeat enqueue a silent no-op.
+ */
+async function insertOutboxRow(o: {
+  leadId: number;
+  milestone: OutboxMilestone;
+  sourceEventId?: number | null;
+  occurredAt: Date;
+  channel?: UpdateChannel;
+}): Promise<void> {
+  if (!googleAdsConfigured()) return; // no-op until creds are set (current-state §4.7 posture)
+  try {
+    await db
+      .insert(googleAdsConversionOutbox)
+      .values({
+        leadId: o.leadId,
+        sourceEventId: o.sourceEventId ?? null,
+        milestone: o.milestone,
+        occurredAt: o.occurredAt,
+        eventSource: eventSourceFor(o.channel),
+        conversionActionId: conversionActionId(o.milestone) || null,
+        transactionId: transactionIdFor(o.leadId, o.milestone),
+        exportStatus: 'pending',
+      })
+      .onConflictDoNothing();
+  } catch (err) {
+    console.error(`[googleAdsOutbox] enqueue failed for lead ${o.leadId} (${o.milestone}):`, err);
+  }
+}
+
+/**
+ * Pipeline conversion — first entry into Nurturing / Signed / Closed. Called
+ * from recordStatusUpdate. No-ops for non-trigger statuses.
  */
 export async function enqueueGoogleAdsConversion(o: {
   leadId: number;
@@ -136,22 +178,42 @@ export async function enqueueGoogleAdsConversion(o: {
 }): Promise<void> {
   const milestone = milestoneFor(o.status);
   if (!milestone) return;
-  if (!googleAdsConfigured()) return; // no-op until creds are set (current-state §4.7 posture)
-  try {
-    await db
-      .insert(googleAdsConversionOutbox)
-      .values({
-        leadId: o.leadId,
-        sourceEventId: o.sourceEventId ?? null,
-        milestone,
-        occurredAt: o.occurredAt,
-        eventSource: eventSourceFor(o.channel),
-        conversionActionId: conversionActionId(milestone) || null,
-        transactionId: transactionIdFor(o.leadId, milestone),
-        exportStatus: 'pending',
-      })
-      .onConflictDoNothing();
-  } catch (err) {
-    console.error(`[googleAdsOutbox] enqueue failed for lead ${o.leadId} (${milestone}):`, err);
-  }
+  await insertOutboxRow({ ...o, milestone });
+}
+
+/**
+ * Website/acquisition conversion — the lead was captured via a form. Called
+ * from the lead-submit route. `seller_valuation` for valuation leads,
+ * `guide_download` for seller_guide leads; no-ops for anything else.
+ */
+export async function enqueueGoogleAdsAcquisition(o: {
+  leadId: number;
+  leadType: string | null | undefined;
+  sourceEventId?: number | null;
+  occurredAt: Date;
+}): Promise<void> {
+  const milestone = acquisitionMilestoneFor(o.leadType);
+  if (!milestone) return;
+  await insertOutboxRow({
+    leadId: o.leadId,
+    milestone,
+    sourceEventId: o.sourceEventId,
+    occurredAt: o.occurredAt,
+    channel: 'web',
+  });
+}
+
+/** Appointment-requested conversion — called from the appointments route. */
+export async function enqueueGoogleAdsAppointment(o: {
+  leadId: number;
+  sourceEventId?: number | null;
+  occurredAt: Date;
+}): Promise<void> {
+  await insertOutboxRow({
+    leadId: o.leadId,
+    milestone: 'appointment_requested',
+    sourceEventId: o.sourceEventId,
+    occurredAt: o.occurredAt,
+    channel: 'web',
+  });
 }

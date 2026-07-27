@@ -394,6 +394,9 @@ export const leads = pgTable(
     leadType: leadTypeEnum('lead_type').notNull().default('valuation'),
     // Buyer/Seller classification (migration 0026) — label only, no routing impact.
     intent: leadIntentEnum('intent').notNull().default('seller'),
+    // Which downloadable guide a seller_guide lead came from (migration 0032),
+    // for per-guide reporting. Null for valuation leads + legacy guideUrl downloads.
+    guideId: integer('guide_id'),
     status: leadStatusEnum('status').notNull().default('new'),
     firstName: varchar('first_name', { length: 120 }),
     lastName: varchar('last_name', { length: 120 }),

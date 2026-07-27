@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { normalizeEmail, sha256Hex, hashedEmail, hashedPhone } from '../lib/googleAdsHash';
 import {
   milestoneFor,
+  acquisitionMilestoneFor,
   transactionIdFor,
   eventSourceFor,
   isExportEligible,
@@ -46,11 +47,24 @@ describe('milestoneFor', () => {
   });
 });
 
+describe('acquisitionMilestoneFor', () => {
+  it('maps lead types to website/acquisition milestones', () => {
+    expect(acquisitionMilestoneFor('valuation')).toBe('seller_valuation');
+    expect(acquisitionMilestoneFor('seller_guide')).toBe('guide_download');
+    expect(acquisitionMilestoneFor('webhook')).toBeNull();
+    expect(acquisitionMilestoneFor(null)).toBeNull();
+    expect(acquisitionMilestoneFor(undefined)).toBeNull();
+  });
+});
+
 describe('transactionIdFor', () => {
-  it('is the deterministic lead:{id}:{milestone} key', () => {
+  it('is the deterministic lead:{id}:{milestone} key across all milestones', () => {
     expect(transactionIdFor(12345, 'valid_seller_lead')).toBe('lead:12345:valid_seller_lead');
     expect(transactionIdFor(7, 'listing_signed')).toBe('lead:7:listing_signed');
     expect(transactionIdFor(7, 'closed')).toBe('lead:7:closed');
+    expect(transactionIdFor(9, 'seller_valuation')).toBe('lead:9:seller_valuation');
+    expect(transactionIdFor(9, 'guide_download')).toBe('lead:9:guide_download');
+    expect(transactionIdFor(9, 'appointment_requested')).toBe('lead:9:appointment_requested');
   });
 });
 
