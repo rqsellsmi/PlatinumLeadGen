@@ -10,6 +10,7 @@ import { requireAdmin } from '@/components/admin/requireAdmin';
 import OfferHistory, { type OfferHistoryItem, type AgentOption } from '@/components/admin/OfferHistory';
 import LocalTime from '@/components/LocalTime';
 import PropertyDetails from '@/components/PropertyDetails';
+import BuyerActivityPanel from '@/components/buyer/BuyerActivityPanel';
 import { getPropertyRecord } from '@/lib/propertyRecords';
 import { leadStatusLabel } from '@/lib/leadLifecycle';
 import { LEAD_INTENTS, leadIntentLabel, leadIntentTone } from '@/lib/leadIntent';
@@ -266,6 +267,9 @@ export default async function LeadDetailPage({ params }: { params: { id: string 
           </CardBody>
         </Card>
       </div>
+
+      {/* Buyer activity — only for leads linked to a buyer account. */}
+      {lead.buyerUserId != null && <BuyerActivityPanel buyerUserId={lead.buyerUserId} />}
 
       {/* Full property record from the AVM provider (owner is public record). */}
       <PropertyDetails

@@ -9,6 +9,7 @@ import { Badge, statusTone } from '@/components/ui';
 import { formatCurrency } from '@/lib/utils';
 import LocalTime from '@/components/LocalTime';
 import PropertyDetails from '@/components/PropertyDetails';
+import BuyerActivityPanel from '@/components/buyer/BuyerActivityPanel';
 import { getPropertyRecord } from '@/lib/propertyRecords';
 import { StatusUpdateForm } from '@/components/agent/StatusUpdateForm';
 import { EditContactForm } from '@/components/agent/EditContactForm';
@@ -152,6 +153,9 @@ export default async function AgentLeadDetailPage({
             fetchedAt={propertyRecord?.fetchedAt}
             provider={propertyRecord?.provider}
           />
+
+          {/* Buyer activity — only for leads linked to a buyer account. */}
+          {lead.buyerUserId != null && <BuyerActivityPanel buyerUserId={lead.buyerUserId} />}
 
           {/* Activity timeline */}
           <div className="rounded-card border border-line bg-white">
