@@ -291,6 +291,55 @@ Two related follow-ups discussed with the owner while reworking the sold-comps r
 - **A map of the sold comps** on the valuation page. Blocked on cost/compliance, not effort: the existing map uses the free **Maps Embed API** (single pin only), so a multi-pin comps map needs the **Maps JavaScript API** (interactive, ~$7/1k loads) or **Static Maps API** (~$2/1k) — a *new per-view* cost. Compliance catch: address-hidden listings (`internetAddressDisplayYN=false`, address already blanked) must **not** be pinned at their exact location, and whether Realcomp permits mapping sold IDX listings at all is a **verify-before-launch** item. Parked at the owner's request (cost concerns).
 - **A homegrown comp-based AVM** to replace/augment the paid provider (ATTOM today), motivated by ATTOM returning **wildly inaccurate values for this area — especially lake homes**. **Full design doc: `docs/superpowers/specs/2026-07-23-homegrown-avm-design.md`** (problem, architecture, a full value-driver catalog — water/outbuildings/acreage/pool/condition/systems/etc. mapped to data source + filter-vs-adjustment, the backtest/validation plan, phased rollout, and open decisions). The plan: keep a *cheap* provider (RentCast — cheaper than ATTOM, and one env flip `VALUATION_PROVIDER=rentcast` switches both the number and the property-record source) for the **subject's facts**, and compute the **number** ourselves from local sold comps (the `similarityScore`/`rankSoldComps` engine just built). Lake homes are the *strongest* case for this — the MLS carries `waterfrontYN`/features that public-record AVMs miss — but the owner rightly notes many other value drivers (pole/equestrian barns, decks, pools, outbuildings) need the same treatment, so this needs more design before building. Key crux: valuing the subject still needs the subject's own attributes from *somewhere* (public records API, MLS history match, or the seller). Decisive next step identified: a **backtest harness** that values already-sold homes from comps and reports median error % vs. ATTOM/RentCast, split by segment (lake vs. non-lake), since closed sales are ground truth we already hold. Validate in **shadow mode** before ever promoting a homegrown number. Discussion ongoing.
 
+### Buyer accounts (passwordless) + representation/referral (migrations 0035–0038)
+
+Layered on the buyer side: a **third, isolated principal** (buyer) alongside admin
+(NextAuth) and agent (signed cookie). Passwordless — **Google OAuth** + **email
+magic link** — so we never store buyer credentials. Full design:
+`docs/superpowers/specs/2026-07-27-buyer-accounts-design.md`; plan:
+`docs/superpowers/plans/2026-07-27-buyer-accounts.md`.
+
+- **Auth (§Phase 1):** own signed cookie `bx_session` (`lib/buyerPortalAuth.ts` node
+  crypto; `lib/buyerSessionEdge.ts` Web-Crypto for middleware — the same split as the
+  agent principal, so the Edge runtime never imports `node:crypto`). Google is a
+  server-side authorization-code exchange (no id_token/JWKS); magic links are hashed,
+  single-use, 30-min. Cloudflare **Turnstile** bot-check (no-op until keys are set).
+  `middleware.ts` guards `/account/*` and same-origin-guards mutating `/api/buyer/*`
+  (except `/api/buyer/auth/*`).
+- **Saves + activity (§Phase 2–3):** `buyer_favorites`, `buyer_saved_searches`
+  (filters JSON + routing-anchor centroid of the FIRST search), `buyer_listing_views`
+  (upserted view tally). Favorite hearts on cards + listing page; "Save this search"
+  on `/homes`; `/account` shows saved homes, saved searches, and a home-valuation card.
+  A signed-in listing view is beaconed to `buyer_listing_views` (never creates a lead).
+- **Lead-on-engagement + dedup (§Phase 4):** a buyer becomes a lead only on a
+  lead-creating action (save a home/search, request a showing/contact, request a
+  valuation). `lib/buyerEngagement.ts onFirstEngagement` attaches to an existing active
+  buyer/seller lead (by `buyer_user_id` or email) and notifies its agent, or routes a
+  new buyer lead by proximity to the engagement location, or direct-assigns to a
+  claimed agent, or suppresses (represented elsewhere). Pure `decideEngagement` matrix.
+- **Representation + referral + held points (§Phase 5):** at the first lead-creating
+  action a two-step **RepresentationModal** asks "already working with an agent?" then
+  "one of our RE/MAX Platinum agents?" (roster by `agents.display_name`). A buyer who
+  claims one of our agents → lead `referral_status='pending_review'`, direct-assigned,
+  and its scoring rows are **held** (`agent_score_log.is_held=true`, excluded from all
+  four tracks and every rolling-365 sum) until an admin resolves the referral on the
+  lead page (**Eligible** releases the held points into the agent's totals; **Exempt**
+  keeps them excluded). Default is always referral-eligible. `/admin/leads` has a
+  referral filter + badge. `is_held` defaults false, so existing seller scoring is
+  untouched.
+- **Privacy + delete (§Phase 8):** privacy policy has a Buyer Accounts section;
+  `POST /api/buyer/account/delete` unlinks leads (keeps the CRM record), hard-deletes
+  favorites/searches/views, soft-deletes the buyer, clears the session.
+
+**Owner setup (buyer accounts):** see `SETUP.md` (or the setup block in the buyer-accounts
+plan). Env vars: `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` (Google Cloud
+OAuth 2.0 Web client; authorized redirect URI `https://<domain>/api/buyer/auth/google/callback`);
+`BUYER_SESSION_SECRET` (any long random string — falls back to `NEXTAUTH_SECRET` if unset);
+`NEXT_PUBLIC_TURNSTILE_SITE_KEY` + `TURNSTILE_SECRET_KEY` (Cloudflare Turnstile; omit both
+to disable the bot check). **Migrations 0035–0038 are the owner's to run** (hand-authored,
+idempotent). Live Google/Turnstile round-trips are untested in the sandbox (no keys), same
+as the IDX/Telnyx first-connection pattern.
+
 ### Telnyx follow-ups (pre-launch)
 - **Provision 4 numbers (one per office) and complete 10DLC/toll-free carrier registration before go-live** — unregistered US SMS is throttled/blocked by carriers regardless of a valid API key. See `SETUP.md` §7 for the full walkthrough.
 - **Set `TELNYX_API_KEY`/`TELNYX_PUBLIC_KEY` in both Vercel (app) and anywhere the crons run**, and populate `offices.telnyx_number` per office — same "set it in every environment that reads it" trap as `REALCOMP_OFFICE_KEYS` (lessons §15).

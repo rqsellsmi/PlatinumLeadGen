@@ -988,3 +988,56 @@ intent-agnostic, so the win was *activating* it, not rebuilding it.
   Live Maps billing, the Realcomp mapping-compliance confirm, and applying the four
   migrations are the owner's first-connection steps; everything verifiable without
   them (the pure filter/geo/track logic, 55+ new unit tests, typecheck, build) is.
+
+---
+
+## 19. Buyer accounts — a third principal, and the held-points design
+
+Adding passwordless buyer accounts on top of the admin (NextAuth) and agent
+(signed cookie) principals. What was worth writing down:
+
+- **A new principal is a new cookie, not a fold-in.** Buyers got their own
+  HMAC-signed `bx_session` (`lib/buyerPortalAuth.ts`) with its own
+  `getBuyerUserId`/`getCurrentBuyer`, mirroring the agent principal exactly. The
+  admin guard never accepts the buyer cookie and vice-versa. Folding buyers into
+  NextAuth would have blurred the isolation boundary the owner explicitly wanted.
+- **Edge runtime can't see `node:crypto` — split the verifier.** `middleware.ts`
+  runs on Edge, so it imports `verifyBuyerSessionEdge` from a separate
+  `lib/buyerSessionEdge.ts` that uses only Web Crypto (`crypto.subtle`). The
+  node-crypto module (`buyerPortalAuth.ts`) is imported only by route handlers.
+  This is the same trap the agent principal already documented; the fix is a
+  Web-Crypto twin, kept parity-tested against the node verifier.
+- **Cookie-on-redirect ≠ cookie via `cookies()`.** The magic-link/OAuth callbacks
+  are GET redirects, so the session cookie is set on the `NextResponse.redirect`
+  (`res.cookies.set(...)`), not via `next/headers` `cookies()` (which only works
+  for the response the framework is building for a rendered route/POST).
+- **Lead-on-engagement: keep the decision pure, do I/O around it.**
+  `decideEngagement(existingLead, representation) → attach|route|assign-claimed|suppress`
+  is a pure function with a unit-tested matrix; `onFirstEngagement` is the thin
+  I/O shell. Same shape as the buyer-inquiry `decideBuyerInquiry` split — the
+  branching logic is where bugs hide, so it's the part that gets tested directly.
+- **Dedup on BOTH account creation and engagement.** A buyer account must not
+  spawn a second lead when the person is already a buyer/seller lead — matched by
+  `buyer_user_id` OR email, active only. When matched, attach + notify the
+  assigned agent; never re-route (O3).
+- **Held points: an additive column that defaults to the old behavior.** The
+  referral gaming vector (a buyer claims a pre-existing agent to dodge the 30%
+  referral) is resolved by an admin, not the agent. Points a `pending_review`
+  lead earns are logged with `agent_score_log.is_held=true` and excluded from all
+  four tracks AND every rolling-365 sum (`applyScore`, `recomputeRolling365`, the
+  score-maintenance cron). Because the column defaults `false`, every existing
+  seller scoring row and query is unaffected — the held path only activates for
+  `pending_review` leads. Releasing (admin → Eligible) flips the rows and folds
+  their sum into the agent's totals; Exempt leaves them excluded forever. Default
+  is always referral-eligible, so a buyer who does nothing unusual is scored
+  normally and immediately.
+- **Ask the gating question once, at the first lead-creating action.** The
+  representation modal is driven by a server signal (`needsRepresentation`) rather
+  than a client guess: the save endpoints answer "would this create a NEW lead?"
+  (`needsRepresentationAnswer` — false if an active lead exists or the buyer is
+  already represented elsewhere). A separate `/api/buyer/engage` runs the
+  engagement AFTER the answer so re-submitting never duplicates the favorite/search.
+- **Same code-only-session boundary (§18).** Running migrations 0035–0038 and the
+  live Google-OAuth/Turnstile round-trips are the owner's first-connection steps;
+  everything verifiable without keys (the pure decision/geo helpers, 252 tests,
+  typecheck, build) is done and green.

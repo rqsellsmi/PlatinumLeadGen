@@ -247,6 +247,58 @@ forwarded to the owner by email as unrecognized):
 
 ---
 
+## 7b. Buyer accounts (passwordless: Google sign-in + email magic link)
+
+Buyers can create a free account to save homes and searches, see their own-home
+valuation, and become routed leads only when they engage. Accounts are
+**passwordless** — we never store buyer credentials. This is optional: the buyer
+site works signed-out; sign-in and Google appear only once the vars below are set.
+
+**Run the migrations first.** Migrations **0035–0038** are hand-authored and
+idempotent. Apply them the same way as prior migrations (against your Neon
+branch). They add: `buyer_users` + `buyer_auth_tokens` (0035); `buyer_favorites`,
+`buyer_saved_searches`, `buyer_listing_views` (0036); `leads.buyer_user_id`
+(0037); the representation/referral columns, `agents.display_name`, and
+`agent_score_log.is_held` (0038).
+
+**1. Session secret.**
+- `BUYER_SESSION_SECRET` — any long random string (e.g. `openssl rand -hex 32`).
+  It signs the buyer session cookie (`bx_session`). If you leave it unset, the app
+  falls back to `NEXTAUTH_SECRET`; setting a distinct value keeps the principals
+  cryptographically separate.
+
+**2. Google sign-in (Google Cloud Console → APIs & Services → Credentials).**
+- Create an **OAuth 2.0 Client ID**, application type **Web application**.
+- Under **Authorized redirect URIs**, add exactly:
+  `https://<your-domain>/api/buyer/auth/google/callback`
+  (and `http://localhost:3000/api/buyer/auth/google/callback` for local dev).
+  The path must match; the app builds it from `SITE_URL`.
+- Configure the OAuth **consent screen** (External; scopes `openid email profile`)
+  and publish it so any Google user can sign in.
+- Copy the client ID/secret into:
+  - `GOOGLE_OAUTH_CLIENT_ID`
+  - `GOOGLE_OAUTH_CLIENT_SECRET`
+- No verification is required for the basic email/profile scopes; a Google user
+  whose email is unverified is rejected server-side.
+
+**3. Cloudflare Turnstile (optional bot-check on the magic-link form).**
+- In the Cloudflare dashboard → **Turnstile**, add a site (your domain) to get a
+  **site key** (public) and **secret key**.
+- Set:
+  - `NEXT_PUBLIC_TURNSTILE_SITE_KEY` — the public site key (rendered in the modal).
+  - `TURNSTILE_SECRET_KEY` — the secret (server-side verification).
+- Omit **both** to disable the check entirely: the server no-ops (passes) and the
+  widget doesn't render. Set both to require it before a magic link is emailed.
+
+**4. Email.** Magic links reuse the existing Microsoft Graph email pipeline — no
+extra config beyond what agent/homeowner email already uses.
+
+Live Google/Turnstile round-trips can't be exercised in the build sandbox (no
+keys), same as the IDX/Telnyx first-connection steps — the first real sign-in is
+your verification.
+
+---
+
 ## 8. Architecture notes
 
 - **Routing engine** (`lib/routing.ts`): proximity-first weighted round-robin. The

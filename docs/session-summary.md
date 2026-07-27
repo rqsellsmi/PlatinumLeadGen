@@ -748,3 +748,68 @@ typecheck clean, build compiles, **161 tests across 18 files**.
 - **Departed-agent leads handling** — undecided.
 - **`www.` / apex DNS** for `remax-platinumonline.com` — a DNS/registrar step,
   not code (the bare Vercel link works; `www` needs a CNAME/redirect).
+
+---
+
+# Session Summary — Buyer Accounts (passwordless) + representation/referral
+
+Same branch `feature/buyer-search`. Migrations added: **0035–0038**. Design:
+`docs/superpowers/specs/2026-07-27-buyer-accounts-design.md`; plan:
+`docs/superpowers/plans/2026-07-27-buyer-accounts.md`. Built in 9 phases
+(typecheck + tests green after each). Final gate: typecheck clean, build compiles,
+**252 tests across 27 files**.
+
+Added passwordless buyer accounts so buyers can save homes/searches, see their
+own-home valuation, and become leads only when they engage — with strict
+principal isolation and a referral-fee held-points model.
+
+## What shipped
+- **Third principal (Phase 1):** buyer sign-in via Google OAuth (server-side
+  code exchange, no JWKS) + email magic link (hashed, single-use). Own signed
+  cookie `bx_session` — `lib/buyerPortalAuth.ts` (node crypto) + a separate
+  `lib/buyerSessionEdge.ts` (Web Crypto) so `middleware.ts` never imports
+  `node:crypto`. Turnstile bot-check (no-op until configured). Routes under
+  `/api/buyer/auth/*`; `SignInModal` + `BuyerAuthNav` in the header.
+- **Saves + activity (Phase 2–3):** `buyer_favorites`, `buyer_saved_searches`,
+  `buyer_listing_views` (migration 0036). Shared client favorites store +
+  `FavoriteButton` (hearts on cards/listing page), `SaveSearchButton` on `/homes`,
+  `/account` (saved homes + searches). `ViewTracker` beacons signed-in views.
+  Pure helpers `describeSearch`/`centroidOfFilters`/`filtersToQuery` in
+  `lib/listingSearch.ts`.
+- **Lead-on-engagement + dedup (Phase 4):** migration 0037 (`leads.buyer_user_id`).
+  `lib/buyerEngagement.ts onFirstEngagement` (pure `decideEngagement`:
+  attach / route / assign-claimed / suppress) wired into the favorites,
+  saved-searches, valuation, and inquiry paths. Anchor = engagement location.
+- **Representation + referral + held points (Phase 5):** migration 0038
+  (representation + referral_status enums; `agents.display_name`; lead referral
+  columns; `agent_score_log.is_held`). Two-step `RepresentationModal` +
+  `/api/buyer/agents` roster + agent-settings Display name. `scoring.applyScore`
+  gains `held` (logs is_held, skips the four tracks); every rolling-365 sum
+  excludes held rows; `statusUpdates` threads `held` from a lead's
+  `referral_status='pending_review'`. `lib/referral.ts resolveReferral`
+  (eligible releases; exempt keeps excluded) + admin lead control + `/admin/leads`
+  filter/badge.
+- **Valuation (Phase 6):** `POST /api/buyer/valuation` (full estimate for a known
+  contact, no reveal gate) + `BuyerValuationCard` on `/account`; requesting it is
+  a potential-seller engagement.
+- **Activity panels (Phase 7):** `BuyerActivityPanel` (saved homes/searches/recent
+  views) on the agent + admin lead pages when `lead.buyer_user_id` is set.
+- **Privacy + delete (Phase 8):** privacy Buyer-Accounts section;
+  `POST /api/buyer/account/delete` (unlink leads, hard-delete saves/views,
+  soft-delete buyer, clear session).
+
+## Parked (not built), by owner decision
+- **P1 — seller-side representation** (same pre-existing-client question on the
+  seller valuation forms).
+- **P2 — ad-sourced pre-existing policy** (what to do when a pre-existing client
+  arrives through a paid ad).
+
+## Owner first-connection steps
+- **Run migrations 0035–0038** (hand-authored, idempotent).
+- **Google OAuth Web client** → set `GOOGLE_OAUTH_CLIENT_ID` /
+  `GOOGLE_OAUTH_CLIENT_SECRET`; authorized redirect URI
+  `https://<domain>/api/buyer/auth/google/callback`.
+- **`BUYER_SESSION_SECRET`** (long random; falls back to `NEXTAUTH_SECRET`).
+- **Turnstile** (optional): `NEXT_PUBLIC_TURNSTILE_SITE_KEY` + `TURNSTILE_SECRET_KEY`.
+- Live Google/Turnstile round-trips are untested in the sandbox (no keys) — same
+  code-only boundary as every prior integration.
