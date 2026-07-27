@@ -57,6 +57,12 @@ export async function POST(req: NextRequest) {
         savedSearch: { name: search.name, lat: centroid?.lat ?? null, lng: centroid?.lng ?? null },
         representation,
       });
+    } else if (body?.kind === 'valuation') {
+      const address = typeof body.address === 'string' ? body.address.trim() : '';
+      if (!address) return NextResponse.json({ error: 'bad_request' }, { status: 400 });
+      const lat = typeof body.lat === 'number' ? body.lat : null;
+      const lng = typeof body.lng === 'number' ? body.lng : null;
+      await onFirstEngagement({ buyerUserId: buyerId, kind: 'valuation', home: { address, lat, lng }, representation });
     } else {
       return NextResponse.json({ error: 'bad_request' }, { status: 400 });
     }

@@ -43,6 +43,8 @@ export interface EngagementInput {
   listingKey?: string | null;
   /** For saved_search: the search label + its routing centroid. */
   savedSearch?: { name: string; lat: number | null; lng: number | null } | null;
+  /** For valuation: the buyer's own home (potential-seller signal), the anchor. */
+  home?: { address: string; lat: number | null; lng: number | null } | null;
   /** The representation answer, gathered once at the first lead-creating action. */
   representation?: RepresentationInput;
 }
@@ -181,6 +183,16 @@ async function resolveContext(input: EngagementInput): Promise<EngagementContext
       lat: input.savedSearch.lat,
       lng: input.savedSearch.lng,
       address: null,
+      city: null,
+      state: null,
+    };
+  }
+  if (input.home) {
+    return {
+      label: `${engagementVerb(input.kind)} (${input.home.address})`,
+      lat: input.home.lat,
+      lng: input.home.lng,
+      address: input.home.address,
       city: null,
       state: null,
     };
