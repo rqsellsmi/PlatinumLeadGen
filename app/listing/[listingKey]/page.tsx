@@ -9,6 +9,7 @@ import KeyFeatureChips from '@/components/idx/KeyFeatureChips';
 import ListingLocationMap from '@/components/idx/ListingLocationMap';
 import ListingContact from '@/components/idx/ListingContact';
 import FavoriteButton from '@/components/buyer/FavoriteButton';
+import ViewTracker from '@/components/buyer/ViewTracker';
 import AreaHighlights from '@/components/idx/AreaHighlights';
 import MarketReport from '@/components/idx/MarketReport';
 import { buildKeyFeatures } from '@/lib/listingFeatures';
@@ -252,6 +253,7 @@ export default async function ListingDetailPage({
   return (
     <>
       <SiteHeader />
+      <ViewTracker listingKey={listing.listingKey} />
       <main className="mx-auto max-w-5xl px-4 py-6 sm:py-10">
         <ListingBackButton />
 

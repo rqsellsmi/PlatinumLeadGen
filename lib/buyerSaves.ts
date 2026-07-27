@@ -5,10 +5,11 @@
  * their own rows. Phase 2 stores data only; the lead-on-engagement hook is
  * wired separately in Phase 4.
  */
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { db } from './db';
 import {
   buyerFavorites,
+  buyerListingViews,
   buyerSavedSearches,
   type BuyerFavorite,
   type BuyerSavedSearch,
@@ -126,4 +127,25 @@ export async function deleteSavedSearch(buyerUserId: number, id: number): Promis
   await db
     .delete(buyerSavedSearches)
     .where(and(eq(buyerSavedSearches.id, id), eq(buyerSavedSearches.buyerUserId, buyerUserId)));
+}
+
+// --- Activity --------------------------------------------------------------
+
+/**
+ * Record a listing view for a signed-in buyer: first view inserts, repeat views
+ * bump last_viewed_at + view_count via the unique (buyer, listing) index. Best-
+ * effort — a failure here never blocks page rendering. Viewing alone does NOT
+ * create a lead (that is a save/inquiry action, wired in Phase 4).
+ */
+export async function recordListingView(buyerUserId: number, listingKey: string): Promise<void> {
+  await db
+    .insert(buyerListingViews)
+    .values({ buyerUserId, listingKey })
+    .onConflictDoUpdate({
+      target: [buyerListingViews.buyerUserId, buyerListingViews.listingKey],
+      set: {
+        lastViewedAt: sql`now()`,
+        viewCount: sql`${buyerListingViews.viewCount} + 1`,
+      },
+    });
 }
