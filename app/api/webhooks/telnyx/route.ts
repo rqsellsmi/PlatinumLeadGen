@@ -193,6 +193,7 @@ async function handle(raw: string): Promise<NextResponse> {
       leadOfferId: offerId,
       newStatus: cmd.status,
       note: cmd.notes || null,
+      source: 'phone',
     });
     await reply(agent, statusReply(r, leadId, cmd.status));
   }

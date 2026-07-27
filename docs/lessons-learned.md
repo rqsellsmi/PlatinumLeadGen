@@ -766,6 +766,70 @@ both:
   `starting_credit` via the normal scoring function fails loudly at run time
   instead of silently inflating lifetime/monthly/YTD. Prefer "the wrong usage
   throws" over "the wrong usage is just discouraged in a comment."
+
+## 21. Google Ads offline-conversion tracking (Data Manager API)
+
+Server-side offline conversions for three CRM milestones (first Nurturing /
+Signed / Closed) via Google's Data Manager API. Design + plan in
+`docs/superpowers/{specs,plans}/2026-07-24-google-ads-lead-stage-tracking*`.
+
+- **A vendor spec written against assumed schema needs reconciliation before a
+  plan, not after.** The `.docx` leaned on a per-event `lead_events.first_time`
+  flag and once-only guards for Nurturing/Closed — **none of which exist** here
+  (Nurturing scores 0 with no guard; Closed is terminal via `ALLOWED_TRANSITIONS
+  closed: []`; the milestone booleans only cover attempted/connected/appt/signed).
+  Grounding every assumed name against the real code (Rule #1) turned "adopt the
+  spec" into "adopt the *intent*, re-mechanism the triggers." The single most
+  valuable artifact was the reconciliation table (spec §3), not the restated body.
+- **A UNIQUE index can BE the idempotency guard — you don't always need a boolean
+  column or a transaction.** The owner explicitly wanted "nothing transaction
+  based." A dedicated dedup table with `UNIQUE(lead_id, milestone)` +
+  `ON CONFLICT DO NOTHING` gives exactly-once per milestone with zero new `leads`
+  columns, zero atomic claims, zero `BEGIN`. It's also *more* robust than a
+  status-transition guard: it doesn't depend on enumerating every path (a
+  backward `signed→nurturing` re-entry, a reopen, a merge — all just hit the
+  index). When the requirement is "record this once," reach for a unique
+  constraint before a stateful flag.
+- **Prove the flow's own invariant makes the "safeguard" moot, then delete the
+  safeguard.** The vendor wanted a runtime "don't send Valid Seller Lead if
+  Signed/Closed already happened." But in this flow the *only* path to Signed is
+  through Nurturing first, so every Signed lead already fired the valid-lead
+  conversion on its first Nurturing — the unique index blocks the re-entry. Read
+  the transition graph before adding a guard; the graph may already guarantee it.
+- **A service-account JWT needs no SDK — node `crypto` does RS256.** Rather than
+  pull in `google-auth-library`/`googleapis` (heavy, and this repo avoids deps —
+  §1), the client hand-builds the JWT assertion (`base64url(header).base64url(claims)`
+  signed with `createSign('RSA-SHA256')`) and exchanges it at the OAuth token
+  endpoint. Unit-tested by generating a throwaway RSA keypair and verifying the
+  assertion — the one piece I couldn't exercise live got the strongest test.
+- **Reuse the proven persisted-token + self-heal pattern verbatim.** The token
+  cache (`google_ads_tokens`, single row by provider, reuse until 5-min pre-expiry,
+  re-mint on 401) is a direct copy of `realcomp`/`ms_graph`. The wedge lesson
+  (§12d — a persisted bad token replays forever) is already designed out because
+  the pattern it came from designs it out.
+- **Enqueue where the behavior already converges.** `recordStatusUpdate` is the
+  shared core the portal AND the SMS webhook both call (§17), so the enqueue went
+  there — one hook, every entry point emits the conversion identically. Threading
+  an optional `source` channel gave the Data Manager `eventSource` (PHONE for SMS,
+  WEB for portal) without a second code path.
+- **`logLeadEvent` returning `void` hid a useful id.** The outbox needs the
+  `lead_events` row id as `source_event_id`; the helper discarded it. Changing the
+  return to `Promise<number | null>` is backward-compatible (every existing caller
+  ignores it) and threads the audit link for free. A best-effort logger can still
+  return what it created.
+- **Same code-only boundary as IDX/Telnyx/Places (now the 4th).** No Google creds
+  in the sandbox, so live `validateOnly`, request-status polling, and GCLID
+  round-trips are the owner's first-connection step. What's verifiable without
+  creds: every pure function (hashing vectors, transaction-id, event-source,
+  eligibility, request-body shape, the JWT signature), typecheck, and build — and
+  the whole feature no-ops behind `googleAdsConfigured()` so a half-set deploy
+  fails safe, never throwing into the agent's status-update path.
+- **`submitted` is an honest terminal state when you can't verify the next one.**
+  Promotion to `accepted` needs `requestStatus.retrieve`, whose exact live shape
+  I couldn't confirm (the recurring "vendor REST differs from docs" risk). Rather
+  than fake an ACCEPTED, the worker stops at `submitted` (delivered, requestId
+  stored) and leaves polling as a documented follow-up. Don't claim a state you
+  haven't observed.
 - **The identity seam a per-task review can't see.** The Telnyx webhook
   (correct in isolation — it does an exact match against `agents.phone`) and
   the admin agent form (correct in isolation — it just saves whatever the

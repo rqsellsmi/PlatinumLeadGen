@@ -48,6 +48,7 @@ export default function GuideDownloadBlock({ guide }: { guide: Guide }) {
           firstName,
           email,
           leadType: 'seller_guide',
+          guideId: guide.id,
           locationSlug: '',
           ...getLeadAttribution(),
         }),

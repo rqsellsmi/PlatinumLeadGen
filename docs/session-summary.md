@@ -1,3 +1,64 @@
+# Session Summary — Google Ads Lead-Stage Offline Conversions
+
+Branch: `feature/google-ads-tracking` (off `refinements-v1`). Migration added:
+**0031**. Design + plan + decisions:
+`docs/superpowers/specs/2026-07-24-google-ads-lead-stage-tracking-design.md` and
+`.../plans/2026-07-24-google-ads-lead-stage-tracking.md`. Lessons in
+`docs/lessons-learned.md` §21.
+
+Built server-side offline conversions that report three CRM pipeline milestones
+back to Google Ads via the **Data Manager API** — first **Nurturing** (Valid
+Seller Lead, the intended bidding signal), first **Signed** (Listing Agreement
+Signed), first **Closed** (Closed Seller Listing). Additive to the four existing
+**client-side** form conversions (left unchanged, owner decision D3). Built in
+phases, typecheck + tests green after each; final gate: typecheck clean, build
+compiles, **178 tests across 20 files**.
+
+## What shipped
+- **Schema** (`0031_google_ads_outbox`): `google_ads_conversion_outbox` (delivery
+  record; `UNIQUE(lead_id, milestone)` is the **sole** once-only guard — no new
+  `leads` columns, no atomic claims, no transactions, per owner direction) +
+  `google_ads_tokens` cache (mirrors `realcomp_tokens`).
+- **Enqueue** in `recordStatusUpdate` (the shared portal+SMS core): first entry
+  into Nurturing/Signed/Closed inserts one pending outbox row
+  (`ON CONFLICT DO NOTHING`); backward moves skipped; `logLeadEvent` now returns
+  the event id (→ `source_event_id`); update channel threaded (PHONE/WEB).
+- **Pure logic** (`lib/googleAdsConfig|Hash|Outbox.ts`): env config (|| fallbacks,
+  consent constant = UNSPECIFIED, eligibility allowlist), email/phone
+  normalization + SHA-256 (click ids never hashed), `milestoneFor`/`transactionIdFor`/
+  `buildIngestRequest`. `tests/googleAdsConversions.test.ts` (10).
+- **API client** (`lib/googleAdsClient.ts`): service-account **JWT (RS256 via node
+  `crypto`, no SDK dep)** → cached access token (401 self-heal, per-request
+  timeout) → `events:ingest`. `tests/googleAdsClient.test.ts` (2, incl. a JWT
+  signature round-trip against a generated keypair).
+- **Worker** (`lib/googleAdsWorker.ts` + `app/api/cron/google-ads-dispatch`):
+  sends due rows, applies eligibility, records requestId/status/backoff; wired into
+  `cron.yml` (~10 min) + `scheduled-daily.yml` (daily reconciliation).
+- **Docs**: `SETUP.md` §8 (owner setup incl. exactly what to get from Google),
+  `.env.example`, current-state, lessons §21.
+
+## What still needs to be done (owner)
+- **Google setup** (SETUP.md §8): customer id, three offline conversion actions
+  (Count = One), a Google Cloud project with the **Data Manager API** enabled, a
+  **service-account key**, and grant that service account Google Ads access. The
+  API + service account are **free** (you pay only for ads).
+- **Set the `GOOGLE_ADS_*` env in Vercel**; apply **migration 0031** on every Neon
+  branch; run the `GOOGLE_ADS_VALIDATE_ONLY=1` QA pass, then flip it off.
+- Keep imported actions **Secondary** until Valid Seller Lead imports look right,
+  then promote it to Primary (a Google Ads UI change, not code).
+- The feature **no-ops silently** until configured — nothing breaks pre-setup.
+
+## Deferred (documented)
+- Admin outbox-status card (data captured via `last_error` + a counts helper).
+- `requestStatus.retrieve` polling to promote `submitted → accepted` (needs the
+  live endpoint — same first-connection boundary as IDX/Telnyx). Phase-1 terminal
+  state is `submitted`.
+
+## Lessons
+See `docs/lessons-learned.md` §21.
+
+---
+
 # Session Summary — Agent Scoring v4 (Seller Track)
 
 Branch: `refinements-v1`. Migrations added: **0027–0028**. Design +

@@ -17,6 +17,7 @@ import { checkPreset, clientIp } from '@/lib/rateLimit';
 import { attributionColumns } from '@/lib/attributionServer';
 import { findExistingLeadByContact, findLeadByAddress, normalizedAddressKey } from '@/lib/leadDedup';
 import { logLeadEvent } from '@/lib/leadEvents';
+import { enqueueGoogleAdsAcquisition } from '@/lib/googleAdsOutbox';
 import type { Lead } from '@/drizzle/schema';
 
 export const runtime = 'nodejs';
@@ -245,6 +246,7 @@ export async function POST(req: NextRequest) {
 
     const fields = {
       leadType: input.leadType,
+      guideId: input.guideId ?? null,
       firstName: input.firstName ?? null,
       lastName: input.lastName ?? null,
       email,
@@ -312,7 +314,17 @@ export async function POST(req: NextRequest) {
       leadId = inserted[0].id;
     }
 
-    await logLeadEvent(leadId, 'valuation_submitted', input.propertyAddress ?? null);
+    const submitEventId = await logLeadEvent(leadId, 'valuation_submitted', input.propertyAddress ?? null);
+
+    // Google Ads website/acquisition conversion (best-effort, no-op until
+    // configured): seller_valuation for valuation leads, guide_download for
+    // seller_guide leads. The outbox UNIQUE(lead_id, milestone) dedups repeats.
+    await enqueueGoogleAdsAcquisition({
+      leadId,
+      leadType: input.leadType,
+      sourceEventId: submitEventId,
+      occurredAt: now,
+    });
 
     // Link the stored valuation to this lead — this is the reveal gate for the
     // detailed report page.

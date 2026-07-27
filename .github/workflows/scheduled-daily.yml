@@ -16,6 +16,7 @@ on:
   schedule:
     - cron: '0 5 * * *' # cleanup-rate-limits (05:00 UTC daily)
     - cron: '0 8 * * *' # score-maintenance (08:00 UTC daily)
+    - cron: '0 9 * * *' # google-ads reconciliation (09:00 UTC daily)
     - cron: '0 13 * * 4' # broker-digest (Thursday 13:00 UTC)
   workflow_dispatch: {}
 
@@ -54,6 +55,15 @@ jobs:
         run: |
           BASE="${DEPLOY_URL%/}"
           curl -fsS --max-time 60 -H "x-cron-secret: $CRON_SECRET" "$BASE/api/cron/score-maintenance"
+
+      - name: Google Ads reconciliation
+        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 9 * * *'
+        env:
+          DEPLOY_URL: ${{ secrets.DEPLOY_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          BASE="${DEPLOY_URL%/}"
+          curl -fsS --max-time 60 -H "x-cron-secret: $CRON_SECRET" "$BASE/api/cron/google-ads-dispatch"
 
       - name: Broker digest
         if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 13 * * 4'
