@@ -114,8 +114,13 @@ export function buildIngestRequest(input: BuildIngestInput): Record<string, unkn
     transactionId: input.transactionId,
     eventTimestamp: input.occurredAt.toISOString(), // RFC-3339 Z (UTC)
     eventSource: input.eventSource,
-    consent: { adUserData: consent, adPersonalization: consent },
   };
+  // Only send a consent object when we actually have a signal. "Unspecified"
+  // (US/first-party default) is omitted — the Data Manager ConsentStatus enum has
+  // no CONSENT_STATUS_UNSPECIFIED member, and an explicit unspecified adds nothing.
+  if (consent === 'CONSENT_GRANTED' || consent === 'CONSENT_DENIED') {
+    event.consent = { adUserData: consent, adPersonalization: consent };
+  }
   if (Object.keys(adIdentifiers).length > 0) event.adIdentifiers = adIdentifiers;
   if (userIdentifiers.length > 0) event.userData = { userIdentifiers };
 
