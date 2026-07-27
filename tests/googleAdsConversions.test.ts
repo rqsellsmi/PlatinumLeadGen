@@ -96,7 +96,7 @@ describe('buildIngestRequest', () => {
     transactionId: 'lead:12345:valid_seller_lead',
     occurredAt: new Date('2026-07-21T18:35:00.000Z'),
     eventSource: 'PHONE',
-    consent: 'CONSENT_STATUS_UNSPECIFIED' as const,
+    consent: 'CONSENT_GRANTED' as const,
     validateOnly: false,
   };
 
@@ -118,9 +118,15 @@ describe('buildIngestRequest', () => {
     expect(ids).toContainEqual({ emailAddress: hashedEmail('John.Doe@gmail.com') });
     expect(ids).toContainEqual({ phoneNumber: hashedPhone('(810) 555-1212') });
     expect(ev.consent).toEqual({
-      adUserData: 'CONSENT_STATUS_UNSPECIFIED',
-      adPersonalization: 'CONSENT_STATUS_UNSPECIFIED',
+      adUserData: 'CONSENT_GRANTED',
+      adPersonalization: 'CONSENT_GRANTED',
     });
+  });
+
+  it('omits the consent object when consent is unspecified (US/first-party default)', () => {
+    const req = buildIngestRequest({ ...base, consent: 'CONSENT_UNSPECIFIED', lead: { email: 'a@b.com' } });
+    const ev = (req.events as any[])[0];
+    expect(ev.consent).toBeUndefined();
   });
 
   it('omits userData/encoding when there are no hashable identifiers', () => {
