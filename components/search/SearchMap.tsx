@@ -15,6 +15,7 @@ export interface MapPin {
   city: string | null;
   status: string;
   hidden: boolean;
+  photoUrl: string | null;
 }
 
 // SE Michigan-ish default center/zoom when there are no results to frame.
@@ -36,6 +37,7 @@ export default function SearchMap({ pins }: { pins: MapPin[] }) {
   const drawingRef = React.useRef<GMaps>(null);
   const polyOverlayRef = React.useRef<GMaps>(null);
   const infoRef = React.useRef<GMaps>(null);
+  const pinnedRef = React.useRef(false); // true when the popover was opened by a click
   const acInputRef = React.useRef<HTMLInputElement>(null);
 
   const [ready, setReady] = React.useState(false);
@@ -76,6 +78,10 @@ export default function SearchMap({ pins }: { pins: MapPin[] }) {
         });
         mapRef.current = map;
         infoRef.current = new g.maps.InfoWindow();
+        // A pinned (clicked-open) popover un-pins when the user closes it.
+        infoRef.current.addListener('closeclick', () => {
+          pinnedRef.current = false;
+        });
 
         // Restore a previously-drawn polygon from the URL (visual persistence).
         const existing = parsePolygon(searchParams?.get('poly') ?? undefined);
@@ -125,18 +131,20 @@ export default function SearchMap({ pins }: { pins: MapPin[] }) {
       if (p.lat == null || p.lng == null) continue;
       const pos = coarsenPin(p.lat, p.lng, p.hidden);
       const marker = new g.maps.Marker({ position: pos, map });
-      marker.addListener('click', () => {
-        const addr = p.address ? `${escapeHtml(p.address)}<br/>` : '';
-        const html =
-          `<div style="font:13px/1.4 sans-serif;max-width:210px">` +
-          `<strong style="font-size:15px">${p.price != null ? formatCurrency(p.price) : ''}</strong><br/>` +
-          `${addr}${escapeHtml(p.city ?? '')}<br/>` +
-          `<span style="color:#888">${escapeHtml(p.status)}</span><br/>` +
-          `<a href="/listing/${encodeURIComponent(p.listingKey)}" style="color:#0043FF;font-weight:600">View details &rarr;</a>` +
-          `</div>`;
-        infoRef.current.setContent(html);
+      const openPopover = (pinned: boolean) => {
+        infoRef.current.setContent(pinHtml(p));
         infoRef.current.open(map, marker);
+        pinnedRef.current = pinned;
+      };
+      // Hover shows the photo preview; click pins it (so it survives on touch and
+      // lets you click through to the listing).
+      marker.addListener('mouseover', () => {
+        if (!pinnedRef.current) openPopover(false);
       });
+      marker.addListener('mouseout', () => {
+        if (!pinnedRef.current) infoRef.current.close();
+      });
+      marker.addListener('click', () => openPopover(true));
       markersRef.current.push(marker);
       bounds.extend(pos);
       count++;
@@ -258,4 +266,21 @@ function escapeHtml(s: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+/** InfoWindow content for a pin — the listing's main photo + price/address/link. */
+function pinHtml(p: MapPin): string {
+  const img = p.photoUrl
+    ? `<img src="${escapeHtml(p.photoUrl)}" alt="" style="width:100%;height:132px;object-fit:cover;border-radius:6px;display:block;margin-bottom:6px" />`
+    : '';
+  const addr = p.address ? `${escapeHtml(p.address)}<br/>` : '';
+  return (
+    `<a href="/listing/${encodeURIComponent(p.listingKey)}" style="text-decoration:none;color:inherit;display:block;width:210px;font:13px/1.4 sans-serif">` +
+    img +
+    `<strong style="font-size:15px;color:#141418">${p.price != null ? formatCurrency(p.price) : ''}</strong><br/>` +
+    `${addr}${escapeHtml(p.city ?? '')}<br/>` +
+    `<span style="color:#888">${escapeHtml(p.status)}</span><br/>` +
+    `<span style="color:#0043FF;font-weight:600">View details &rarr;</span>` +
+    `</a>`
+  );
 }

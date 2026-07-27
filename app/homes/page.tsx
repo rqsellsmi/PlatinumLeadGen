@@ -41,6 +41,7 @@ export default async function HomesSearchPage({ searchParams }: { searchParams: 
       city: r.city,
       status: listingStatusLabel(r),
       hidden: r.internetAddressDisplayYN === false,
+      photoUrl: r.photoUrl,
     }));
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
