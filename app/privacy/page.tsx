@@ -126,6 +126,33 @@ export default function PrivacyPage() {
         </p>
       </LegalSection>
 
+      <LegalSection heading="Buyer Accounts">
+        <p>
+          If you create a free buyer account (using Google sign-in or an emailed one-time link — we never
+          store a password), we save the information and activity needed to power that account:
+        </p>
+        <LegalList
+          items={[
+            'Your name and email address, and your phone number if you provide it to schedule a showing or appointment.',
+            'The homes you save as favorites and the searches you save.',
+            'The listings you view while signed in, so we can show you relevant homes and let the agent working with you understand your interests.',
+          ]}
+        />
+        <p>
+          When you take an action that indicates you would like an agent’s help — saving a home or search,
+          requesting a showing or contact, or requesting a home valuation — your information may be shared with
+          a RE/MAX Platinum agent so they can assist you. If you tell us you already work with an agent, we use
+          that to route you appropriately. Your saved homes, saved searches, and recently viewed listings are
+          visible to the agent assigned to you and to our administrators.
+        </p>
+        <p>
+          You can delete your account at any time from your account page. Deleting your account removes your
+          saved homes, saved searches, and viewing history, and unlinks your account from any lead record.
+          Records we are required to keep for legitimate business or legal purposes (such as a lead already
+          shared with an agent) may be retained in de-identified or unlinked form.
+        </p>
+      </LegalSection>
+
       <LegalSection heading="Data Security">
         <p>
           We implement reasonable security measures to protect your personal information from unauthorized

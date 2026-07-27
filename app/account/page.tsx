@@ -5,6 +5,7 @@ import SiteFooter from '@/components/SiteFooter';
 import SavedHomesGrid from '@/components/buyer/SavedHomesGrid';
 import SavedSearchList from '@/components/buyer/SavedSearchList';
 import BuyerValuationCard from '@/components/buyer/BuyerValuationCard';
+import DeleteAccountButton from '@/components/buyer/DeleteAccountButton';
 import { getCurrentBuyer } from '@/lib/buyerSession';
 import { listFavoriteKeys, listSavedSearches } from '@/lib/buyerSaves';
 import { getListingsByKeys, getPhotosForListings, type IdxCard } from '@/lib/idx';
@@ -72,8 +73,12 @@ export default async function AccountPage() {
           <SavedSearchList initial={searches.map((s) => ({ id: s.id, name: s.name, filters: s.filters }))} />
         </section>
 
-        <section>
+        <section className="mb-12">
           <BuyerValuationCard />
+        </section>
+
+        <section className="border-t border-line pt-6">
+          <DeleteAccountButton />
         </section>
       </main>
       <SiteFooter />
