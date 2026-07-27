@@ -29,6 +29,9 @@ export default async function HomesSearchPage({ searchParams }: { searchParams: 
   const advancedOpen = searchParams.advanced === '1' || searchParams.advanced === 'true';
 
   const { rows, total, page, pageSize } = await searchListings(filters);
+  // Show the map when there are results OR an active drawn area, so a circle that
+  // matches nothing stays visible and adjustable/clearable (never disappears).
+  const hasArea = !!(filters.polygon || filters.center);
   const photos = rows.length ? await getPhotosForListings(rows.map((r) => r.listingKey)) : new Map();
 
   const pins: MapPin[] = rows
@@ -84,7 +87,7 @@ export default async function HomesSearchPage({ searchParams }: { searchParams: 
 
         <SearchFilterPanel filters={filters} advancedOpen={advancedOpen} resultCount={total} />
 
-        {pins.length > 0 ? <SearchMap pins={pins} /> : null}
+        {pins.length > 0 || hasArea ? <SearchMap pins={pins} /> : null}
 
         {rows.length === 0 ? (
           <div className="mt-10 rounded-xl border border-dashed border-line bg-cream/50 px-6 py-16 text-center">
