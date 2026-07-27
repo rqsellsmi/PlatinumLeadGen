@@ -219,7 +219,7 @@ export async function dataManagerIngest(body: Record<string, unknown>): Promise<
         ok: false,
         status: res.status,
         retryable: isRetryableStatus(res.status),
-        error: text ? text.slice(0, 500) : `HTTP ${res.status}`,
+        error: text ? text.slice(0, 2000) : `HTTP ${res.status}`,
         raw: json,
       };
     }

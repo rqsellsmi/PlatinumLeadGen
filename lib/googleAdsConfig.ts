@@ -30,8 +30,10 @@ export const OUTBOX_MILESTONES: readonly OutboxMilestone[] = [
   'closed',
 ] as const;
 
+// Data Manager ConsentStatus enum members (verified against the live API — the
+// vendor doc's CONSENT_STATUS_UNSPECIFIED is NOT valid; the prefix is CONSENT_).
 export type ConsentValue =
-  | 'CONSENT_STATUS_UNSPECIFIED'
+  | 'CONSENT_UNSPECIFIED'
   | 'CONSENT_GRANTED'
   | 'CONSENT_DENIED';
 
@@ -68,7 +70,7 @@ export function consentValue(): ConsentValue {
   const v = (process.env.GOOGLE_ADS_CONSENT || 'unspecified').trim().toLowerCase();
   if (v === 'granted') return 'CONSENT_GRANTED';
   if (v === 'denied') return 'CONSENT_DENIED';
-  return 'CONSENT_STATUS_UNSPECIFIED';
+  return 'CONSENT_UNSPECIFIED';
 }
 
 /** validateOnly=true during QA (Data Manager validates without recording). */

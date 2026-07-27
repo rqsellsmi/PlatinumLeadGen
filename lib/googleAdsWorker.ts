@@ -162,7 +162,7 @@ export async function dispatchGoogleAdsConversions(opts?: {
         .set({
           exportStatus: 'error',
           exportAttempts: attempts,
-          lastError: (result.error ?? `HTTP ${result.status}`).slice(0, 500),
+          lastError: (result.error ?? `HTTP ${result.status}`).slice(0, 2000),
           // Permanent failure / exhausted → clear next_retry_at so it isn't
           // re-picked; the daily reconciliation still surfaces it for a human.
           nextRetryAt: giveUp ? null : new Date(now.getTime() + backoffMs(attempts)),
