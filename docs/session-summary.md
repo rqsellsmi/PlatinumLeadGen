@@ -37,15 +37,58 @@ compiles, **178 tests across 20 files**.
 - **Docs**: `SETUP.md` §8 (owner setup incl. exactly what to get from Google),
   `.env.example`, current-state, lessons §21.
 
+## Round 2 — full seller taxonomy + acquisition conversions (migration 0032)
+Extended the 3 pipeline conversions to the **full 6-conversion seller taxonomy**,
+same outbox + worker. Design: `docs/superpowers/specs/2026-07-27-conversion-taxonomy-design.md`.
+- **Website/acquisition conversions** (fired at lead capture, `eventSource=WEB`):
+  **Seller Valuation** (`leadType=valuation`) + **Guide Download**
+  (`leadType=seller_guide`) hooked in `app/api/leads/submit`; **Appointment
+  Requested** hooked in `app/api/appointments`. `enqueueGoogleAdsAcquisition` /
+  `enqueueGoogleAdsAppointment` share one insert helper with the pipeline enqueue.
+- **Guide identity** (`0032_lead_guide_id`, `leads.guide_id`): `GuideDownloadBlock`
+  sends `guide.id`; stored for per-guide CRM reporting even though all downloads
+  fire one generic **Guide Download** action (audience-agnostic — future buyer
+  guides flow into the same one; buyer/seller split lives in `leads.intent`).
+- **Taxonomy decisions:** hero == valuation (one action, not the old $100/$75
+  split); track by lead type/intent not placement/asset; SEO-vs-PPC via
+  gclid/utm attribution (not `pageVariant`); one primary bidding goal at a time.
+
+## Round 3 — first live connection (owner connected real Google creds)
+Everything Google-live is the owner's first-connection step (no creds in the
+sandbox). Debugging the first real sends surfaced fixes, all now on `main`:
+- **Consent enum drift (PR #25):** the vendor doc's `CONSENT_STATUS_UNSPECIFIED`
+  is **not** a live `ConsentStatus` member → every `events:ingest` failed
+  `400 INVALID_ARGUMENT`. Fix: omit the consent object when unspecified; send only
+  `CONSENT_GRANTED`/`CONSENT_DENIED`. Widened `last_error` capture 500→2000 chars,
+  which then surfaced Google's exact `fieldViolations`.
+- **Enhanced conversions for leads must be enabled on the Ads account** +
+  customer-data terms accepted (`DESTINATION_ACCOUNT_NOT_ENABLED…` otherwise) —
+  an account setting, not code.
+- **`GOOGLE_ADS_SA_KEY` must be the complete SA JSON** (raw or base64); a partial
+  paste passes `googleAdsConfigured()` (non-empty) but fails to parse at send time
+  → `not-configured`.
+- **Cleanups (this commit):** blank optional lead fields (phone/first/last)
+  coalesce to `NULL` at capture (were stored as `""`); the worker now leaves a
+  **setup-not-ready** failure (`not-configured` / account-not-enabled) as `pending`
+  so the cron auto-retries once setup finishes — no manual row reset.
+- **Outcome:** all six milestones reached `submitted` in `validateOnly` mode
+  (Google validated auth + payload + format + consent + enhanced-conversions).
+  Real recording awaits the owner's ads launch (+ flipping `validateOnly` off).
+
 ## What still needs to be done (owner)
-- **Google setup** (SETUP.md §8): customer id, three offline conversion actions
-  (Count = One), a Google Cloud project with the **Data Manager API** enabled, a
-  **service-account key**, and grant that service account Google Ads access. The
-  API + service account are **free** (you pay only for ads).
-- **Set the `GOOGLE_ADS_*` env in Vercel**; apply **migration 0031** on every Neon
-  branch; run the `GOOGLE_ADS_VALIDATE_ONLY=1` QA pass, then flip it off.
-- Keep imported actions **Secondary** until Valid Seller Lead imports look right,
-  then promote it to Primary (a Google Ads UI change, not code).
+- **Ads not running yet** — so the real (non-validateOnly) send + attribution test
+  is pending an ad launch. Flip `GOOGLE_ADS_VALIDATE_ONLY=0` then, and test with a
+  lead carrying a real `gclid` (click your own ad).
+- **Primary/Secondary:** each Google Ads goal category needs ≥1 Primary action to
+  not be "Misconfigured" — point it at the new import actions (Seller Valuation /
+  Valid Seller Lead), retire the duplicate **"- old"** client-side actions.
+- **Confirm** `AW-17043745770` (client-side tag) and customer id `775-077-6847`
+  (Data Manager) are the **same** Ads account.
+- **GTM (client-side, separate from the API path):** the lead-gen site now has its
+  own container "Lead Gen Site" (Google Tag `AW-17043745770` + Conversion Linker);
+  set `NEXT_PUBLIC_GTM_ID` (Production) to it + redeploy. Client-side conversions
+  weren't firing before (the var was never set).
+- Apply **migrations 0031 + 0032** on every Neon branch.
 - The feature **no-ops silently** until configured — nothing breaks pre-setup.
 
 ## Deferred (documented)

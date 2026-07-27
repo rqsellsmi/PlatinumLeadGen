@@ -830,6 +830,60 @@ Signed / Closed) via Google's Data Manager API. Design + plan in
   than fake an ACCEPTED, the worker stops at `submitted` (delivered, requestId
   stored) and leaves polling as a documented follow-up. Don't claim a state you
   haven't observed.
+
+### 21b. First live connection — the vendor doc drifted, again (like Realcomp §12b)
+
+The owner connected real Google credentials and the first sends failed in a
+sequence — each fix unmasking the next (same shape as §13a/§16). Every fix came
+from a **ground-truth signal** (the stored API error, Google's own docs), never a
+guess (Rule #1).
+
+- **A field-value from the vendor doc was invalid on the live API.** The doc's
+  `CONSENT_STATUS_UNSPECIFIED` is **not** a member of the live `ConsentStatus`
+  enum (`CONSENT_UNSPECIFIED`/`GRANTED`/`DENIED`), so **every** `events:ingest`
+  400'd with a generic `INVALID_ARGUMENT`. Fix: omit consent when unspecified
+  (US/first-party — it's optional there), send it only for granted/denied.
+  **When a vendor "developer spec" gives concrete enum/field values, treat them
+  as unverified — validate against the provider's *own* API reference.** Same
+  lesson as Realcomp's audience/host/field drift.
+- **Widen the error capture BEFORE you start guessing.** The stored `last_error`
+  was truncated at 500 chars, which cut off Google's `google.rpc.BadRequest`
+  detail. Bumping it to 2000 revealed the exact `fieldViolations[].field` +
+  `reason` (`DESTINATION_ACCOUNT_NOT_ENABLED_ENHANCED_CONVERSIONS_FOR_LEADS`) —
+  turning a blind bisect into a one-look diagnosis. Capture the full upstream
+  error (minus PII) as early as possible; a generic API message is often hiding a
+  precise `details[]` you're chopping off.
+- **`validateOnly` is the perfect first-connection harness.** With
+  `GOOGLE_ADS_VALIDATE_ONLY=1`, Google fully validates auth + payload + destination
+  without recording — so the whole chain is provable (a clean `submitted` row,
+  request id prefixed `v-`) before a single real conversion is written. Ship every
+  offline-import integration with a validate-only flag and drive the owner through
+  it first.
+- **`configured()` (non-empty) ≠ `parseable`.** `googleAdsConfigured()` only
+  checks that `GOOGLE_ADS_SA_KEY` is a non-empty string, so a **partial** key
+  paste passed the gate (rows enqueued) but failed to `JSON.parse` at send time →
+  `not-configured`. A "is it set" check and a "is it valid" check are different
+  guards; the cheap one gates enqueue, the real one only bites at use. Accept the
+  whole SA JSON (raw or base64) and say so loudly in setup docs.
+- **Distinguish "setup not finished" from "permanent payload error."** A 400 is
+  normally permanent, but `DESTINATION_ACCOUNT_NOT_ENABLED…` and `not-configured`
+  are transient *owner-setup* states. Marking them permanent forced a manual
+  row-reset on every retry during first-connection. The worker now leaves those
+  `pending` (like `waitingOnActionId`) so the cron auto-recovers once the account
+  is enabled — no human toil. Classify errors by *who can fix them*: a transient
+  setup state should retry itself, not die.
+- **The account-level enablement is a real gate the API can't bypass.** Data
+  Manager rejects offline lead conversions unless the destination account has
+  **enhanced conversions for leads enabled + the customer-data terms accepted** —
+  a Google Ads *account* setting, independent of the API and of GTM. Picking a
+  "GTM method" on that screen doesn't matter for a pure-API integration; accepting
+  the terms + toggling it on does.
+- **Blank optional form fields arrive as `""`, and `?? null` won't catch them.**
+  The public forms POST `phone: ""` when empty; `input.phone ?? null` only maps
+  null/undefined, so blanks were stored as empty strings (which read as
+  "has a phone" and hashed to nothing). Coalesce with `(x ?? '').trim() || null`
+  at the write boundary. (Harmless for the export — `toE164('')` is null — but a
+  data-quality wart worth killing at the source.)
 - **The identity seam a per-task review can't see.** The Telnyx webhook
   (correct in isolation — it does an exact match against `agents.phone`) and
   the admin agent form (correct in isolation — it just saves whatever the

@@ -27,7 +27,7 @@ import {
   type OutboxMilestone,
 } from './googleAdsConfig';
 import { buildIngestRequest, isExportEligible } from './googleAdsOutbox';
-import { dataManagerIngest } from './googleAdsClient';
+import { dataManagerIngest, type IngestResult } from './googleAdsClient';
 
 const MAX_ATTEMPTS = 6;
 const BASE_BACKOFF_MS = 60_000; // 1 min, doubled per attempt, +20% jitter
@@ -43,7 +43,22 @@ export interface DispatchSummary {
   ineligible: number;
   errored: number;
   waitingOnActionId: number;
+  waitingOnSetup: number;
   skipped?: string;
+}
+
+/**
+ * True when the failure is a not-yet-finished setup/config state (missing SA key,
+ * account not enabled for enhanced conversions for leads, customer not eligible)
+ * rather than a permanent payload problem. These rows are left PENDING so the
+ * cron auto-retries once the owner finishes the Google-side setup — no manual
+ * reset needed (the pain point during first-connection).
+ */
+function isSetupNotReady(result: IngestResult): boolean {
+  if (result.error === 'not-configured') return true;
+  return /NOT_ENABLED|ENHANCED_CONVERSIONS_FOR_LEADS|NOT_ELIGIBLE|DESTINATION_ACCOUNT_NOT_ENABLED/i.test(
+    result.error ?? '',
+  );
 }
 
 export async function dispatchGoogleAdsConversions(opts?: {
@@ -58,6 +73,7 @@ export async function dispatchGoogleAdsConversions(opts?: {
     ineligible: 0,
     errored: 0,
     waitingOnActionId: 0,
+    waitingOnSetup: 0,
   };
   if (!googleAdsConfigured()) return { ...summary, skipped: 'not-configured' };
 
@@ -154,6 +170,15 @@ export async function dispatchGoogleAdsConversions(opts?: {
         })
         .where(eq(googleAdsConversionOutbox.id, row.id));
       summary.submitted += 1;
+    } else if (isSetupNotReady(result)) {
+      // Google-side setup isn't finished yet — keep the row PENDING (don't burn
+      // the retry budget or mark it a permanent error) so the cron re-sends it
+      // automatically once the account is enabled. Record why, for visibility.
+      await db
+        .update(googleAdsConversionOutbox)
+        .set({ lastError: (result.error ?? '').slice(0, 2000), updatedAt: now })
+        .where(eq(googleAdsConversionOutbox.id, row.id));
+      summary.waitingOnSetup += 1;
     } else {
       const attempts = row.exportAttempts + 1;
       const giveUp = !result.retryable || attempts >= MAX_ATTEMPTS;

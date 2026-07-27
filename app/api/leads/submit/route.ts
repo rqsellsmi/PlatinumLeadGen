@@ -175,7 +175,12 @@ export async function POST(req: NextRequest) {
     const locationId = await resolveLocationId(input.locationSlug);
     const now = new Date();
     const email = input.email;
-    const phone = input.phone ?? null;
+    // Coalesce blank/whitespace optional fields to NULL. The public forms submit
+    // `phone: ""` (etc.) when left empty, and `?? null` only catches null/undefined
+    // — so without this, blanks land as empty strings, not NULL.
+    const phone = (input.phone ?? '').trim() || null;
+    const firstName = (input.firstName ?? '').trim() || null;
+    const lastName = (input.lastName ?? '').trim() || null;
     const pageVariant = input.pageVariant ?? 'seo';
 
     // ----- Dedup Layer 1: contact (email/phone) against prior leads -----
@@ -247,8 +252,8 @@ export async function POST(req: NextRequest) {
     const fields = {
       leadType: input.leadType,
       guideId: input.guideId ?? null,
-      firstName: input.firstName ?? null,
-      lastName: input.lastName ?? null,
+      firstName,
+      lastName,
       email,
       phone,
       propertyAddress: input.propertyAddress ?? null,
@@ -361,7 +366,7 @@ export async function POST(req: NextRequest) {
         await sendEmail(
           homeownerConfirmationEmail({
             to: email,
-            firstName: input.firstName ?? null,
+            firstName,
             city: input.propertyCity ?? null,
             relatedLeadId: leadId,
             reportUrl: token ? reportUrl(input.locationSlug, token) : null,

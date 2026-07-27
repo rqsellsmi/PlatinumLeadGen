@@ -73,7 +73,7 @@ reconciliation. §3 is the load-bearing part.
 
 | # | Decision | Default proposed here | Status |
 |---|---|---|---|
-| D1 | **Consent signal** | Send a **constant** `CONSENT_STATUS_UNSPECIFIED` (or `GRANTED`) per event — US/MI leads, first-party ads; **no capture UI or column**. Google's EU-consent policy doesn't apply to US traffic. Counsel confirm before go-live. | **Resolved** (owner 2026-07-24; value UNSPECIFIED vs GRANTED still to pick) |
+| D1 | **Consent signal** | US/MI first-party ads; **no capture UI or column**. **Live correction:** the `ConsentStatus` enum has **no** `CONSENT_STATUS_UNSPECIFIED` (that was the vendor doc's value; valid members are `CONSENT_UNSPECIFIED`/`GRANTED`/`DENIED`). The worker now **omits** the consent object entirely when unspecified and only sends it for granted/denied. Counsel confirm before go-live. | **Resolved + live-fixed** |
 | D2 | **Data Manager API auth** | Service-account credential stored as a secret, token cached/refreshed like `realcomp`/`ms_graph`. | **Open** (§13) |
 | D3 | **Existing form conversion** | Leave the client-side "Form Completed" conversion untouched; add only the 3 offline conversions. | **Open** (§13) |
 | D4 | **This session's scope** | Produce **this spec + the work plan only**; implementation begins on approval. | **Open** (§13) |
@@ -327,12 +327,13 @@ rule.
 
 ## 13. Open Decisions (need owner sign-off before implementation)
 
-1. **D1 — Consent. RESOLVED (owner 2026-07-24):** no consent capture is needed for
+1. **D1 — Consent. RESOLVED + live-fixed:** no consent capture is needed for
    US/MI first-party ads (Google's EU-consent policy doesn't apply to US traffic).
-   The worker sends a **constant** consent value. Only remaining pick: send
-   `CONSENT_STATUS_UNSPECIFIED` (recommended — most accurate, no signal is actively
-   collected) or `GRANTED` (policy acceptance treated as consent). Counsel confirm
-   before go-live is the standard caveat; no engineering difference.
+   **Live fix:** the worker **omits** the consent object when unspecified (the
+   `ConsentStatus` enum has no `CONSENT_STATUS_UNSPECIFIED` — that was the vendor
+   doc's value that caused a `400 INVALID_ARGUMENT`; valid values are
+   `CONSENT_UNSPECIFIED`/`CONSENT_GRANTED`/`CONSENT_DENIED`, sent only for
+   granted/denied via `GOOGLE_ADS_CONSENT`). Counsel confirm before go-live.
 2. **D2 — Data Manager API auth.** Default proposed: a **service-account
    credential** stored as a secret, tokens cached/refreshed like
    `realcomp`/`ms_graph`. Alternatives: an OAuth refresh token, or keyless
