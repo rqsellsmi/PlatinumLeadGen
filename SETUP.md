@@ -260,7 +260,7 @@ taxonomy incl. the future buyer track):
 | Event | Google conversion | Env var |
 |---|---|---|
 | Valuation form submitted | **Seller Valuation** | `GOOGLE_ADS_ACTION_ID_SELLER_VALUATION` |
-| Any seller-guide download | **Seller Guide Download** | `GOOGLE_ADS_ACTION_ID_GUIDE_DOWNLOAD` |
+| Any guide download | **Guide Download** | `GOOGLE_ADS_ACTION_ID_GUIDE_DOWNLOAD` |
 | Appointment requested | **Appointment Requested** | `GOOGLE_ADS_ACTION_ID_APPOINTMENT` |
 
 **Pipeline / outcome** (first time the lead reaches the stage):
@@ -290,7 +290,7 @@ config below is set.
    **"Count" = One** and set as **Secondary** (not a bidding goal) during
    validation:
    - *Seller Valuation* — category "Submit lead form" → `GOOGLE_ADS_ACTION_ID_SELLER_VALUATION`
-   - *Seller Guide Download* — category "Submit lead form" → `GOOGLE_ADS_ACTION_ID_GUIDE_DOWNLOAD`
+   - *Guide Download* — category "Submit lead form" → `GOOGLE_ADS_ACTION_ID_GUIDE_DOWNLOAD`
    - *Appointment Requested* — category "Book appointment" → `GOOGLE_ADS_ACTION_ID_APPOINTMENT`
    - *Valid Seller Lead* — category "Qualified lead" → `GOOGLE_ADS_ACTION_ID_VALID_SELLER_LEAD`
    - *Listing Agreement Signed* — category "Converted lead" → `GOOGLE_ADS_ACTION_ID_LISTING_SIGNED`

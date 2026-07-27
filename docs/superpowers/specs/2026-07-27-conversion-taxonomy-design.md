@@ -52,7 +52,7 @@ when the buyer surfaces exist.
 | Conversion | Trigger (code) | Google category | Env var |
 |---|---|---|---|
 | Seller Valuation | lead created, `leadType='valuation'` (`enqueueGoogleAdsAcquisition`) | Submit lead form | `GOOGLE_ADS_ACTION_ID_SELLER_VALUATION` |
-| Seller Guide Download | lead created, `leadType='seller_guide'` | Submit lead form | `GOOGLE_ADS_ACTION_ID_GUIDE_DOWNLOAD` |
+| Guide Download | lead created, `leadType='seller_guide'` (+ future buyer guides) | Submit lead form | `GOOGLE_ADS_ACTION_ID_GUIDE_DOWNLOAD` |
 | Appointment Requested | appointment row created w/ `leadId` (`enqueueGoogleAdsAppointment`) | Book appointment | `GOOGLE_ADS_ACTION_ID_APPOINTMENT` |
 | Valid Seller Lead | first Nurturing (`enqueueGoogleAdsConversion`) | Qualified lead | `GOOGLE_ADS_ACTION_ID_VALID_SELLER_LEAD` |
 | Listing Agreement Signed | first Signed | Converted lead | `GOOGLE_ADS_ACTION_ID_LISTING_SIGNED` |
@@ -78,8 +78,11 @@ once per `(lead_id, milestone)` by the outbox unique index, all no-op until
 When buyer surfaces exist (account creation, saved homes/searches, contact-agent,
 schedule-showing, buyer guides), add the buyer column keyed off `intent='buyer'`:
 
-- **Website:** Buyer Registration, Buyer Guide Download, Showing Scheduled;
-  saved-search / saved-favorite as **soft/secondary** engagement signals.
+- **Website:** Buyer Registration and Showing Scheduled are buyer-specific;
+  buyer **guide downloads flow into the shared generic `Guide Download` action**
+  (audience-agnostic — the buyer/seller split lives in `leads.intent` + the CRM,
+  not a separate Google action). Saved-search / saved-favorite are **soft/secondary**
+  engagement signals.
 - **Pipeline:** Valid Buyer Lead, Buyer Under Contract, Closed Buyer Deal — a
   parallel to the seller pipeline once a Buyer Track status flow is designed
   (current-state §4.3 notes the Buyer Track is a future, separate design).
@@ -107,8 +110,9 @@ worker, hashing, and auth are unchanged.
 
 ## 6. Owner setup delta (on top of the 2026-07-24 list in SETUP.md §8)
 
-- Create **three more** offline conversion actions (Seller Valuation, Seller Guide
-  Download, Appointment Requested) — six total — all Import source, Count = One,
-  Secondary. Put their ids in the three new env vars (§3).
+- Create **three more** offline conversion actions (Seller Valuation, **Guide
+  Download** [generic — covers future buyer guides too], Appointment Requested) —
+  six total — all Import source, Count = One, Secondary. Put their ids in the
+  three new env vars (§3).
 - No new migration to apply beyond **0032** (`leads.guide_id`), which ships with
   this change. No new secrets beyond the three action-id vars.
