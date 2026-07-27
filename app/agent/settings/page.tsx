@@ -5,7 +5,7 @@ import { offices, notificationSettings } from '@/drizzle/schema';
 import { getCurrentAgent } from '@/lib/agentSession';
 import { Card, CardHeader, CardBody, Button, Input, Label, Select } from '@/components/ui';
 import AvailabilityToggle from '@/components/agent/AvailabilityToggle';
-import { updateRoutingPreferences } from './actions';
+import { updateRoutingPreferences, updateDisplayName } from './actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,6 +44,30 @@ export default async function AgentSettingsPage() {
             new lead offers.
           </p>
           <AvailabilityToggle initial={agent.isAvailable} />
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <h2 className="font-bold text-charcoal">Display name</h2>
+        </CardHeader>
+        <CardBody>
+          <p className="mb-3 text-sm text-mute">
+            The name buyers see when they say they already work with you (e.g. a nickname). Leave
+            blank to use your name on file: {agent.firstName} {agent.lastName}.
+          </p>
+          <form action={updateDisplayName} className="flex flex-col gap-3 sm:flex-row sm:items-end">
+            <div className="flex-1">
+              <Label htmlFor="displayName">Display name</Label>
+              <Input
+                id="displayName"
+                name="displayName"
+                defaultValue={agent.displayName ?? ''}
+                placeholder={`${agent.firstName} ${agent.lastName}`}
+              />
+            </div>
+            <Button type="submit">Save name</Button>
+          </form>
         </CardBody>
       </Card>
 

@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { buyerInquirySchema } from '@/lib/validation';
 import { createBuyerInquiry } from '@/lib/buyerInquiry';
+import { getBuyerUserId } from '@/lib/buyerSession';
 import { checkPreset, clientIp } from '@/lib/rateLimit';
 
 export const runtime = 'nodejs';
@@ -23,7 +24,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
     }
 
-    const result = await createBuyerInquiry(parsed.data);
+    // Link the buyer account when the inquiry comes from a signed-in buyer.
+    const buyerUserId = await getBuyerUserId();
+    const result = await createBuyerInquiry(parsed.data, buyerUserId);
     if (!result.ok) {
       return NextResponse.json({ error: result.reason ?? 'error' }, { status: 404 });
     }

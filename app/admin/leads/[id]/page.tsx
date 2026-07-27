@@ -13,7 +13,7 @@ import PropertyDetails from '@/components/PropertyDetails';
 import { getPropertyRecord } from '@/lib/propertyRecords';
 import { leadStatusLabel } from '@/lib/leadLifecycle';
 import { LEAD_INTENTS, leadIntentLabel, leadIntentTone } from '@/lib/leadIntent';
-import { updateLeadStatus, updateLeadIntent, softDeleteLead, reassignLeadAction } from './actions';
+import { updateLeadStatus, updateLeadIntent, softDeleteLead, reassignLeadAction, resolveReferralAction } from './actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -129,6 +129,8 @@ export default async function LeadDetailPage({ params }: { params: { id: string 
           {lead.reactivationCount > 0 && (
             <Badge tone="warning">Reactivated ×{lead.reactivationCount}</Badge>
           )}
+          {lead.referralStatus === 'pending_review' && <Badge tone="warning">Referral: pending review</Badge>}
+          {lead.referralStatus === 'exempt' && <Badge tone="neutral">Referral: exempt</Badge>}
           {lead.isDeleted && <Badge tone="danger">Deleted</Badge>}
         </div>
       </div>
@@ -213,6 +215,45 @@ export default async function LeadDetailPage({ params }: { params: { id: string 
                 pick a specific agent, use Reassign under Offer history.
               </p>
             </form>
+
+            {/* Referral resolution — points on a claimed-agent buyer lead are held
+                until an admin confirms whether the 30% referral is owed. */}
+            {lead.intent === 'buyer' && (
+              <div className="space-y-2 rounded-lg border border-line bg-cream/40 p-3">
+                <Label>Referral fee (30%)</Label>
+                {lead.referralStatus === 'pending_review' ? (
+                  <>
+                    <p className="text-xs text-mute">
+                      This buyer says they already work with
+                      {lead.claimedAgentName ? ` ${lead.claimedAgentName}` : ' one of our agents'}. Their
+                      points are held until you decide.
+                    </p>
+                    <div className="flex gap-2">
+                      <form action={resolveReferralAction} className="flex-1">
+                        <input type="hidden" name="leadId" value={lead.id} />
+                        <input type="hidden" name="decision" value="eligible" />
+                        <Button type="submit" className="w-full">
+                          Referral owed — release points
+                        </Button>
+                      </form>
+                      <form action={resolveReferralAction} className="flex-1">
+                        <input type="hidden" name="leadId" value={lead.id} />
+                        <input type="hidden" name="decision" value="exempt" />
+                        <Button type="submit" variant="secondary" className="w-full">
+                          Pre-existing — exempt
+                        </Button>
+                      </form>
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-xs text-mute">
+                    {lead.referralStatus === 'exempt'
+                      ? 'Exempt — no referral owed; any held points stay excluded.'
+                      : 'Eligible — the standard 30% referral applies.'}
+                  </p>
+                )}
+              </div>
+            )}
 
             {!lead.isDeleted && (
               <form action={softDeleteLead}>

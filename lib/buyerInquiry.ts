@@ -59,7 +59,10 @@ function preferredLabel(input: BuyerInquiryInput): string | null {
   return [input.preferredDate, input.preferredTime].filter(Boolean).join(' · ') || null;
 }
 
-export async function createBuyerInquiry(input: BuyerInquiryInput): Promise<BuyerInquiryResult> {
+export async function createBuyerInquiry(
+  input: BuyerInquiryInput,
+  buyerUserId?: number | null,
+): Promise<BuyerInquiryResult> {
   const listing = await getListingByKey(input.listingKey);
   if (!listing) return { ok: false, reason: 'listing-not-found' };
 
@@ -84,7 +87,14 @@ export async function createBuyerInquiry(input: BuyerInquiryInput): Promise<Buye
     created = false;
     await db
       .update(leads)
-      .set({ interestedListingKey: input.listingKey, phone: input.phone ?? existing.phone, updatedAt: new Date() })
+      .set({
+        interestedListingKey: input.listingKey,
+        phone: input.phone ?? existing.phone,
+        // Link the buyer account if this inquiry came from a signed-in buyer and
+        // the lead wasn't already linked.
+        ...(buyerUserId && existing.buyerUserId == null ? { buyerUserId } : {}),
+        updatedAt: new Date(),
+      })
       .where(eq(leads.id, leadId));
     await logLeadEvent(leadId, 'buyer_inquiry', eventNote);
   } else {
@@ -105,6 +115,7 @@ export async function createBuyerInquiry(input: BuyerInquiryInput): Promise<Buye
         propertyLat: listing.latitude ?? null,
         propertyLng: listing.longitude ?? null,
         interestedListingKey: input.listingKey,
+        buyerUserId: buyerUserId ?? null,
         source: 'buyer_search',
       })
       .returning({ id: leads.id });

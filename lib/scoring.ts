@@ -110,6 +110,13 @@ export interface ApplyScoreArgs {
   note?: string;
   leadId?: number;
   leadOfferId?: number;
+  /**
+   * Held points (migration 0038): when true, the log row is written with
+   * is_held=true and the agent's four tracks are NOT updated. Used while a lead's
+   * referral is pending_review; releasing it (lib/referral) flips the row and
+   * folds the delta in. Held rows are excluded from every rolling-365 sum.
+   */
+  held?: boolean;
 }
 
 /**
@@ -155,16 +162,27 @@ export async function applyScore(args: ApplyScoreArgs): Promise<number> {
     note: args.note ?? null,
     leadId: args.leadId ?? null,
     leadOfferId: args.leadOfferId ?? null,
+    isHeld: args.held ?? false,
     createdAt: now,
   });
 
-  // Rolling-365 = sum of the agent's log deltas in the trailing 365 days
+  // Held rows are logged but excluded from the agent's totals until an admin
+  // resolves the referral (lib/referral releases them). Do not touch the tracks.
+  if (args.held) return delta;
+
+  // Rolling-365 = sum of the agent's NON-HELD log deltas in the trailing 365 days
   // (includes the row just inserted; naturally decays as rows age out).
   const since = new Date(now.getTime() - ROLLING_WINDOW_MS);
   const rollRows = await db
     .select({ total: sql<number>`coalesce(sum(${agentScoreLog.delta}), 0)` })
     .from(agentScoreLog)
-    .where(and(eq(agentScoreLog.agentId, args.agentId), gte(agentScoreLog.createdAt, since)));
+    .where(
+      and(
+        eq(agentScoreLog.agentId, args.agentId),
+        gte(agentScoreLog.createdAt, since),
+        eq(agentScoreLog.isHeld, false),
+      ),
+    );
   const rolling = Number(rollRows[0]?.total ?? 0);
 
   await db
@@ -188,7 +206,9 @@ export async function recomputeRolling365(agentId: number, now = new Date()): Pr
   const rows = await db
     .select({ total: sql<number>`coalesce(sum(${agentScoreLog.delta}), 0)` })
     .from(agentScoreLog)
-    .where(and(eq(agentScoreLog.agentId, agentId), gte(agentScoreLog.createdAt, since)));
+    .where(
+      and(eq(agentScoreLog.agentId, agentId), gte(agentScoreLog.createdAt, since), eq(agentScoreLog.isHeld, false)),
+    );
   const rolling = Number(rows[0]?.total ?? 0);
   await db.update(agents).set({ scoreRolling365: rolling }).where(eq(agents.id, agentId));
   return rolling;

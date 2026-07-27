@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getBuyerUserId } from '@/lib/buyerSession';
 import { addFavorite, listFavoriteKeys, removeFavorite } from '@/lib/buyerSaves';
+import { needsRepresentationAnswer, onFirstEngagement, parseRepresentation } from '@/lib/buyerEngagement';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -33,6 +34,18 @@ export async function POST(req: NextRequest) {
   const listingKey = cleanKey(body?.listingKey);
   if (!listingKey) return NextResponse.json({ error: 'bad_request' }, { status: 400 });
   await addFavorite(buyerId, listingKey);
+
+  // Saving a home is a lead-creating action. Ask the representation question once
+  // before the first lead; otherwise route/attach through the engagement layer.
+  const representation = parseRepresentation(body?.representation);
+  if (!representation && (await needsRepresentationAnswer(buyerId))) {
+    return NextResponse.json({ ok: true, favorited: true, needsRepresentation: true });
+  }
+  try {
+    await onFirstEngagement({ buyerUserId: buyerId, kind: 'favorite', listingKey, representation });
+  } catch (err) {
+    console.error('[api/buyer/favorites] engagement failed:', err);
+  }
   return NextResponse.json({ ok: true, favorited: true });
 }
 

@@ -3,6 +3,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import SignInModal, { openBuyerSignIn } from './SignInModal';
+import RepresentationModal from './RepresentationModal';
 
 /** Header affordance: "Sign in" (opens the modal) or "My Account" + sign out.
  *  Also auto-opens the modal when redirected here with ?signin=1 (guarded pages). */
@@ -47,6 +48,7 @@ export default function BuyerAuthNav() {
         </button>
       )}
       <SignInModal />
+      <RepresentationModal />
     </>
   );
 }

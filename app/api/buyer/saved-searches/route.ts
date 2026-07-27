@@ -9,6 +9,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getBuyerUserId } from '@/lib/buyerSession';
 import { createSavedSearch, deleteSavedSearch, listSavedSearches } from '@/lib/buyerSaves';
+import { needsRepresentationAnswer, onFirstEngagement, parseRepresentation } from '@/lib/buyerEngagement';
+import { centroidOfFilters } from '@/lib/listingSearch';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -39,6 +41,24 @@ export async function POST(req: NextRequest) {
   }
 
   const search = await createSavedSearch(buyerId, filters as Record<string, string | string[]>, name);
+
+  // Saving a search is a lead-creating action; the routing anchor is this
+  // search's centroid. Ask the representation question once before the first lead.
+  const representation = parseRepresentation(body?.representation);
+  if (!representation && (await needsRepresentationAnswer(buyerId))) {
+    return NextResponse.json({ ok: true, search, needsRepresentation: true });
+  }
+  const centroid = centroidOfFilters(search.filters);
+  try {
+    await onFirstEngagement({
+      buyerUserId: buyerId,
+      kind: 'saved_search',
+      savedSearch: { name: search.name, lat: centroid?.lat ?? null, lng: centroid?.lng ?? null },
+      representation,
+    });
+  } catch (err) {
+    console.error('[api/buyer/saved-searches] engagement failed:', err);
+  }
   return NextResponse.json({ ok: true, search });
 }
 

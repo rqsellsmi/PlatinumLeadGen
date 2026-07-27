@@ -43,6 +43,7 @@ interface SearchParams {
   type?: string;
   intent?: string;
   completeness?: string;
+  referral?: string;
   q?: string;
   from?: string;
   to?: string;
@@ -60,6 +61,7 @@ export default async function LeadsPage({
   const type = searchParams.type;
   const intent = searchParams.intent;
   const completeness = searchParams.completeness;
+  const referral = searchParams.referral;
   const q = (searchParams.q ?? '').trim();
   const from = searchParams.from;
   const to = searchParams.to;
@@ -70,6 +72,9 @@ export default async function LeadsPage({
   if (isLeadIntent(intent)) conditions.push(eq(leads.intent, intent));
   if (isCompleteness(completeness)) {
     conditions.push(completeness === 'partial' ? isNull(leads.email) : isNotNull(leads.email));
+  }
+  if (referral === 'pending' || referral === 'exempt' || referral === 'eligible') {
+    conditions.push(eq(leads.referralStatus, referral === 'pending' ? 'pending_review' : referral));
   }
   if (q) {
     const pattern = `%${q}%`;
@@ -115,6 +120,7 @@ export default async function LeadsPage({
     if (type) params.set('type', type);
     if (intent) params.set('intent', intent);
     if (completeness) params.set('completeness', completeness);
+    if (referral) params.set('referral', referral);
     if (q) params.set('q', q);
     if (from) params.set('from', from);
     if (to) params.set('to', to);
@@ -180,6 +186,15 @@ export default async function LeadsPage({
                 <option value="">All</option>
                 <option value="full">Full lead</option>
                 <option value="partial">Partial (address only)</option>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="referral">Referral</Label>
+              <Select id="referral" name="referral" defaultValue={referral ?? ''}>
+                <option value="">All</option>
+                <option value="pending">Pending review</option>
+                <option value="eligible">Eligible</option>
+                <option value="exempt">Exempt</option>
               </Select>
             </div>
             <div>
@@ -251,6 +266,11 @@ export default async function LeadsPage({
                   </td>
                   <td className="px-5 py-3.5">
                     <Badge tone={statusTone(lead.status)}>{leadStatusLabel(lead.status)}</Badge>
+                    {lead.referralStatus === 'pending_review' && (
+                      <Badge tone="warning" className="ml-1">
+                        Referral review
+                      </Badge>
+                    )}
                   </td>
                   <td className="px-5 py-3.5 text-mute-light">
                     {lead.createdAt ? <LocalTime value={lead.createdAt} dateOnly /> : '—'}

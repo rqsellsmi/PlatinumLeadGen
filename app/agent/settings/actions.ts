@@ -53,3 +53,19 @@ export async function updateRoutingPreferences(formData: FormData) {
 
   revalidatePath('/agent/settings');
 }
+
+/**
+ * Save the agent's display name (nickname) shown in the buyer representation
+ * picker — so a buyer who works with "Mike" finds them even if the system name
+ * is "Michael". Blank clears it (falls back to the legal first+last name).
+ */
+export async function updateDisplayName(formData: FormData) {
+  const agent = await getCurrentAgent();
+  if (!agent) throw new Error('Not signed in');
+
+  const raw = String(formData.get('displayName') ?? '').trim();
+  const displayName = raw ? raw.slice(0, 200) : null;
+
+  await db.update(agents).set({ displayName, updatedAt: new Date() }).where(eq(agents.id, agent.id));
+  revalidatePath('/agent/settings');
+}

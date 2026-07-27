@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { openBuyerSignIn } from '@/components/buyer/SignInModal';
+import { askRepresentation } from '@/components/buyer/RepresentationModal';
 
 /**
  * "Save this search" on the results page. Persists the current filter set to the
@@ -27,6 +28,19 @@ export default function SaveSearchButton({ filters }: { filters: Record<string, 
       }
       if (!res.ok) throw new Error('failed');
       setState('saved');
+      // First lead-creating save → ask representation, then re-submit so the
+      // lead routes correctly. The search itself is already saved.
+      const data = await res.json().catch(() => null);
+      if (data?.needsRepresentation && data?.search?.id) {
+        const answer = await askRepresentation();
+        if (answer) {
+          await fetch('/api/buyer/engage', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ kind: 'saved_search', savedSearchId: data.search.id, representation: answer }),
+          }).catch(() => {});
+        }
+      }
     } catch {
       setState('error');
     }

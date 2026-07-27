@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { openBuyerSignIn } from './SignInModal';
+import { askRepresentation } from './RepresentationModal';
 
 /**
  * A tiny module-level favorites store so every heart on a page shares one fetch
@@ -62,6 +63,21 @@ async function toggle(listingKey: string, next: string) {
       body: JSON.stringify({ listingKey }),
     });
     if (!res.ok) throw new Error('failed');
+    // First lead-creating save → ask the representation question, then re-submit
+    // so the lead routes correctly. The favorite itself is already stored.
+    if (!has) {
+      const data = await res.json().catch(() => null);
+      if (data?.needsRepresentation) {
+        const answer = await askRepresentation();
+        if (answer) {
+          await fetch('/api/buyer/engage', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ kind: 'favorite', listingKey, representation: answer }),
+          }).catch(() => {});
+        }
+      }
+    }
   } catch {
     // revert on failure
     const reverted = new Set(state.keys);

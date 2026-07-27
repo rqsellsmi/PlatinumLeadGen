@@ -19,7 +19,12 @@ export type LeadEventType =
   | 'buyer_inquiry'
   | 'marked_lost'
   | 'pipeline_stalled'
-  | 'reopened';
+  | 'reopened'
+  // Buyer accounts (migration 0037/0038)
+  | 'buyer_engaged' // a buyer account save/favorite/showing created or linked this lead
+  | 'lead_linked' // an existing lead was linked to a buyer account
+  | 'referral_pending' // buyer claimed one of our agents → held for admin review
+  | 'referral_resolved'; // admin confirmed eligible/exempt
 
 export async function logLeadEvent(
   leadId: number,

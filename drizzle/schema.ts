@@ -95,6 +95,11 @@ export const scoreReasonEnum = pgEnum('score_reason', [
 
 export const scriptPositionEnum = pgEnum('script_position', ['head', 'body']);
 
+// Buyer accounts (migration 0038). Representation = does the buyer already work
+// with an agent? Referral status = whether the brokerage's 30% referral is owed.
+export const representationEnum = pgEnum('representation', ['none', 'our_agent', 'other_brokerage']);
+export const referralStatusEnum = pgEnum('referral_status', ['eligible', 'pending_review', 'exempt']);
+
 // ---------------------------------------------------------------------------
 // Offices
 // ---------------------------------------------------------------------------
@@ -133,6 +138,9 @@ export const agents = pgTable(
     id: serial('id').primaryKey(),
     firstName: varchar('first_name', { length: 120 }).notNull(),
     lastName: varchar('last_name', { length: 120 }).notNull(),
+    // Optional public/display name (nickname) for the buyer representation picker
+    // (migration 0038). Falls back to first+last when unset.
+    displayName: varchar('display_name', { length: 200 }),
     email: varchar('email', { length: 200 }).notNull(),
     phone: varchar('phone', { length: 40 }),
     officeId: integer('office_id').references(() => offices.id),
@@ -464,6 +472,15 @@ export const leads = pgTable(
     reportViewCount: integer('report_view_count').notNull().default(0),
     // Buyer track (migration 0033): the IDX listing this buyer inquired on.
     interestedListingKey: varchar('interested_listing_key', { length: 100 }),
+    // Buyer accounts (migration 0037): the buyer account that generated this lead.
+    buyerUserId: integer('buyer_user_id').references(() => buyerUsers.id, { onDelete: 'set null' }),
+    // Representation + referral (migration 0038).
+    representation: representationEnum('representation').notNull().default('none'),
+    claimedAgentId: integer('claimed_agent_id').references(() => agents.id, { onDelete: 'set null' }),
+    claimedAgentName: text('claimed_agent_name'),
+    referralStatus: referralStatusEnum('referral_status').notNull().default('eligible'),
+    referralResolvedBy: integer('referral_resolved_by'),
+    referralResolvedAt: timestamp('referral_resolved_at'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
@@ -474,6 +491,8 @@ export const leads = pgTable(
     emailIdx: index('leads_email_idx').on(t.email),
     reportTokenIdx: index('leads_report_token_idx').on(t.reportToken),
     normalizedAddrIdx: index('leads_normalized_addr_idx').on(t.normalizedAddress),
+    buyerUserIdx: index('leads_buyer_user_idx').on(t.buyerUserId),
+    referralStatusIdx: index('leads_referral_status_idx').on(t.referralStatus),
   }),
 );
 
@@ -553,6 +572,9 @@ export const agentScoreLog = pgTable('agent_score_log', {
   // flagged here and a paired lead_deleted_reversal row records the give-back.
   isNegated: boolean('is_negated').default(false),
   negatedReason: varchar('negated_reason', { length: 500 }),
+  // Held points (migration 0038): logged but excluded from the agent's four
+  // tracks until an admin resolves the lead's referral. Existing rows = false.
+  isHeld: boolean('is_held').notNull().default(false),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 

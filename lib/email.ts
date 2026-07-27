@@ -618,6 +618,51 @@ If you did not request this, ignore this email.`;
   };
 }
 
+// ---------------------------------------------------------------------------
+// Buyer account — assigned-agent activity notification (existing client saved
+// a home / search on the site; the lead they own is already routed).
+// ---------------------------------------------------------------------------
+export interface BuyerEngagementEmailData {
+  to: string;
+  agentName: string;
+  buyerName: string;
+  buyerEmail?: string | null;
+  action: string; // human phrase, e.g. "saved a home" / "saved a search"
+  detail?: string | null; // address or search description
+  portalUrl: string;
+  relatedLeadId?: number;
+  relatedAgentId?: number;
+}
+
+export function buyerEngagementEmail(d: BuyerEngagementEmailData): SendEmailArgs {
+  const html = shell(
+    'Your client is active on the site',
+    `<h1 style="margin:0 0 12px;font-size:22px;color:${BRAND_BLUE};">Your client is browsing homes</h1>
+     <p style="font-size:15px;line-height:1.5;">Hi ${escapeHtml(d.agentName)}, ${escapeHtml(d.buyerName)} just ${escapeHtml(
+       d.action,
+     )} on the RE/MAX Platinum site.</p>
+     <table style="font-size:15px;line-height:1.8;margin:12px 0;">
+       <tr><td style="color:#64748b;padding-right:12px;">Client</td><td><strong>${escapeHtml(d.buyerName)}</strong></td></tr>
+       <tr><td style="color:#64748b;padding-right:12px;">Email</td><td>${escapeHtml(d.buyerEmail ?? '—')}</td></tr>
+       <tr><td style="color:#64748b;padding-right:12px;">Activity</td><td>${escapeHtml(d.detail ?? d.action)}</td></tr>
+     </table>
+     <p style="margin:24px 0;">${button(d.portalUrl, 'Open your leads')}</p>`,
+  );
+  const text = `${d.buyerName} just ${d.action} on the RE/MAX Platinum site.
+Client: ${d.buyerName} (${d.buyerEmail ?? '—'})
+Activity: ${d.detail ?? d.action}
+Open your leads: ${d.portalUrl}`;
+  return {
+    to: d.to,
+    subject: `${d.buyerName} is active on the site`,
+    html,
+    text,
+    templateName: 'buyer_engagement',
+    relatedLeadId: d.relatedLeadId,
+    relatedAgentId: d.relatedAgentId,
+  };
+}
+
 /** Generic admin alert (used when no agent could be found for a lead). */
 export function adminAlertEmail(subject: string, message: string): SendEmailArgs {
   const html = shell(subject, `<p style="font-size:15px;line-height:1.5;">${escapeHtml(message)}</p>`);

@@ -60,12 +60,18 @@ export async function recordStatusUpdate(o: {
       acceptedAt: leads.acceptedAt,
       contactedAt: leads.contactedAt,
       intent: leads.intent,
+      referralStatus: leads.referralStatus,
     })
     .from(leads)
     .where(eq(leads.id, offer.leadId))
     .limit(1);
   const leadRow = leadRows[0];
   const fromStatus = leadRow?.status ?? 'new';
+
+  // Held points: while a lead's referral is under admin review (the buyer claimed
+  // one of our agents), any points it earns are logged but excluded from the
+  // agent's totals until an admin resolves it (lib/referral). See migration 0038.
+  const held = leadRow?.referralStatus === 'pending_review';
 
   // Select the track (seller vs buyer) by the lead's intent — one engine, two
   // tunable configs. The seller path is unchanged (intent !== 'buyer').
@@ -162,6 +168,7 @@ export async function recordStatusUpdate(o: {
             delta: bonus,
             leadId: offer.leadId,
             leadOfferId: offer.id,
+            held,
           });
         }
       }
@@ -173,11 +180,11 @@ export async function recordStatusUpdate(o: {
       const milestone = cfg.pipelineMilestone(newStatus);
       if (milestone) {
         if (await claimLeadMilestone(offer.leadId, milestone.key, now)) {
-          await applyScore({ agentId: o.agentId, reason: milestone.reason, leadId: offer.leadId, leadOfferId: offer.id });
+          await applyScore({ agentId: o.agentId, reason: milestone.reason, leadId: offer.leadId, leadOfferId: offer.id, held });
         }
       } else if (newStatus === 'closed') {
         // Closed Won is terminal (reached once).
-        await applyScore({ agentId: o.agentId, reason: cfg.closingReason, leadId: offer.leadId, leadOfferId: offer.id });
+        await applyScore({ agentId: o.agentId, reason: cfg.closingReason, leadId: offer.leadId, leadOfferId: offer.id, held });
       }
       // nurturing / lost → 0 points.
     }

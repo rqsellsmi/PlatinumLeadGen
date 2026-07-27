@@ -7,6 +7,7 @@ import { db } from '@/lib/db';
 import { leads, leadOffers, agentScoreLog, agents } from '@/drizzle/schema';
 import { reassignLead } from '@/lib/autoOffer';
 import { applyScore } from '@/lib/scoring';
+import { resolveReferral, type ReferralDecision } from '@/lib/referral';
 import { sendEmail, leadDeletedNotificationEmail } from '@/lib/email';
 import { requireAdmin } from '@/components/admin/requireAdmin';
 import { isLeadIntent, type LeadIntent } from '@/lib/leadIntent';
@@ -50,6 +51,23 @@ export async function updateLeadIntent(formData: FormData) {
     .update(leads)
     .set({ intent: intent as LeadIntent, updatedAt: new Date() })
     .where(eq(leads.id, id));
+  revalidatePath(`/admin/leads/${id}`);
+  revalidatePath('/admin/leads');
+}
+
+/**
+ * Resolve a lead's pending referral. `eligible` releases the lead's held points
+ * into the agent's totals; `exempt` (pre-existing client) leaves them excluded.
+ * Only acts on a pending_review lead (idempotent).
+ */
+export async function resolveReferralAction(formData: FormData) {
+  await requireAdmin();
+  const id = Number(formData.get('leadId'));
+  const decision = String(formData.get('decision') ?? '');
+  if (!id || (decision !== 'eligible' && decision !== 'exempt')) {
+    throw new Error('Invalid referral decision');
+  }
+  await resolveReferral(id, decision as ReferralDecision);
   revalidatePath(`/admin/leads/${id}`);
   revalidatePath('/admin/leads');
 }

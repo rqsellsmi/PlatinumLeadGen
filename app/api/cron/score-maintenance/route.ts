@@ -32,6 +32,7 @@ export async function GET(req: NextRequest) {
         SELECT SUM(l.delta) FROM agent_score_log l
         WHERE l.agent_id = ${agents}.id
           AND l.created_at >= now() - interval '365 days'
+          AND l.is_held = false
       ), 0)
     `);
 
