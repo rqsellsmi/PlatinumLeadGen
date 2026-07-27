@@ -29,8 +29,8 @@ export default async function HomesSearchPage({ searchParams }: { searchParams: 
   const advancedOpen = searchParams.advanced === '1' || searchParams.advanced === 'true';
 
   const { rows, total, page, pageSize } = await searchListings(filters);
-  // Show the map when there are results OR an active drawn area, so a circle that
-  // matches nothing stays visible and adjustable/clearable (never disappears).
+  // Show the map when there are results OR an active drawn area (polygon) / radius,
+  // so an area that matches nothing stays visible and clearable (never disappears).
   const hasArea = !!(filters.polygon || filters.center);
   const photos = rows.length ? await getPhotosForListings(rows.map((r) => r.listingKey)) : new Map();
 
@@ -71,7 +71,7 @@ export default async function HomesSearchPage({ searchParams }: { searchParams: 
   return (
     <>
       <SiteHeader />
-      <main className="mx-auto max-w-6xl px-4 py-8">
+      <main className="mx-auto max-w-7xl px-4 py-8">
         <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-3xl font-extrabold tracking-tight text-charcoal">
@@ -87,55 +87,65 @@ export default async function HomesSearchPage({ searchParams }: { searchParams: 
 
         <SearchFilterPanel filters={filters} advancedOpen={advancedOpen} resultCount={total} />
 
-        {pins.length > 0 || hasArea ? <SearchMap pins={pins} /> : null}
-
-        {rows.length === 0 ? (
-          <div className="mt-10 rounded-xl border border-dashed border-line bg-cream/50 px-6 py-16 text-center">
-            <p className="text-lg font-semibold text-charcoal">No homes match your search</p>
-            <p className="mt-2 text-sm text-mute">
-              Try widening your price range, removing a filter, or searching a nearby city.
-            </p>
-            <Link
-              href="/homes"
-              className="mt-5 inline-block rounded-pill bg-platinum-blue px-5 py-2 text-sm font-semibold text-white hover:bg-platinum-blue/90"
-            >
-              Clear all filters
-            </Link>
-          </div>
-        ) : (
-          <>
-            <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              {rows.map((listing) => (
-                <IdxListingCard
-                  key={listing.listingKey}
-                  listing={listing}
-                  variant="sale"
-                  photos={photos.get(listing.listingKey)}
-                />
-              ))}
+        {/* Split view on desktop: sticky map on the left, scrolling list on the
+            right. Stacks (map on top, list below) on tablet & mobile. */}
+        <div className="mt-6 lg:flex lg:items-start lg:gap-6">
+          {pins.length > 0 || hasArea ? (
+            <div className="mb-6 lg:mb-0 lg:sticky lg:top-20 lg:h-[calc(100vh-6rem)] lg:w-[45%] lg:shrink-0 xl:w-1/2">
+              <SearchMap pins={pins} />
             </div>
+          ) : null}
 
-            {totalPages > 1 ? (
-              <nav className="mt-10 flex items-center justify-center gap-3" aria-label="Pagination">
-                {page > 1 ? (
-                  <Link href={pageHref(page - 1)} className="rounded-md border border-line px-4 py-2 text-sm font-semibold text-charcoal hover:border-platinum-blue">
-                    ‹ Prev
-                  </Link>
-                ) : null}
-                <span className="text-sm text-mute">
-                  Page {page} of {totalPages}
-                </span>
-                {page < totalPages ? (
-                  <Link href={pageHref(page + 1)} className="rounded-md border border-line px-4 py-2 text-sm font-semibold text-charcoal hover:border-platinum-blue">
-                    Next ›
-                  </Link>
-                ) : null}
-              </nav>
-            ) : null}
+          <div className="lg:min-w-0 lg:flex-1">
+            {rows.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-line bg-cream/50 px-6 py-16 text-center">
+                <p className="text-lg font-semibold text-charcoal">No homes match your search</p>
+                <p className="mt-2 text-sm text-mute">
+                  Try widening your price range, removing a filter, or searching a nearby city.
+                </p>
+                <Link
+                  href="/homes"
+                  className="mt-5 inline-block rounded-pill bg-platinum-blue px-5 py-2 text-sm font-semibold text-white hover:bg-platinum-blue/90"
+                >
+                  Clear all filters
+                </Link>
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+                  {rows.map((listing) => (
+                    <IdxListingCard
+                      key={listing.listingKey}
+                      listing={listing}
+                      variant="sale"
+                      photos={photos.get(listing.listingKey)}
+                    />
+                  ))}
+                </div>
 
-            <IdxCompliance variant="summary" firstOnPage />
-          </>
-        )}
+                {totalPages > 1 ? (
+                  <nav className="mt-10 flex items-center justify-center gap-3" aria-label="Pagination">
+                    {page > 1 ? (
+                      <Link href={pageHref(page - 1)} className="rounded-md border border-line px-4 py-2 text-sm font-semibold text-charcoal hover:border-platinum-blue">
+                        ‹ Prev
+                      </Link>
+                    ) : null}
+                    <span className="text-sm text-mute">
+                      Page {page} of {totalPages}
+                    </span>
+                    {page < totalPages ? (
+                      <Link href={pageHref(page + 1)} className="rounded-md border border-line px-4 py-2 text-sm font-semibold text-charcoal hover:border-platinum-blue">
+                        Next ›
+                      </Link>
+                    ) : null}
+                  </nav>
+                ) : null}
+
+                <IdxCompliance variant="summary" firstOnPage />
+              </>
+            )}
+          </div>
+        </div>
       </main>
       <SiteFooter />
     </>

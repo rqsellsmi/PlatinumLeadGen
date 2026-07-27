@@ -107,7 +107,9 @@ export default function SearchMap({ pins }: { pins: MapPin[] }) {
           fullscreenControl: false,
         });
         mapRef.current = map;
-        infoRef.current = new g.maps.InfoWindow();
+        // disableAutoPan: the map must NOT recenter when a hover popover opens —
+        // that made it jump on every pin hover.
+        infoRef.current = new g.maps.InfoWindow({ disableAutoPan: true });
         // A pinned (clicked-open) popover un-pins when the user closes it.
         infoRef.current.addListener('closeclick', () => {
           pinnedRef.current = false;
@@ -225,7 +227,7 @@ export default function SearchMap({ pins }: { pins: MapPin[] }) {
   if (failed) return null; // no maps key / load failure: page still works without the map
 
   return (
-    <div className="mt-6 overflow-hidden rounded-xl border border-line bg-white">
+    <div className="flex flex-col overflow-hidden rounded-xl border border-line bg-white lg:h-full">
       <div className="flex flex-wrap items-center gap-2 border-b border-line-hair p-2.5">
         <input
           ref={acInputRef}
@@ -268,8 +270,7 @@ export default function SearchMap({ pins }: { pins: MapPin[] }) {
       </div>
       <div
         ref={mapEl}
-        className={`w-full ${collapsed ? 'hidden' : 'block'}`}
-        style={{ height: 420 }}
+        className={`w-full h-[60vh] min-h-[380px] lg:h-auto lg:min-h-0 lg:flex-1 ${collapsed ? 'hidden' : 'block'}`}
         aria-label="Map of search results"
       />
     </div>
