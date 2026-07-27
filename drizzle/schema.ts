@@ -10,6 +10,7 @@
  * Added: api_keys, agents.passwordHash/passwordResetToken,
  *        locations SEO fields + guideUrl, notificationSettings.
  */
+import { sql } from 'drizzle-orm';
 import {
   pgTable,
   pgEnum,
@@ -1041,6 +1042,45 @@ export const idxSyncLog = pgTable('idx_sync_log', {
 });
 
 // ---------------------------------------------------------------------------
+// Buyer accounts (migration 0035) — a third, isolated principal. Passwordless:
+// Google OAuth + email magic link. Activity/link tables come in 0036/0037.
+// ---------------------------------------------------------------------------
+export const buyerUsers = pgTable(
+  'buyer_users',
+  {
+    id: serial('id').primaryKey(),
+    email: varchar('email', { length: 200 }).notNull(), // stored lowercase
+    name: varchar('name', { length: 200 }),
+    googleSub: varchar('google_sub', { length: 255 }),
+    emailVerifiedAt: timestamp('email_verified_at'),
+    phone: varchar('phone', { length: 40 }), // filled at first appointment/showing
+    representedElsewhere: boolean('represented_elsewhere').notNull().default(false),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    lastSeenAt: timestamp('last_seen_at').notNull().defaultNow(),
+    deletedAt: timestamp('deleted_at'), // soft-delete on account deletion
+  },
+  (t) => ({
+    emailIdx: uniqueIndex('buyer_users_email_idx').on(sql`lower(${t.email})`),
+  }),
+);
+
+/** Magic-link tokens (hashed). Mirrors the agent magic-link storage. */
+export const buyerAuthTokens = pgTable(
+  'buyer_auth_tokens',
+  {
+    id: serial('id').primaryKey(),
+    email: varchar('email', { length: 200 }).notNull(),
+    tokenHash: varchar('token_hash', { length: 64 }).notNull(),
+    expiresAt: timestamp('expires_at').notNull(),
+    usedAt: timestamp('used_at'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    hashIdx: index('buyer_auth_tokens_hash_idx').on(t.tokenHash),
+  }),
+);
+
+// ---------------------------------------------------------------------------
 // Inferred types
 // ---------------------------------------------------------------------------
 export type Office = typeof offices.$inferSelect;
@@ -1064,6 +1104,8 @@ export type HomePageMetrics = typeof homePageMetrics.$inferSelect;
 export type MsGraphToken = typeof msGraphTokens.$inferSelect;
 export type EmailSendLogRow = typeof emailSendLog.$inferSelect;
 export type RateLimitRow = typeof rateLimits.$inferSelect;
+export type BuyerUser = typeof buyerUsers.$inferSelect;
+export type BuyerAuthToken = typeof buyerAuthTokens.$inferSelect;
 /**
  * Cached AVM-provider property records (owner, features, tax, sale history),
  * keyed by normalized address so multiple leads at the same address and the

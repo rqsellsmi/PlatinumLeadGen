@@ -591,6 +591,33 @@ If you did not request this, ignore this email.`;
   };
 }
 
+// ---------------------------------------------------------------------------
+// Buyer account — magic sign-in link
+// ---------------------------------------------------------------------------
+export interface BuyerMagicLinkEmailData {
+  to: string;
+  signInUrl: string;
+}
+
+export function buyerMagicLinkEmail(d: BuyerMagicLinkEmailData): SendEmailArgs {
+  const html = shell(
+    'Sign in to RE/MAX Platinum',
+    `<h1 style="margin:0 0 12px;font-size:22px;color:${BRAND_BLUE};">Sign in to save your search</h1>
+     <p style="font-size:15px;line-height:1.5;">Use the button below to sign in to your RE/MAX Platinum account. This link expires in 30 minutes and can be used once.</p>
+     <p style="margin:24px 0;">${button(d.signInUrl, 'Sign in')}</p>
+     <p style="font-size:13px;line-height:1.5;color:#64748b;">If you did not request this, you can safely ignore this email.</p>`,
+  );
+  const text = `Sign in to your RE/MAX Platinum account (link expires in 30 minutes): ${d.signInUrl}
+If you did not request this, ignore this email.`;
+  return {
+    to: d.to,
+    subject: 'Your RE/MAX Platinum sign-in link',
+    html,
+    text,
+    templateName: 'buyer_magic_link',
+  };
+}
+
 /** Generic admin alert (used when no agent could be found for a lead). */
 export function adminAlertEmail(subject: string, message: string): SendEmailArgs {
   const html = shell(subject, `<p style="font-size:15px;line-height:1.5;">${escapeHtml(message)}</p>`);

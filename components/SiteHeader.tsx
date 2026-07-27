@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import Logo from '@/components/Logo';
 import HeroValuation, { OPEN_VALUATION_HEADER } from '@/components/HeroValuation';
+import BuyerAuthNav from '@/components/buyer/BuyerAuthNav';
 
 /** Shared public site header (Section 15). The "Free Home Value" button opens
  *  the valuation pop-up from ANY page: a modal-only HeroValuation is mounted
@@ -22,6 +23,7 @@ export default function SiteHeader() {
           <Link href="/sell" className="hidden hover:text-platinum-blue sm:inline">
             Cities
           </Link>
+          <BuyerAuthNav />
           <button
             type="button"
             onClick={() => window.dispatchEvent(new CustomEvent(OPEN_VALUATION_HEADER))}
