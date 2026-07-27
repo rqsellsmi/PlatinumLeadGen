@@ -18,6 +18,13 @@ own home's valuation, and have their activity tracked**. A buyer becomes a route
 the whole system treats **one person as one lead handled by one agent** — matched
 by email across buyer *and* seller leads.
 
+At that first engagement the buyer is asked **if they're already working with an
+agent** (§5.7). This protects existing representation and drives the **referral fee**:
+every site lead is **`referral_eligible` (flat 30%) by default**; a claimed
+pre-existing RE/MAX Platinum agent puts the lead in **`pending_review`** — assigned
+to that agent for service, but with the **fee and the agent's points *held*** until
+an **admin** resolves it (release or exempt). Admin is the sole arbiter.
+
 The buyer is a **third, strictly-isolated principal** alongside admin (NextAuth)
 and agents (signed cookie). It gets its own session cookie and can never reach
 admin/agent data.
@@ -44,6 +51,12 @@ features; mortgage tools; native app / Apple sign-in.
 | D11 | **Data minimization:** email + name at signup; **phone required only at appointment/showing.** |
 | D12 | **Bot defense:** invisible **Cloudflare Turnstile** + rate-limiting on the magic-link path; Google's own defenses cover the Google path; **verified email required** before any agent-notify. |
 | D13 | **Privacy:** disclose activity tracking in the privacy policy + provide **"delete my account & data."** |
+| D14 | **"Already working with an agent?" — two-step**, asked **at the first lead-creating action** (not at signup): "working with an agent?" → if yes, "a RE/MAX Platinum agent?". Captures both *represented-anywhere* and *which-of-ours*. (See §5.7.) |
+| D15 | **Agent picker = ALL active agents** (regardless of availability — it's an *existing* relationship, not a new-lead request) + **"I don't see them → type a name."** Shows a new `agents.display_name` (nickname), settable in agent settings, used only for this picker for now. |
+| D16 | **Working with another brokerage → no lead, no outreach.** The account still works fully (browse/favorite/save); the buyer is flagged **"represented elsewhere"** internally. |
+| D17 | **Working with one of ours → assign the lead directly to that agent** (skip the rotation) + **notify them**. The claim is trusted for *service*, but **not** for the referral fee (see D18). A typed name that matches no active agent → **admin reconciles** (no auto-route). |
+| D18 | **Referral fee — brokerage-wide, flat 30%, three states.** `referral_status` on every site lead: **`eligible` (default — the fee stands)**, **`pending_review`** (set only when a buyer claims a *pre-existing Platinum agent*), **`exempt`** (admin-confirmed no fee). **Admin is the sole arbiter** — no agent-confirmation step — via a **one toggle** on the lead + a **"pending referral review" queue**. |
+| D19 | **Held points.** A `pending_review` lead **logs its point events but HOLDS them** (excluded from the agent's totals + queue). Admin resolves the one toggle: **`eligible` → release** the held points; **`exempt` → they stay excluded.** Prevents an agent farming their own book through the site to climb the queue while dodging the fee. |
 
 ---
 
@@ -105,13 +118,30 @@ Hand-authored idempotent SQL migrations (repo rule):
   `listingKey`, `firstViewedAt`, `lastViewedAt`, `viewCount`; unique
   `(buyerUserId, listingKey)` and **upsert** on each view (bounds volume — one row
   per buyer×listing, not one per pageview).
-- **`leads` additions:** `buyer_user_id` (nullable FK → buyer_users) so a routed
-  lead links back to the account. (Buyer leads already use `intent='buyer'`,
-  `leadType='buyer_inquiry'` from the buyer-search build.)
+- **`agents` addition:** `display_name` (varchar, nullable) — the agent's nickname
+  for the representation picker (falls back to legal `firstName lastName`).
+  Settable in `/agent/settings`; used only for this picker for now (D15).
+- **`leads` additions:**
+  - `buyer_user_id` (nullable FK → buyer_users) — links a routed lead to the
+    account. (Buyer leads already use `intent='buyer'`, `leadType='buyer_inquiry'`.)
+  - **Representation:** `representation` (enum `none`/`our_agent`/`other_brokerage`,
+    default `none`), `claimed_agent_id` (nullable FK → agents), `claimed_agent_name`
+    (text — the typed name when unmatched).
+  - **Referral:** `referral_status` (enum **`eligible`** default / **`pending_review`**
+    / **`exempt`**), `referral_resolved_by` (admin id), `referral_resolved_at`.
+    Brokerage-wide — applies to seller leads too (default `eligible`), so seller
+    leads are covered by the admin toggle without any seller-form change (D18).
+- **`agent_score_log` addition:** `is_held` (boolean, default false). A held row is
+  logged but **excluded** from the four score-track totals **and** the rolling-365
+  recompute until released (D19). On admin resolve: `eligible` → set `is_held=false`
+  (the deltas now count); `exempt` → set `is_negated=true` (never count — reuses the
+  existing negation path). `applyScore` learns an optional `held` arg; the score
+  aggregations add `WHERE is_held = false AND is_negated = false`.
 
-Enum note: no new `lead_status`/`score_reason` values needed (buyer accounts reuse
-the buyer-search pipeline). `leadType` may gain `buyer_account` (additive) to
-distinguish an account-originated lead from a bare listing inquiry — TBD (open O2).
+New enums: `representation`, `referral_status`. No new `lead_status`/`score_reason`
+values (buyer accounts reuse the buyer-search pipeline). `leadType` may gain
+`buyer_account` (additive) to distinguish an account-originated lead from a bare
+listing inquiry — TBD (open O2).
 
 ---
 
@@ -132,14 +162,22 @@ On success → `bx_session` set → the pending action (the save they clicked) c
 ### 5.2 First real engagement → lead (D5/D6/D7)
 When the buyer first **saves a search / saves a home / submits contact / showing /
 valuation**, and no lead is yet routed for them:
-1. Dedup by email again (`findExistingLeadByContact`). If an **actively-assigned**
+1. **Ask the representation question** (D14, §5.7) — a one-time modal at this first
+   lead-creating action. Its answer branches everything below.
+2. Dedup by email (`findExistingLeadByContact`). If an **actively-assigned**
    buyer/seller lead exists → **notify that agent** (mirror the seller-resubmit
    notify path), link `buyer_user_id`, done — no new lead, no re-route.
-2. Else **create a buyer lead** (`intent='buyer'`, linked `buyer_user_id`) and
-   `autoOfferLead` it. **Anchor** = the first engagement's location:
-   - saved search → the search-area centroid (`anchorLat/Lng`);
-   - saved home / showing / contact → that listing's coordinates.
-3. Every later save/showing attaches to the **same** lead (dedup by email/
+3. Else branch on the representation answer:
+   - **No agent** → **create a buyer lead** (`intent='buyer'`, linked
+     `buyer_user_id`, `referral_status='eligible'`) and `autoOfferLead` it. **Anchor**
+     = the first engagement's location (saved search → area centroid `anchorLat/Lng`;
+     saved home / showing / contact → that listing's coordinates).
+   - **Our agent** → create the lead but **assign it directly to that agent**
+     (skip rotation, like `manualReassignLead`), notify them, set
+     `referral_status='pending_review'` + hold points (§5.7).
+   - **Another brokerage** → **no lead**; flag the buyer `represented_elsewhere`;
+     the account keeps working (§5.7).
+4. Every later save/showing attaches to the **same** lead (dedup by email/
    buyer_user_id) and, if assigned, just notifies the agent.
 
 ### 5.3 Buyer valuation (D8)
@@ -172,6 +210,50 @@ session. **Any lead already created stays** as the brokerage's CRM record but is
 **unlinked** (`buyer_user_id → null`) and noted — disclosed in the privacy policy
 (a lead the agent is already working is business data; the *consumer login +
 activity* is what's deleted). (Open O3: full lead deletion vs unlink.)
+
+### 5.7 Representation & referral (the "already-represented" case)
+Fires **once, at the first lead-creating action** (D14) — never at signup, so
+signup stays frictionless and bare accounts never touch an agent.
+
+**The two-step question:** "Are you already working with a real estate agent?"
+→ if **yes** → "Is it a RE/MAX Platinum agent?"
+- **Yes, Platinum** → a picker of **all active agents** by `display_name` (D15), plus
+  **"I don't see them → type a name."**
+- **Yes, other brokerage** → captured as `other_brokerage`.
+- **No** → normal flow.
+
+**Outcomes:**
+| Answer | Lead? | Assignment | Referral | Points |
+|---|---|---|---|---|
+| No agent | Yes | normal rotation (`autoOfferLead`) | `eligible` | count normally |
+| Our agent (picked) | Yes | **direct-assign to that agent** + notify | **`pending_review`** | **held** |
+| Our agent (typed, unmatched) | Yes | **admin reconciles** (no auto-route) | `pending_review` | held |
+| Other brokerage | **No** | none (respect representation) | n/a | n/a |
+
+**Referral is a three-state field, brokerage-wide (D18):**
+- **`eligible`** — the default on every site lead (buyer *and* seller); the flat
+  **30%** stands. Points count immediately (today's behavior).
+- **`pending_review`** — set *only* when a buyer claims a pre-existing Platinum
+  agent. The lead is assigned + the agent notified (for service), but **the fee and
+  the points are both suspended** pending an admin decision. Surfaces in an admin
+  **"pending referral review"** queue/filter.
+- **`exempt`** — admin confirmed no fee.
+
+**The one admin toggle (D18/D19)** on the lead resolves a `pending_review`:
+- **→ `eligible`**: release the **held points** into the agent's totals; the 30%
+  stands.
+- **→ `exempt`**: held points stay excluded; no fee.
+Admin is the **sole arbiter** — there is no agent self-confirmation (agents would
+never volunteer "not my client"). Every claim/resolution is logged
+(`representation`, `claimed_agent_*`, `referral_resolved_by/_at`).
+
+**Held points mechanic (D19):** while a lead is `pending_review`, `applyScore`
+still **logs** each event to `agent_score_log` but with `is_held=true`, and the
+four score-track aggregations + the rolling-365 recompute **exclude held (and
+negated) rows** — so the agent sees *nothing* from this lead until admin resolves.
+This blocks the gaming vector (running your own book through the site to climb the
+queue while dodging the fee) and needs no time-based auto-release — it waits for
+the human.
 
 ---
 
@@ -226,6 +308,21 @@ activity* is what's deleted). (Open O3: full lead deletion vs unlink.)
   centroid when the search was drawn on the map (use polygon centroid when present,
   else city).
 
+### 🚩 Parked — revisit later (owner flagged, NOT part of this build)
+- **P1 — Seller-side pre-existing clients.** Should the seller valuation forms ask
+  the same "already working with an agent?" question the buyer flow does? Deferred —
+  the owner wants to maximize SEO + ad lead volume and is weighing that against the
+  funnel friction. **No decision yet, and it does NOT block this build:** seller
+  leads are already covered by the brokerage-wide `referral_status` (default
+  `eligible`) + the admin toggle, with no seller-form change. Mirror the buyer
+  representation flow onto the seller forms only if/when the owner chooses to.
+- **P2 — Ad-sourced pre-existing clients.** Policy for a lead that is *both* a
+  claimed pre-existing client *and* arrived via a paid ad (has a `gclid`/UTM):
+  should it be exemptible at all, given ad spend was involved? Deferred. **Interim
+  behavior:** default `eligible`, admin decides case-by-case, with "came through an
+  ad" shown prominently on the lead in the admin referral view. Revisit whether to
+  add a hard rule (ad-sourced ⇒ non-exemptible).
+
 ## 9. Phasing (high level — full plan after sign-off)
 1. **Auth foundation:** `buyer_users` + `buyer_auth_tokens`, `lib/buyerAuth`
    (signed cookie), middleware isolation, Google OAuth routes, magic-link routes,
@@ -235,10 +332,17 @@ activity* is what's deleted). (Open O3: full lead deletion vs unlink.)
 3. **Activity tracking:** `buyer_listing_views` upsert on listing views.
 4. **Lead-on-engagement + dedup:** wire first-save/contact/showing/valuation to the
    dedup + create/attach/notify logic; `leads.buyer_user_id`; routing anchor.
-5. **Buyer valuation** in the account area (reuse the AVM flow) + agent-notify.
-6. **Agent/admin "Buyer activity" panels.**
-7. **Privacy policy + delete-my-account.**
-8. **Docs + final gate** (typecheck + tests + build green after each phase).
+5. **Representation + referral + held points:** the two-step question at first
+   engagement; `agents.display_name` (+ agent-settings field); the direct-assign +
+   notify path for a claimed agent; `leads.representation`/`claimed_agent_*`;
+   `leads.referral_status` (three states) + `agent_score_log.is_held`; the
+   score-aggregation exclusion of held/negated rows; the **admin referral toggle +
+   pending-review queue** that releases or excludes held points. (Pure held/release
+   score math + the three-state transitions unit-tested; seller path unchanged.)
+6. **Buyer valuation** in the account area (reuse the AVM flow) + agent-notify.
+7. **Agent/admin "Buyer activity" panels.**
+8. **Privacy policy + delete-my-account.**
+9. **Docs + final gate** (typecheck + tests + build green after each phase).
 
 Owner first-connection items (Google OAuth client, Turnstile keys, Realcomp IDX
 confirm, migrations) mirror the pattern of every prior integration.
