@@ -361,6 +361,22 @@ export async function getListingByKey(listingKey: string): Promise<IdxCard | nul
   return gateAddress(row);
 }
 
+/**
+ * Batch fetch of displayable listing cards by key (for the account "Saved
+ * homes" grid). Applies the same compliance gates as getListingByKey: only
+ * displayable statuses, address-gated. Missing/removed keys are simply absent
+ * from the result — the caller can note "no longer available".
+ */
+export async function getListingsByKeys(listingKeys: string[]): Promise<IdxCard[]> {
+  const keys = listingKeys.filter((k) => k.trim());
+  if (keys.length === 0) return [];
+  const rows = await db
+    .select()
+    .from(idxListings)
+    .where(and(inArray(idxListings.listingKey, keys), canDisplay));
+  return rows.filter((r) => DISPLAYABLE_STATUSES.has(r.standardStatus)).map((r) => gateAddress(r));
+}
+
 // ---------------------------------------------------------------------------
 // Photos — all photos for a listing, gated by status (IDX Rules §18.10)
 // ---------------------------------------------------------------------------

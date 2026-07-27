@@ -6,6 +6,7 @@ import IdxListingCard from '@/components/idx/IdxListingCard';
 import IdxCompliance from '@/components/idx/IdxCompliance';
 import SearchFilterPanel from '@/components/search/SearchFilterPanel';
 import SearchMap, { type MapPin } from '@/components/search/SearchMap';
+import SaveSearchButton from '@/components/search/SaveSearchButton';
 import { normalizeFilters, listingStatusLabel } from '@/lib/listingSearch';
 import { searchListings } from '@/lib/idxSearch';
 import { getPhotosForListings } from '@/lib/idx';
@@ -44,6 +45,14 @@ export default async function HomesSearchPage({ searchParams }: { searchParams: 
       photoUrl: r.photoUrl,
     }));
 
+  // The filter params to persist when "Save this search" is clicked — drop the
+  // pagination + UI-only keys so the saved search re-runs against a fresh page.
+  const saveableFilters: Record<string, string | string[]> = {};
+  for (const [k, v] of Object.entries(searchParams)) {
+    if (v == null || k === 'page' || k === 'pageSize' || k === 'advanced') continue;
+    saveableFilters[k] = v;
+  }
+
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const pageHref = (p: number) => {
     const sp = new URLSearchParams();
@@ -60,14 +69,17 @@ export default async function HomesSearchPage({ searchParams }: { searchParams: 
     <>
       <SiteHeader />
       <main className="mx-auto max-w-6xl px-4 py-8">
-        <div className="mb-5">
-          <h1 className="text-3xl font-extrabold tracking-tight text-charcoal">
-            {filters.city ? `Homes for sale in ${filters.city}` : 'Homes for sale'}
-          </h1>
-          <p className="mt-1 text-sm text-mute">
-            {total.toLocaleString()} active {total === 1 ? 'listing' : 'listings'}
-            {filters.city ? '' : ' across Southeast Michigan'}
-          </p>
+        <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-3xl font-extrabold tracking-tight text-charcoal">
+              {filters.city ? `Homes for sale in ${filters.city}` : 'Homes for sale'}
+            </h1>
+            <p className="mt-1 text-sm text-mute">
+              {total.toLocaleString()} active {total === 1 ? 'listing' : 'listings'}
+              {filters.city ? '' : ' across Southeast Michigan'}
+            </p>
+          </div>
+          {total > 0 ? <SaveSearchButton filters={saveableFilters} /> : null}
         </div>
 
         <SearchFilterPanel filters={filters} advancedOpen={advancedOpen} resultCount={total} />

@@ -7,6 +7,7 @@ import type { IdxCard } from '@/lib/idx';
 import { formatCurrency, formatMonthYear } from '@/lib/utils';
 import { listingStatusLabel, isUnderContractLike } from '@/lib/listingSearch';
 import RealcompLogo from './RealcompLogo';
+import FavoriteButton from '@/components/buyer/FavoriteButton';
 
 const FALLBACK_IMAGE =
   'data:image/svg+xml;charset=utf-8,' +
@@ -73,8 +74,12 @@ export default function IdxListingCard({
           <RealcompLogo size={16} />
           <span className="text-[10px] font-semibold uppercase tracking-wide text-mute">MLS</span>
         </span>
+        {/* Save heart — signed-out clicks open sign-in; overlaps nothing above. */}
+        <div className="absolute right-2 top-2 z-[1]">
+          <FavoriteButton listingKey={listing.listingKey} next={href} />
+        </div>
         {/* Real status badge — AUC/pending must NOT read as a plain "For Sale". */}
-        <span className="absolute right-2 top-2 flex flex-col items-end gap-1">
+        <span className="absolute right-2 top-12 flex flex-col items-end gap-1">
           {variant === 'sale' ? (
             <span
               className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white ${

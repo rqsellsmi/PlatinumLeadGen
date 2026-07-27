@@ -1081,6 +1081,63 @@ export const buyerAuthTokens = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// Buyer save surfaces (migration 0036) — favorites, saved searches, and the
+// listing-view activity log. All cascade-delete with the buyer account.
+// ---------------------------------------------------------------------------
+export const buyerFavorites = pgTable(
+  'buyer_favorites',
+  {
+    id: serial('id').primaryKey(),
+    buyerUserId: integer('buyer_user_id')
+      .notNull()
+      .references(() => buyerUsers.id, { onDelete: 'cascade' }),
+    listingKey: varchar('listing_key', { length: 100 }).notNull(),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    uniq: uniqueIndex('buyer_favorites_uniq').on(t.buyerUserId, t.listingKey),
+  }),
+);
+
+/** A saved filter set, re-run live against the current feed. anchor_* is the
+ *  centroid of the FIRST saved search (used later for lead-routing proximity). */
+export const buyerSavedSearches = pgTable(
+  'buyer_saved_searches',
+  {
+    id: serial('id').primaryKey(),
+    buyerUserId: integer('buyer_user_id')
+      .notNull()
+      .references(() => buyerUsers.id, { onDelete: 'cascade' }),
+    name: varchar('name', { length: 200 }).notNull(),
+    filtersJson: text('filters_json').notNull(),
+    anchorLat: real('anchor_lat'),
+    anchorLng: real('anchor_lng'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    userIdx: index('buyer_saved_searches_user_idx').on(t.buyerUserId),
+  }),
+);
+
+/** Per-buyer per-listing view tally, upserted on each detail-page view. */
+export const buyerListingViews = pgTable(
+  'buyer_listing_views',
+  {
+    id: serial('id').primaryKey(),
+    buyerUserId: integer('buyer_user_id')
+      .notNull()
+      .references(() => buyerUsers.id, { onDelete: 'cascade' }),
+    listingKey: varchar('listing_key', { length: 100 }).notNull(),
+    firstViewedAt: timestamp('first_viewed_at').notNull().defaultNow(),
+    lastViewedAt: timestamp('last_viewed_at').notNull().defaultNow(),
+    viewCount: integer('view_count').notNull().default(1),
+  },
+  (t) => ({
+    uniq: uniqueIndex('buyer_listing_views_uniq').on(t.buyerUserId, t.listingKey),
+  }),
+);
+
+// ---------------------------------------------------------------------------
 // Inferred types
 // ---------------------------------------------------------------------------
 export type Office = typeof offices.$inferSelect;
@@ -1106,6 +1163,9 @@ export type EmailSendLogRow = typeof emailSendLog.$inferSelect;
 export type RateLimitRow = typeof rateLimits.$inferSelect;
 export type BuyerUser = typeof buyerUsers.$inferSelect;
 export type BuyerAuthToken = typeof buyerAuthTokens.$inferSelect;
+export type BuyerFavorite = typeof buyerFavorites.$inferSelect;
+export type BuyerSavedSearch = typeof buyerSavedSearches.$inferSelect;
+export type BuyerListingView = typeof buyerListingViews.$inferSelect;
 /**
  * Cached AVM-provider property records (owner, features, tax, sale history),
  * keyed by normalized address so multiple leads at the same address and the

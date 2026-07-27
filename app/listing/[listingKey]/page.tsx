@@ -8,6 +8,7 @@ import ListingBackButton from '@/components/idx/ListingBackButton';
 import KeyFeatureChips from '@/components/idx/KeyFeatureChips';
 import ListingLocationMap from '@/components/idx/ListingLocationMap';
 import ListingContact from '@/components/idx/ListingContact';
+import FavoriteButton from '@/components/buyer/FavoriteButton';
 import AreaHighlights from '@/components/idx/AreaHighlights';
 import MarketReport from '@/components/idx/MarketReport';
 import { buildKeyFeatures } from '@/lib/listingFeatures';
@@ -268,6 +269,17 @@ export default async function ListingDetailPage({
             price={formatCurrency(price)}
             primaryOnlyNote={sold}
           />
+
+          {/* Save this home — buyers save for-sale listings to their account. */}
+          {!sold ? (
+            <div className="mt-4 flex justify-end">
+              <FavoriteButton
+                listingKey={listing.listingKey}
+                variant="inline"
+                next={`/listing/${encodeURIComponent(listing.listingKey)}`}
+              />
+            </div>
+          ) : null}
 
           {/* Stat bar */}
           <dl className="mt-5 grid grid-cols-2 overflow-hidden rounded-card bg-charcoal text-white sm:grid-cols-4">

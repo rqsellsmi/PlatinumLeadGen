@@ -10,6 +10,9 @@ import {
   encodePolygon,
   normalizeFilters,
   coarsenPin,
+  centroidOfFilters,
+  describeSearch,
+  filtersToQuery,
   DEFAULT_PAGE_SIZE,
   MAX_PAGE_SIZE,
 } from '../lib/listingSearch';
@@ -165,5 +168,81 @@ describe('normalizeFilters', () => {
     expect(normalizeFilters({ pageSize: '999' }).pageSize).toBe(MAX_PAGE_SIZE);
     expect(normalizeFilters({ page: '0' }).page).toBe(1);
     expect(normalizeFilters({ page: '4' }).page).toBe(4);
+  });
+});
+
+describe('centroidOfFilters', () => {
+  it('prefers an explicit radius center', () => {
+    expect(centroidOfFilters({ center: { lat: 42.5, lng: -83.4 }, radiusMiles: 10 })).toEqual({
+      lat: 42.5,
+      lng: -83.4,
+    });
+  });
+  it('averages a polygon ring', () => {
+    const c = centroidOfFilters({
+      polygon: [
+        { lat: 0, lng: 0 },
+        { lat: 0, lng: 2 },
+        { lat: 2, lng: 2 },
+        { lat: 2, lng: 0 },
+      ],
+    });
+    expect(c).toEqual({ lat: 1, lng: 1 });
+  });
+  it('uses the bbox center when only bounds are set', () => {
+    expect(centroidOfFilters({ bbox: { minLat: 42, maxLat: 44, minLng: -84, maxLng: -82 } })).toEqual({
+      lat: 43,
+      lng: -83,
+    });
+  });
+  it('returns null with no geography', () => {
+    expect(centroidOfFilters({ city: 'Clarkston', bedsMin: 3 })).toBeNull();
+  });
+});
+
+describe('describeSearch', () => {
+  it('summarizes city, beds and a price range', () => {
+    const label = describeSearch({ city: 'Clarkston', bedsMin: 3, priceMin: 200000, priceMax: 400000 });
+    expect(label).toContain('Homes in Clarkston');
+    expect(label).toContain('3+ bd');
+    expect(label).toContain('$200K–$400K');
+  });
+  it('renders millions compactly and open-ended ranges', () => {
+    expect(describeSearch({ priceMin: 1000000 })).toContain('$1M+');
+    expect(describeSearch({ priceMax: 350000 })).toContain('up to $350K');
+  });
+  it('falls back to a bare label', () => {
+    expect(describeSearch({})).toBe('Homes');
+    expect(describeSearch({ polygon: [{ lat: 0, lng: 0 }, { lat: 1, lng: 0 }, { lat: 1, lng: 1 }] })).toContain(
+      'drawn area',
+    );
+  });
+});
+
+describe('filtersToQuery', () => {
+  it('round-trips the common fields through normalizeFilters', () => {
+    const original = {
+      priceMin: '200000',
+      priceMax: '400000',
+      bedsMin: '3',
+      city: 'Clarkston',
+      type: 'SingleFamilyResidence,Condominium',
+      waterfront: '1',
+    };
+    const q = filtersToQuery(normalizeFilters(original));
+    const back = normalizeFilters(Object.fromEntries(new URLSearchParams(q)));
+    expect(back.priceMin).toBe(200000);
+    expect(back.priceMax).toBe(400000);
+    expect(back.bedsMin).toBe(3);
+    expect(back.city).toBe('Clarkston');
+    expect(back.propertyTypes).toEqual(['SingleFamilyResidence', 'Condominium']);
+    expect(back.waterfront).toBe(true);
+  });
+  it('encodes a radius search', () => {
+    const q = filtersToQuery({ center: { lat: 42.8, lng: -83.7 }, radiusMiles: 20 });
+    const sp = new URLSearchParams(q);
+    expect(sp.get('lat')).toBe('42.8');
+    expect(sp.get('lng')).toBe('-83.7');
+    expect(sp.get('radius')).toBe('20');
   });
 });

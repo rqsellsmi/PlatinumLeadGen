@@ -202,6 +202,69 @@ export function parseExcludedCities(raw: string | null | undefined): string[] {
     .filter(Boolean);
 }
 
+/**
+ * Centroid of a saved search's geography, used as the routing anchor for the
+ * buyer's FIRST saved search (proximity → lead assignment, Phase 4). Prefers an
+ * explicit radius center, then the polygon centroid, then the bbox center.
+ * Returns null when the search has no geography (city-name-only or unfiltered).
+ */
+export function centroidOfFilters(f: SearchFilters): LatLng | null {
+  if (f.center && Number.isFinite(f.center.lat) && Number.isFinite(f.center.lng)) {
+    return { lat: f.center.lat, lng: f.center.lng };
+  }
+  if (f.polygon && f.polygon.length >= 3) {
+    let sumLat = 0;
+    let sumLng = 0;
+    for (const p of f.polygon) {
+      sumLat += p.lat;
+      sumLng += p.lng;
+    }
+    return { lat: sumLat / f.polygon.length, lng: sumLng / f.polygon.length };
+  }
+  if (f.bbox) {
+    return {
+      lat: (f.bbox.minLat + f.bbox.maxLat) / 2,
+      lng: (f.bbox.minLng + f.bbox.maxLng) / 2,
+    };
+  }
+  return null;
+}
+
+const money = (n: number) =>
+  n >= 1_000_000
+    ? `$${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`
+    : `$${Math.round(n / 1000)}K`;
+
+/**
+ * A short human label for a saved search, e.g. "Homes in Clarkston · 3+ bd ·
+ * $200K–$400K". Pure so it round-trips the same on server and client and is
+ * unit-tested directly. Falls back to "All homes" when nothing is set.
+ */
+export function describeSearch(f: SearchFilters): string {
+  const parts: string[] = [];
+
+  if (f.city) parts.push(`Homes in ${f.city}`);
+  else if (f.polygon && f.polygon.length >= 3) parts.push('Homes in a drawn area');
+  else if (f.center) parts.push('Homes near a point');
+  else parts.push('Homes');
+
+  const types = f.propertyTypes?.filter(Boolean);
+  if (types && types.length) parts.push(types.length <= 2 ? types.join(' / ') : `${types.length} types`);
+
+  if (f.bedsMin) parts.push(`${f.bedsMin}+ bd`);
+  if (f.bathsMin) parts.push(`${f.bathsMin}+ ba`);
+
+  if (f.priceMin != null && f.priceMax != null) parts.push(`${money(f.priceMin)}–${money(f.priceMax)}`);
+  else if (f.priceMin != null) parts.push(`${money(f.priceMin)}+`);
+  else if (f.priceMax != null) parts.push(`up to ${money(f.priceMax)}`);
+
+  if (f.waterfront) parts.push('waterfront');
+  if (f.pool) parts.push('pool');
+  if (f.newConstruction) parts.push('new construction');
+
+  return parts.join(' · ');
+}
+
 function num(v: unknown): number | undefined {
   if (v == null) return undefined;
   const n = typeof v === 'number' ? v : parseFloat(String(v));
@@ -239,6 +302,45 @@ export function parsePolygon(v: string | undefined): LatLng[] | undefined {
 /** Encode a polygon back to the `poly` param form (round-trips with parsePolygon). */
 export function encodePolygon(ring: LatLng[]): string {
   return ring.map((p) => `${p.lat.toFixed(6)},${p.lng.toFixed(6)}`).join(';');
+}
+
+/**
+ * SearchFilters → a `/homes` querystring (the reverse of normalizeFilters for
+ * the fields a saved search carries). Used to turn a saved search back into a
+ * live results link. Round-trips through normalizeFilters for the common cases.
+ */
+export function filtersToQuery(f: SearchFilters): string {
+  const sp = new URLSearchParams();
+  const set = (k: string, v: number | string | undefined | null) => {
+    if (v !== undefined && v !== null && v !== '') sp.set(k, String(v));
+  };
+  set('priceMin', f.priceMin);
+  set('priceMax', f.priceMax);
+  set('bedsMin', f.bedsMin);
+  set('bathsMin', f.bathsMin);
+  set('city', f.city);
+  set('sqftMin', f.sqftMin);
+  set('sqftMax', f.sqftMax);
+  set('yearMin', f.yearMin);
+  set('yearMax', f.yearMax);
+  if (f.propertyTypes && f.propertyTypes.length) sp.set('type', f.propertyTypes.join(','));
+  set('lotAcresMin', f.lotAcresMin);
+  set('garageMin', f.garageMin);
+  if (f.waterfront) sp.set('waterfront', '1');
+  if (f.pool) sp.set('pool', '1');
+  if (f.newConstruction) sp.set('newConstruction', '1');
+  if (f.basementFinished) sp.set('basementFinished', '1');
+  if (f.fireplace) sp.set('fireplace', '1');
+  set('hoaMax', f.hoaMax);
+  set('domMax', f.domMax);
+  if (f.polygon && f.polygon.length >= 3) sp.set('poly', encodePolygon(f.polygon));
+  if (f.center) {
+    set('lat', f.center.lat);
+    set('lng', f.center.lng);
+    set('radius', f.radiusMiles);
+  }
+  set('sort', f.sort);
+  return sp.toString();
 }
 
 /** Querystring → typed, clamped SearchFilters. Whitelists sort; drops garbage. */

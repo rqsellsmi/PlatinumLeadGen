@@ -253,6 +253,13 @@
       "when": 1786200000000,
       "tag": "0035_buyer_users",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1786300000000,
+      "tag": "0036_buyer_saves",
+      "breakpoints": true
     }
   ]
 }
