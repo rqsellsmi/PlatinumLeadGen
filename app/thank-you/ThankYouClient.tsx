@@ -19,6 +19,13 @@ const STEPS = [
   'You get a call to walk through the numbers — no obligation.',
 ];
 
+// The report page presents a tight ±6% band centered on the point estimate,
+// mirroring the pre-contact form's presentation (which uses a wider ±10%, see
+// lib/valuation.ts teaserRange). We derive this band ourselves rather than
+// surface the provider's own confidence interval, which for ATTOM can be
+// lopsided or even negative on this area's homes.
+const PAGE_RANGE_SPREAD = 0.06;
+
 const CONDITIONS = [
   { label: 'Original / as-is', hint: 'Dated finishes', factor: 0.97 },
   { label: 'Average', hint: 'Well maintained', factor: 1.0 },
@@ -135,8 +142,18 @@ export default function ThankYouClient({
   const valuationSource = providerName(report?.provider);
 
   const est = report?.estimatedValue ?? null;
-  const low = report?.priceRangeLow ?? null;
-  const high = report?.priceRangeHigh ?? null;
+  // Center the displayed range on the point estimate (or the midpoint of the
+  // provider's range when there's no point value), then derive a ±6% band. This
+  // replaces the provider's raw priceRangeLow/High so the page never shows a
+  // lopsided or negative range.
+  const rangeCenter =
+    est != null
+      ? est
+      : report?.priceRangeLow != null && report?.priceRangeHigh != null
+        ? (report.priceRangeLow + report.priceRangeHigh) / 2
+        : null;
+  const low = rangeCenter != null ? Math.round(rangeCenter * (1 - PAGE_RANGE_SPREAD)) : null;
+  const high = rangeCenter != null ? Math.round(rangeCenter * (1 + PAGE_RANGE_SPREAD)) : null;
   const basics = report?.basics ?? null;
   const lastSale = report?.saleHistory?.[0] ?? null;
   const hasReport = est != null || (low != null && high != null);

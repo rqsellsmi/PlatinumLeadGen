@@ -124,19 +124,20 @@ export function activeProvider(): ValuationProvider {
 }
 
 /**
- * Widen an estimate into the pre-contact "teaser" range (±8%). This is what the
- * modal shows before a visitor gives contact info; the tighter provider range
- * and precise estimate are only revealed on the report page after conversion.
+ * Widen an estimate into the pre-contact "teaser" range (±10%). This is what the
+ * modal shows before a visitor gives contact info; a tighter ±6% band around the
+ * precise estimate is revealed on the report page after conversion (see
+ * ThankYouClient's PAGE_RANGE_SPREAD).
  */
 export function teaserRange(result: Pick<ValuationResult, 'estimatedValue' | 'priceRangeLow' | 'priceRangeHigh'>): {
   low: number | null;
   high: number | null;
 } {
   const est = result.estimatedValue;
-  if (est != null) return { low: Math.round(est * 0.92), high: Math.round(est * 1.08) };
-  // No point estimate — widen whatever range we have by a further 8%.
-  const low = result.priceRangeLow != null ? Math.round(result.priceRangeLow * 0.92) : null;
-  const high = result.priceRangeHigh != null ? Math.round(result.priceRangeHigh * 1.08) : null;
+  if (est != null) return { low: Math.round(est * 0.9), high: Math.round(est * 1.1) };
+  // No point estimate — widen whatever range we have by a further 10%.
+  const low = result.priceRangeLow != null ? Math.round(result.priceRangeLow * 0.9) : null;
+  const high = result.priceRangeHigh != null ? Math.round(result.priceRangeHigh * 1.1) : null;
   return { low, high };
 }
 
