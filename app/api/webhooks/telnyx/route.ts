@@ -176,7 +176,9 @@ async function handle(raw: string): Promise<NextResponse> {
 
   if (cmd.kind === 'accept') {
     const r = await applyAccept(offerId);
-    await reply(agent, r.ok ? `Accepted lead #${leadId}.` : 'That lead is no longer available.');
+    // On success the client-info text (sent inside applyAccept) IS the reply —
+    // no separate "Accepted lead" ack. Only speak up if it couldn't be accepted.
+    if (!r.ok) await reply(agent, 'That lead is no longer available.');
   } else if (cmd.kind === 'decline') {
     const r = await applyDecline(offerId);
     await reply(

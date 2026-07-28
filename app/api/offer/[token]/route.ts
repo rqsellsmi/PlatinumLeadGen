@@ -52,6 +52,30 @@ function messagePage(title: string, message: string, status: number, ctaHref?: s
   );
 }
 
+/**
+ * Accept without an extra click: this page auto-submits the POST (which performs
+ * the accept + logs the agent in + redirects to the portal). Rendering it has NO
+ * side effects — the state change only happens on the POST the browser fires via
+ * JS. Email scanners / link-preview bots issue GETs and neither run JS nor submit
+ * forms, so they still can't accept a lead by prefetching the URL (the whole
+ * reason a bare GET-accept was removed). A <noscript> button covers the rare
+ * no-JS human. */
+function autoAcceptPage(token: string): NextResponse {
+  return page(
+    'Opening your lead',
+    `<h1 style="margin:0 0 12px;font-size:22px;color:#1E3A5F;">Opening your lead…</h1>
+     <p style="font-size:15px;line-height:1.5;color:#475569;">One moment while we accept this lead and open it in your portal.</p>
+     <form id="accept-form" method="POST" action="/api/offer/${token}" style="margin-top:24px;">
+       <input type="hidden" name="response" value="accept">
+       <noscript>
+         <p style="font-size:15px;line-height:1.5;">Tap the button to accept this lead.</p>
+         <button type="submit" style="display:inline-block;border:0;cursor:pointer;background:#1E7F4F;color:#fff;padding:14px 26px;border-radius:999px;font-weight:bold;font-size:16px;">Accept lead</button>
+       </noscript>
+     </form>
+     <script>document.getElementById('accept-form').submit();</script>`,
+  );
+}
+
 /** The confirmation page — the agent clicks a button that POSTs the action.
  *  Rendering this has NO side effects, so scanners hitting the GET are harmless. */
 function confirmPage(token: string, response: 'accept' | 'decline', where: string): NextResponse {
@@ -122,6 +146,13 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
       );
     }
 
+    // Accept needs no confirmation step — the page auto-submits the POST and
+    // sends the agent straight to their portal (still bot-safe: bots don't run
+    // the JS or submit the form).
+    if (response === 'accept') return autoAcceptPage(params.token);
+
+    // Decline keeps an explicit confirmation button (accidental declines are the
+    // costly case, and it isn't part of the one-click accept flow).
     // Lead context for the confirmation copy (city only — no PII in the URL page).
     const leadRows = await db
       .select({ city: leads.propertyCity })
