@@ -272,6 +272,12 @@ branch). They add: `buyer_users` + `buyer_auth_tokens` (0035); `buyer_favorites`
 - Under **Authorized redirect URIs**, add exactly:
   `https://<your-domain>/api/buyer/auth/google/callback`
   (and `http://localhost:3000/api/buyer/auth/google/callback` for local dev).
+  The callback returns to the SAME deployment the sign-in started on (the origin
+  is taken from the request), so to test Google sign-in on a **Vercel preview**,
+  also add that deployment's callback, e.g.
+  `https://<project>-git-<branch>-<scope>.vercel.app/api/buyer/auth/google/callback`
+  — each origin that runs the flow must be listed here or Google returns
+  `redirect_uri_mismatch`.
   The path must match; the app builds it from `SITE_URL`.
 - Configure the OAuth **consent screen** (External; scopes `openid email profile`)
   and publish it so any Google user can sign in.

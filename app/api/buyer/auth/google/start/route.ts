@@ -5,7 +5,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { siteUrl } from '@/lib/siteUrl';
+import { requestOrigin } from '@/lib/siteUrl';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,7 +17,9 @@ function safeNext(next: string | null): string {
 }
 
 export async function GET(req: NextRequest) {
-  const base = siteUrl();
+  // Build the OAuth origin from THIS request so Google returns to the same
+  // deployment (preview/prod), not the canonical production domain.
+  const base = requestOrigin(req.headers);
   const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
   if (!clientId) return NextResponse.redirect(new URL('/?signin=google_unavailable', base));
 

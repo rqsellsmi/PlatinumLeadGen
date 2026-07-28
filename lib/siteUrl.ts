@@ -25,3 +25,22 @@ export function siteUrl(): string {
     return DEFAULT_SITE_URL;
   }
 }
+
+/**
+ * The origin (scheme + host) of the CURRENT request, for flows that must return
+ * to the same deployment the user is actually on rather than the canonical
+ * production domain — e.g. an OAuth `redirect_uri`, which must round-trip back to
+ * the preview/branch URL the sign-in started from (using `siteUrl()` there sends
+ * the user to production, whose callback may not exist → 404). Reads the proxy's
+ * forwarded host/proto; falls back to `siteUrl()` when unavailable.
+ */
+export function requestOrigin(headers: Headers): string {
+  const host = headers.get('x-forwarded-host') ?? headers.get('host');
+  if (!host) return siteUrl();
+  const proto = headers.get('x-forwarded-proto')?.split(',')[0].trim() || 'https';
+  try {
+    return new URL(`${proto}://${host}`).origin;
+  } catch {
+    return siteUrl();
+  }
+}

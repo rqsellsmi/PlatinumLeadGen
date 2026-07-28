@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { BUYER_SESSION_COOKIE, createBuyerSession } from '@/lib/buyerPortalAuth';
 import { findOrCreateBuyer } from '@/lib/buyerAccount';
-import { siteUrl } from '@/lib/siteUrl';
+import { requestOrigin } from '@/lib/siteUrl';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,7 +18,9 @@ function safeNext(next: string): string {
 }
 
 export async function GET(req: NextRequest) {
-  const base = siteUrl();
+  // Same origin as /start used — Google called back to this host, so the token
+  // exchange's redirect_uri and the post-login redirect both stay on it.
+  const base = requestOrigin(req.headers);
   const fail = () => {
     const res = NextResponse.redirect(new URL('/?signin=error', base));
     res.cookies.delete(STATE_COOKIE);
