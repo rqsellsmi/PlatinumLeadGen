@@ -9,7 +9,8 @@ import ResetOnSubmitForm from '@/components/admin/ResetOnSubmitForm';
 import LocalTime from '@/components/LocalTime';
 import { tierFor } from '@/lib/scoreTiers';
 import { loadTierContext } from '@/lib/scoreTiersServer';
-import { updateAgent, setAgentPassword, adjustScore, deactivateAgent } from './actions';
+import { updateAgent, setAgentPassword, adjustScore } from './actions';
+import { toggleAgentActive, toggleAgentAvailable } from '@/app/admin/agents/actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -54,6 +55,11 @@ export default async function AgentDetailPage({ params }: { params: { id: string
           <Badge tone={agent.isActive ? 'success' : 'neutral'}>
             {agent.isActive ? 'Active' : 'Inactive'}
           </Badge>
+          {agent.isActive && (
+            <Badge tone={agent.isAvailable ? 'success' : 'warning'}>
+              {agent.isAvailable ? 'Available' : 'Paused'}
+            </Badge>
+          )}
         </div>
       </div>
 
@@ -139,6 +145,55 @@ export default async function AgentDetailPage({ params }: { params: { id: string
         <div className="space-y-6">
           <Card>
             <CardHeader>
+              <h2 className="font-bold text-charcoal">Status &amp; availability</h2>
+            </CardHeader>
+            <CardBody className="space-y-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge tone={agent.isActive ? 'success' : 'neutral'}>
+                  {agent.isActive ? 'Active' : 'Inactive'}
+                </Badge>
+                {agent.isActive && (
+                  <Badge tone={agent.isAvailable ? 'success' : 'warning'}>
+                    {agent.isAvailable ? 'Available' : 'Paused'}
+                  </Badge>
+                )}
+              </div>
+
+              {/* Same two controls (and same server actions) as the agent tiles
+                  on /admin/agents — availability incl. the first-activation credit. */}
+              <form action={toggleAgentAvailable}>
+                <input type="hidden" name="agentId" value={agent.id} />
+                <input type="hidden" name="isAvailable" value={String(agent.isAvailable)} />
+                <Button
+                  type="submit"
+                  variant={agent.isAvailable ? 'outline' : 'primary'}
+                  className="w-full"
+                >
+                  {agent.isAvailable ? 'Pause new leads' : 'Resume new leads'}
+                </Button>
+              </form>
+
+              <form action={toggleAgentActive}>
+                <input type="hidden" name="agentId" value={agent.id} />
+                <input type="hidden" name="isActive" value={String(agent.isActive)} />
+                <Button
+                  type="submit"
+                  variant={agent.isActive ? 'danger' : 'primary'}
+                  className="w-full"
+                >
+                  {agent.isActive ? 'Deactivate agent' : 'Activate agent'}
+                </Button>
+              </form>
+
+              <p className="text-xs text-mute-light">
+                Pausing stops new lead offers but keeps the agent active. Deactivating removes them
+                from routing entirely.
+              </p>
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardHeader>
               <h2 className="font-bold text-charcoal">Set password</h2>
             </CardHeader>
             <CardBody>
@@ -176,18 +231,6 @@ export default async function AgentDetailPage({ params }: { params: { id: string
             </CardBody>
           </Card>
 
-          {agent.isActive && (
-            <Card>
-              <CardBody>
-                <form action={deactivateAgent}>
-                  <input type="hidden" name="agentId" value={agent.id} />
-                  <Button type="submit" variant="danger">
-                    Deactivate agent
-                  </Button>
-                </form>
-              </CardBody>
-            </Card>
-          )}
         </div>
       </div>
 
