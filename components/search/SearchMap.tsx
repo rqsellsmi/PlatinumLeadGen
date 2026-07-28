@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { loadGoogleMaps } from '@/lib/googleMaps';
-import { encodePolygon, parsePolygon, coarsenPin } from '@/lib/listingSearch';
+import { encodePolygon, parsePolygon, coarsenPin, parseBBox, encodeBBox, type BBox } from '@/lib/listingSearch';
 import { emitListingHover, onListingHover } from '@/lib/listingHover';
 import { formatCurrency } from '@/lib/utils';
 
@@ -22,6 +22,10 @@ export interface MapPin {
 // SE Michigan-ish default center/zoom when there are no results to frame.
 const DEFAULT_CENTER = { lat: 42.73, lng: -83.7 };
 const DEFAULT_ZOOM = 9;
+
+// An `idle` within this window of our own programmatic camera move (map load /
+// fitBounds) is ours, not the user's — used to avoid a fit → idle → search loop.
+const PROGRAMMATIC_IDLE_MS = 1200;
 
 // Shared brand styling for the drawn/restored area polygon.
 const AREA_STYLE = {
@@ -60,18 +64,35 @@ export default function SearchMap({ pins }: { pins: MapPin[] }) {
   const infoRef = React.useRef<GMaps>(null);
   const pinnedRef = React.useRef(false); // true when the popover was opened by a click
   const acInputRef = React.useRef<HTMLInputElement>(null);
+  // Timestamp of our last programmatic camera move (map load / fitBounds). An
+  // idle within PROGRAMMATIC_IDLE_MS of it is ours, not the user's — see above.
+  const lastProgrammaticRef = React.useRef(0);
 
   const [ready, setReady] = React.useState(false);
   const [drawing, setDrawing] = React.useState(false);
   const [collapsed, setCollapsed] = React.useState(false);
   const [failed, setFailed] = React.useState(false);
+  // "Search as I move the map" — on by default; pushes the viewport bbox on pan/zoom.
+  const [liveSearch, setLiveSearch] = React.useState(true);
 
-  const hasArea = !!(searchParams?.get('poly') || (searchParams?.get('lat') && searchParams?.get('lng')));
+  // Latest values read by the once-attached map `idle` listener (kept fresh via refs).
+  const paramsRef = React.useRef(searchParams);
+  paramsRef.current = searchParams;
+  const liveSearchRef = React.useRef(liveSearch);
+  liveSearchRef.current = liveSearch;
+  const drawingActiveRef = React.useRef(false);
+  drawingActiveRef.current = drawing;
+
+  const hasArea = !!(
+    searchParams?.get('poly') ||
+    searchParams?.get('bbox') ||
+    (searchParams?.get('lat') && searchParams?.get('lng'))
+  );
 
   const pushGeo = React.useCallback(
     (geo: { poly?: string; lat?: number; lng?: number; radius?: number } | null) => {
       const p = new URLSearchParams(searchParams?.toString() ?? '');
-      ['poly', 'lat', 'lng', 'radius', 'page'].forEach((k) => p.delete(k));
+      ['poly', 'lat', 'lng', 'radius', 'bbox', 'page'].forEach((k) => p.delete(k));
       if (geo?.poly) p.set('poly', geo.poly);
       if (geo?.lat != null && geo?.lng != null) {
         p.set('lat', String(geo.lat));
@@ -88,11 +109,24 @@ export default function SearchMap({ pins }: { pins: MapPin[] }) {
   const pushCity = React.useCallback(
     (city: string) => {
       const p = new URLSearchParams(searchParams?.toString() ?? '');
-      ['poly', 'lat', 'lng', 'radius', 'page'].forEach((k) => p.delete(k));
+      ['poly', 'lat', 'lng', 'radius', 'bbox', 'page'].forEach((k) => p.delete(k));
       p.set('city', city);
       router.push(`${pathname}?${p.toString()}`);
     },
     [router, pathname, searchParams],
+  );
+
+  // "Search as I move the map": the viewport bbox becomes the location scope,
+  // replacing any city / point / radius. Reads paramsRef so the once-attached
+  // idle listener always builds on the freshest filter state.
+  const pushBbox = React.useCallback(
+    (b: BBox) => {
+      const p = new URLSearchParams(paramsRef.current?.toString() ?? '');
+      ['poly', 'lat', 'lng', 'radius', 'bbox', 'city', 'page'].forEach((k) => p.delete(k));
+      p.set('bbox', encodeBBox(b));
+      router.push(`${pathname}?${p.toString()}`);
+    },
+    [router, pathname],
   );
 
   // Initialize the map once.
@@ -110,6 +144,9 @@ export default function SearchMap({ pins }: { pins: MapPin[] }) {
           fullscreenControl: false,
         });
         mapRef.current = map;
+        // The map fires an `idle` on first load (at the default center); mark it
+        // as ours so it doesn't kick off an unwanted viewport search.
+        lastProgrammaticRef.current = Date.now();
         // disableAutoPan: the map must NOT recenter when a hover popover opens —
         // that made it jump on every pin hover.
         infoRef.current = new g.maps.InfoWindow({ disableAutoPan: true });
@@ -136,6 +173,34 @@ export default function SearchMap({ pins }: { pins: MapPin[] }) {
             if (city) pushCity(city);
           });
         }
+
+        // If the URL already carries a viewport bbox (shared link / reload), frame
+        // it instead of the default view; suppress the resulting idle re-search.
+        const bbox0 = parseBBox(searchParams?.get('bbox') ?? undefined);
+        if (bbox0) {
+          lastProgrammaticRef.current = Date.now();
+          map.fitBounds(
+            new g.maps.LatLngBounds(
+              { lat: bbox0.minLat, lng: bbox0.minLng },
+              { lat: bbox0.maxLat, lng: bbox0.maxLng },
+            ),
+          );
+        }
+
+        // "Search as I move the map": on every camera settle, push the viewport
+        // bbox — skipping idles that are ours (recent programmatic move), or when
+        // disabled, mid-draw, or a polygon is drawn.
+        map.addListener('idle', () => {
+          if (Date.now() - lastProgrammaticRef.current < PROGRAMMATIC_IDLE_MS) return;
+          if (!liveSearchRef.current || drawingActiveRef.current) return;
+          if (paramsRef.current?.get('poly')) return; // a drawn polygon wins over the viewport
+          const b = map.getBounds();
+          if (!b) return;
+          const ne = b.getNorthEast();
+          const sw = b.getSouthWest();
+          pushBbox({ minLat: sw.lat(), minLng: sw.lng(), maxLat: ne.lat(), maxLng: ne.lng() });
+        });
+
         setReady(true);
       })
       .catch(() => setFailed(true));
@@ -181,7 +246,13 @@ export default function SearchMap({ pins }: { pins: MapPin[] }) {
       bounds.extend(pos);
       count++;
     }
-    if (count > 0) map.fitBounds(bounds, 48);
+    // Frame the results — but NOT in viewport (bbox) mode, where the user drives
+    // the camera and a refit would yank it out from under them. Mark the fit as
+    // ours so the idle it fires doesn't kick off a re-search.
+    if (count > 0 && !paramsRef.current?.get('bbox')) {
+      lastProgrammaticRef.current = Date.now();
+      map.fitBounds(bounds, 48);
+    }
   }, [ready, pins]);
 
   // Card hover → emphasize the matching pin (bounce) + open its popover. Runs
@@ -292,6 +363,18 @@ export default function SearchMap({ pins }: { pins: MapPin[] }) {
         >
           ◎ My location
         </button>
+        <label
+          className="flex cursor-pointer select-none items-center gap-1.5 text-sm font-medium text-charcoal"
+          title="Update the results to the listings in the current map view as you pan or zoom"
+        >
+          <input
+            type="checkbox"
+            checked={liveSearch}
+            onChange={(e) => setLiveSearch(e.target.checked)}
+            className="h-4 w-4 rounded border-line text-platinum-blue focus:ring-platinum-blue"
+          />
+          Search as I move the map
+        </label>
         <button
           type="button"
           onClick={() => setCollapsed((c) => !c)}

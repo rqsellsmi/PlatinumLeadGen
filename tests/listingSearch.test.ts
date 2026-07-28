@@ -8,6 +8,8 @@ import {
   isUnderContractLike,
   parsePolygon,
   encodePolygon,
+  parseBBox,
+  encodeBBox,
   normalizeFilters,
   coarsenPin,
   centroidOfFilters,
@@ -122,6 +124,23 @@ describe('parsePolygon / encodePolygon', () => {
   });
 });
 
+describe('parseBBox / encodeBBox', () => {
+  it('round-trips a viewport bbox', () => {
+    const b = { minLat: 42.5, minLng: -83.9, maxLat: 42.9, maxLng: -83.4 };
+    const dec = parseBBox(encodeBBox(b));
+    expect(dec).toBeDefined();
+    expect(dec!.minLat).toBeCloseTo(42.5, 5);
+    expect(dec!.maxLng).toBeCloseTo(-83.4, 5);
+  });
+  it('rejects malformed, inverted, or missing input', () => {
+    expect(parseBBox(undefined)).toBeUndefined();
+    expect(parseBBox('')).toBeUndefined();
+    expect(parseBBox('42.5,-83.9,42.9')).toBeUndefined(); // only 3 parts
+    expect(parseBBox('a,b,c,d')).toBeUndefined();
+    expect(parseBBox('42.9,-83.4,42.5,-83.9')).toBeUndefined(); // min > max
+  });
+});
+
 describe('normalizeFilters', () => {
   it('parses numbers, city, beds/baths, toggles', () => {
     const f = normalizeFilters({
@@ -158,6 +177,11 @@ describe('normalizeFilters', () => {
     const f = normalizeFilters({ lat: '42.8', lng: '-83.7' });
     expect(f.center).toEqual({ lat: 42.8, lng: -83.7 });
     expect(f.radiusMiles).toBe(15);
+  });
+  it('reads a viewport bbox from the bbox param', () => {
+    const f = normalizeFilters({ bbox: '42.5,-83.9,42.9,-83.4' });
+    expect(f.bbox).toEqual({ minLat: 42.5, minLng: -83.9, maxLat: 42.9, maxLng: -83.4 });
+    expect(normalizeFilters({ bbox: 'garbage' }).bbox).toBeUndefined();
   });
   it('reads a polygon from the poly param', () => {
     const f = normalizeFilters({ poly: '42.7,-83.8;42.9,-83.8;42.9,-83.6' });

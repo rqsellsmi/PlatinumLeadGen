@@ -30,9 +30,10 @@ export default async function HomesSearchPage({ searchParams }: { searchParams: 
   const advancedOpen = searchParams.advanced === '1' || searchParams.advanced === 'true';
 
   const { rows, total, page, pageSize } = await searchListings(filters);
-  // Show the map when there are results OR an active drawn area (polygon) / radius,
-  // so an area that matches nothing stays visible and clearable (never disappears).
-  const hasArea = !!(filters.polygon || filters.center);
+  // Show the map when there are results OR an active area (drawn polygon, radius,
+  // or map viewport bbox), so an area that matches nothing keeps the map mounted
+  // (a bbox search returning zero must NOT unmount the map mid-pan) and clearable.
+  const hasArea = !!(filters.polygon || filters.center || filters.bbox);
   const photos = rows.length ? await getPhotosForListings(rows.map((r) => r.listingKey)) : new Map();
 
   const pins: MapPin[] = rows

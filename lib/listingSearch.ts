@@ -246,6 +246,7 @@ export function describeSearch(f: SearchFilters): string {
   if (f.city) parts.push(`Homes in ${f.city}`);
   else if (f.polygon && f.polygon.length >= 3) parts.push('Homes in a drawn area');
   else if (f.center) parts.push('Homes near a point');
+  else if (f.bbox) parts.push('Homes in the map area');
   else parts.push('Homes');
 
   const types = f.propertyTypes?.filter(Boolean);
@@ -304,6 +305,21 @@ export function encodePolygon(ring: LatLng[]): string {
   return ring.map((p) => `${p.lat.toFixed(6)},${p.lng.toFixed(6)}`).join(';');
 }
 
+/** Decode a viewport bbox from a `bbox` param: "minLat,minLng,maxLat,maxLng". */
+export function parseBBox(v: string | undefined): BBox | undefined {
+  if (!v) return undefined;
+  const p = v.split(',').map((s) => parseFloat(s));
+  if (p.length !== 4 || !p.every((n) => Number.isFinite(n))) return undefined;
+  const [minLat, minLng, maxLat, maxLng] = p;
+  if (minLat > maxLat || minLng > maxLng) return undefined;
+  return { minLat, minLng, maxLat, maxLng };
+}
+
+/** Encode a bbox back to the `bbox` param form (round-trips with parseBBox). */
+export function encodeBBox(b: BBox): string {
+  return [b.minLat, b.minLng, b.maxLat, b.maxLng].map((n) => n.toFixed(5)).join(',');
+}
+
 /**
  * SearchFilters → a `/homes` querystring (the reverse of normalizeFilters for
  * the fields a saved search carries). Used to turn a saved search back into a
@@ -339,6 +355,7 @@ export function filtersToQuery(f: SearchFilters): string {
     set('lng', f.center.lng);
     set('radius', f.radiusMiles);
   }
+  if (f.bbox) sp.set('bbox', encodeBBox(f.bbox));
   set('sort', f.sort);
   return sp.toString();
 }
@@ -381,6 +398,8 @@ export function normalizeFilters(params: RawParams): SearchFilters {
     f.center = { lat, lng };
     f.radiusMiles = num(first(params.radius)) ?? 15;
   }
+  const bbox = parseBBox(first(params.bbox));
+  if (bbox) f.bbox = bbox;
 
   const sort = first(params.sort) as SearchSort | undefined;
   if (sort && SORTS.includes(sort)) f.sort = sort;
