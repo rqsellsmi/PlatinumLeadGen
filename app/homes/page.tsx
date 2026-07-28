@@ -7,6 +7,7 @@ import IdxCompliance from '@/components/idx/IdxCompliance';
 import SearchFilterPanel from '@/components/search/SearchFilterPanel';
 import SearchMap, { type MapPin } from '@/components/search/SearchMap';
 import SaveSearchButton from '@/components/search/SaveSearchButton';
+import HoverListingCard from '@/components/search/HoverListingCard';
 import { normalizeFilters, listingStatusLabel } from '@/lib/listingSearch';
 import { searchListings } from '@/lib/idxSearch';
 import { getPhotosForListings } from '@/lib/idx';
@@ -114,12 +115,13 @@ export default async function HomesSearchPage({ searchParams }: { searchParams: 
               <>
                 <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
                   {rows.map((listing) => (
-                    <IdxListingCard
-                      key={listing.listingKey}
-                      listing={listing}
-                      variant="sale"
-                      photos={photos.get(listing.listingKey)}
-                    />
+                    <HoverListingCard key={listing.listingKey} listingKey={listing.listingKey}>
+                      <IdxListingCard
+                        listing={listing}
+                        variant="sale"
+                        photos={photos.get(listing.listingKey)}
+                      />
+                    </HoverListingCard>
                   ))}
                 </div>
 

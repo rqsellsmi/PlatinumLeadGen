@@ -4,6 +4,7 @@ import * as React from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { loadGoogleMaps } from '@/lib/googleMaps';
 import { encodePolygon, parsePolygon, coarsenPin } from '@/lib/listingSearch';
+import { emitListingHover, onListingHover } from '@/lib/listingHover';
 import { formatCurrency } from '@/lib/utils';
 
 export interface MapPin {
@@ -52,6 +53,8 @@ export default function SearchMap({ pins }: { pins: MapPin[] }) {
   const mapEl = React.useRef<HTMLDivElement>(null);
   const mapRef = React.useRef<GMaps>(null);
   const markersRef = React.useRef<GMaps[]>([]);
+  // listingKey → { marker, pin } so a card hover can find + emphasize its pin.
+  const markersByKeyRef = React.useRef<Map<string, { marker: GMaps; pin: MapPin }>>(new Map());
   const drawingRef = React.useRef<GMaps>(null);
   const polyOverlayRef = React.useRef<GMaps>(null);
   const infoRef = React.useRef<GMaps>(null);
@@ -149,6 +152,7 @@ export default function SearchMap({ pins }: { pins: MapPin[] }) {
     const map = mapRef.current;
     markersRef.current.forEach((m) => m.setMap(null));
     markersRef.current = [];
+    markersByKeyRef.current = new Map();
     const bounds = new g.maps.LatLngBounds();
     let count = 0;
     for (const p of pins) {
@@ -161,20 +165,48 @@ export default function SearchMap({ pins }: { pins: MapPin[] }) {
         pinnedRef.current = pinned;
       };
       // Hover shows the photo preview; click pins it (so it survives on touch and
-      // lets you click through to the listing).
+      // lets you click through to the listing). Hover also tells the list to ring
+      // the matching card.
       marker.addListener('mouseover', () => {
         if (!pinnedRef.current) openPopover(false);
+        emitListingHover(p.listingKey, 'map');
       });
       marker.addListener('mouseout', () => {
         if (!pinnedRef.current) infoRef.current.close();
+        emitListingHover(null, 'map');
       });
       marker.addListener('click', () => openPopover(true));
       markersRef.current.push(marker);
+      markersByKeyRef.current.set(p.listingKey, { marker, pin: p });
       bounds.extend(pos);
       count++;
     }
     if (count > 0) map.fitBounds(bounds, 48);
   }, [ready, pins]);
+
+  // Card hover → emphasize the matching pin (bounce) + open its popover. Runs
+  // once ready; reads the live marker map via the ref so it survives re-renders.
+  React.useEffect(() => {
+    if (!ready) return;
+    const g = (window as unknown as { google: GMaps }).google;
+    const clearBounce = () =>
+      markersByKeyRef.current.forEach(({ marker }) => marker.getAnimation() != null && marker.setAnimation(null));
+    return onListingHover((p) => {
+      if (p.from !== 'card') return; // only react to card hovers
+      clearBounce();
+      if (!p.key) {
+        if (!pinnedRef.current) infoRef.current?.close();
+        return;
+      }
+      const entry = markersByKeyRef.current.get(p.key);
+      if (!entry) return;
+      entry.marker.setAnimation(g.maps.Animation.BOUNCE);
+      if (!pinnedRef.current) {
+        infoRef.current.setContent(pinHtml(entry.pin));
+        infoRef.current.open(mapRef.current, entry.marker);
+      }
+    });
+  }, [ready]);
 
   function toggleDraw() {
     const g = (window as unknown as { google: GMaps }).google;
