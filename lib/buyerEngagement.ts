@@ -24,6 +24,8 @@ import { getListingByKey } from './idx';
 import { autoOfferLead, manualReassignLead } from './autoOffer';
 import { logLeadEvent } from './leadEvents';
 import { sendEmail, buyerEngagementEmail, adminAlertEmail } from './email';
+import { sendAgentSms } from './agentSms';
+import { engagementText } from './smsTemplates';
 import { siteUrl } from './siteUrl';
 
 /** Statuses that mean a lead is finished (a fresh engagement starts a new one). */
@@ -142,17 +144,34 @@ async function findExistingLeadForBuyer(buyerUserId: number, email: string | nul
 }
 
 /** The agent currently assigned to a lead (via its accepted offer), or null. */
-async function findAssignedAgent(
-  leadId: number,
-): Promise<{ id: number; email: string; name: string; offerId: number } | null> {
+async function findAssignedAgent(leadId: number): Promise<{
+  id: number;
+  email: string;
+  name: string;
+  offerId: number;
+  phone: string | null;
+  officeId: number | null;
+  smsOptOut: boolean | null;
+} | null> {
   const rows = await db
-    .select({ id: agents.id, email: agents.email, first: agents.firstName, last: agents.lastName, offerId: leadOffers.id })
+    .select({
+      id: agents.id,
+      email: agents.email,
+      first: agents.firstName,
+      last: agents.lastName,
+      offerId: leadOffers.id,
+      phone: agents.phone,
+      officeId: agents.officeId,
+      smsOptOut: agents.smsOptOut,
+    })
     .from(leadOffers)
     .innerJoin(agents, eq(leadOffers.agentId, agents.id))
     .where(and(eq(leadOffers.leadId, leadId), eq(leadOffers.status, 'accepted')))
     .limit(1);
   const r = rows[0];
-  return r ? { id: r.id, email: r.email, name: `${r.first} ${r.last}`.trim(), offerId: r.offerId } : null;
+  return r
+    ? { id: r.id, email: r.email, name: `${r.first} ${r.last}`.trim(), offerId: r.offerId, phone: r.phone, officeId: r.officeId, smsOptOut: r.smsOptOut }
+    : null;
 }
 
 interface EngagementContext {
@@ -267,6 +286,8 @@ export async function onFirstEngagement(input: EngagementInput): Promise<Engagem
     const agent = await findAssignedAgent(existing.id);
     if (agent) {
       const listingKey = input.listingKey ?? existing.interestedListingKey ?? null;
+      const leadUrl = `${siteUrl()}/agent/leads/${agent.offerId}`;
+      const action = engagementVerb(input.kind);
       try {
         await sendEmail(
           buyerEngagementEmail({
@@ -275,10 +296,10 @@ export async function onFirstEngagement(input: EngagementInput): Promise<Engagem
             buyerName: buyer.name || buyer.email,
             buyerEmail: buyer.email,
             leadId: existing.id,
-            action: engagementVerb(input.kind),
+            action,
             detail: ctx.address ?? ctx.label,
             // Deep link to THIS lead + a link to the home they engaged with.
-            leadUrl: `${siteUrl()}/agent/leads/${agent.offerId}`,
+            leadUrl,
             listingUrl: listingKey ? `${siteUrl()}/listing/${encodeURIComponent(listingKey)}` : null,
             relatedLeadId: existing.id,
             relatedAgentId: agent.id,
@@ -287,6 +308,14 @@ export async function onFirstEngagement(input: EngagementInput): Promise<Engagem
       } catch (err) {
         console.error('[buyerEngagement] attach notify failed:', err);
       }
+      // Additive SMS nudge (email remains source of truth; sendAgentSms no-ops
+      // when unconfigured / opted-out / no phone — never throws).
+      await sendAgentSms({
+        agent: { id: agent.id, phone: agent.phone, officeId: agent.officeId, smsOptOut: agent.smsOptOut },
+        body: engagementText({ leadId: existing.id, action, detail: ctx.address, leadUrl }),
+        kind: 'buyer_engagement',
+        leadId: existing.id,
+      });
     }
     return { ok: true, decision, leadId: existing.id, created: false };
   }

@@ -54,6 +54,18 @@ export function updateReminderText(p: {
     `Reply e.g. CONNECTED ${p.leadId} left a voicemail.`;
 }
 
+/** Assigned-agent nudge when their buyer client does something on the site. */
+export function engagementText(p: {
+  leadId: number;
+  action: string; // "favorited a home" / "saved a search"
+  detail?: string | null; // address or search name
+  leadUrl?: string;
+}): string {
+  const what = p.detail ? `${p.action}: ${p.detail}` : p.action;
+  const view = p.leadUrl ? ` View: ${p.leadUrl}` : '';
+  return `RE/MAX Platinum: Lead #${p.leadId} ${what}.${view}`;
+}
+
 export function helpText(): string {
   return 'RE/MAX Platinum lead texts. Reply e.g. YES <id>, NO <id>, or CONNECTED <id> notes. ' +
     'Reply STOP to opt out, START to resume.';

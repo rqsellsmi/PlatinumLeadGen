@@ -1,5 +1,26 @@
 import { describe, it, expect } from 'vitest';
-import { offerText, clientInfoText, updateReminderText, helpText, optOutAckText } from '../lib/smsTemplates';
+import { offerText, clientInfoText, updateReminderText, engagementText, helpText, optOutAckText } from '../lib/smsTemplates';
+
+describe('engagementText', () => {
+  it('states the lead #, action, detail, and lead link', () => {
+    const t = engagementText({
+      leadId: 30,
+      action: 'favorited a home',
+      detail: '123 Main St, Fenton',
+      leadUrl: 'https://x.com/agent/leads/45',
+    });
+    expect(t).toContain('Lead #30');
+    expect(t).toContain('favorited a home');
+    expect(t).toContain('123 Main St, Fenton');
+    expect(t).toContain('View: https://x.com/agent/leads/45');
+  });
+  it('omits the detail and link when absent', () => {
+    const t = engagementText({ leadId: 7, action: 'saved a search' });
+    expect(t).toContain('Lead #7 saved a search');
+    expect(t).not.toContain('View:');
+    expect(t).not.toContain('undefined');
+  });
+});
 
 describe('offerText', () => {
   it('includes code + city + estimate, no client name', () => {
