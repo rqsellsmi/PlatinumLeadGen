@@ -635,34 +635,45 @@ export interface BuyerEngagementEmailData {
   agentName: string;
   buyerName: string;
   buyerEmail?: string | null;
-  action: string; // human phrase, e.g. "saved a home" / "saved a search"
+  leadId?: number;
+  action: string; // human phrase, e.g. "favorited a home" / "saved a search"
   detail?: string | null; // address or search description
-  portalUrl: string;
+  /** Deep link to this specific lead in the agent portal. */
+  leadUrl?: string;
+  /** Link to the home the buyer engaged with (favorite/showing/contact), if any. */
+  listingUrl?: string | null;
+  /** Deprecated fallback link (leads list) when no leadUrl is given. */
+  portalUrl?: string;
   relatedLeadId?: number;
   relatedAgentId?: number;
 }
 
 export function buyerEngagementEmail(d: BuyerEngagementEmailData): SendEmailArgs {
+  const leadRef = d.leadId != null ? `Lead #${d.leadId}` : d.buyerName;
+  const openLeadUrl = d.leadUrl ?? d.portalUrl;
+  const homeButton = d.listingUrl
+    ? `<span style="display:inline-block;margin-left:8px;">${button(d.listingUrl, 'View the home')}</span>`
+    : '';
   const html = shell(
     'Your client is active on the site',
-    `<h1 style="margin:0 0 12px;font-size:22px;color:${BRAND_BLUE};">Your client is browsing homes</h1>
-     <p style="font-size:15px;line-height:1.5;">Hi ${escapeHtml(d.agentName)}, ${escapeHtml(d.buyerName)} just ${escapeHtml(
-       d.action,
-     )} on the RE/MAX Platinum site.</p>
+    `<h1 style="margin:0 0 12px;font-size:22px;color:${BRAND_BLUE};">${escapeHtml(leadRef)} ${escapeHtml(d.action)}</h1>
+     <p style="font-size:15px;line-height:1.5;">Hi ${escapeHtml(d.agentName)}, your client ${escapeHtml(
+       d.buyerName,
+     )} just ${escapeHtml(d.action)} on the RE/MAX Platinum site.</p>
      <table style="font-size:15px;line-height:1.8;margin:12px 0;">
+       ${d.leadId != null ? `<tr><td style="color:#64748b;padding-right:12px;">Lead</td><td><strong>#${d.leadId}</strong></td></tr>` : ''}
        <tr><td style="color:#64748b;padding-right:12px;">Client</td><td><strong>${escapeHtml(d.buyerName)}</strong></td></tr>
        <tr><td style="color:#64748b;padding-right:12px;">Email</td><td>${escapeHtml(d.buyerEmail ?? '—')}</td></tr>
        <tr><td style="color:#64748b;padding-right:12px;">Activity</td><td>${escapeHtml(d.detail ?? d.action)}</td></tr>
      </table>
-     <p style="margin:24px 0;">${button(d.portalUrl, 'Open your leads')}</p>`,
+     <p style="margin:24px 0;">${openLeadUrl ? button(openLeadUrl, 'Open the lead') : ''}${homeButton}</p>`,
   );
-  const text = `${d.buyerName} just ${d.action} on the RE/MAX Platinum site.
+  const text = `${leadRef} ${d.action} on the RE/MAX Platinum site.
 Client: ${d.buyerName} (${d.buyerEmail ?? '—'})
-Activity: ${d.detail ?? d.action}
-Open your leads: ${d.portalUrl}`;
+Activity: ${d.detail ?? d.action}${d.listingUrl ? `\nHome: ${d.listingUrl}` : ''}${openLeadUrl ? `\nOpen the lead: ${openLeadUrl}` : ''}`;
   return {
     to: d.to,
-    subject: `${d.buyerName} is active on the site`,
+    subject: `${leadRef} ${d.action}`,
     html,
     text,
     templateName: 'buyer_engagement',

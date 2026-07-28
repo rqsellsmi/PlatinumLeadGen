@@ -43,10 +43,15 @@ export default async function AgentLeadDetailPage({
   const { offer, lead } = row;
   const fullName = [lead.firstName, lead.lastName].filter(Boolean).join(' ') || 'Unnamed lead';
   const firstName = lead.firstName || 'lead';
-  const address =
-    [lead.propertyAddress, lead.propertyCity, lead.propertyState, lead.propertyZip]
-      .filter(Boolean)
-      .join(', ') || null;
+  // A buyer lead anchored to a listing they favorited/inquired on has no "own
+  // property" — its address must NOT drive a seller-style AVM valuation of a home
+  // the buyer doesn't own. (Covers legacy rows created before the address fix.)
+  const isBuyerInterest = lead.intent === 'buyer' && !!lead.interestedListingKey;
+  const address = isBuyerInterest
+    ? null
+    : [lead.propertyAddress, lead.propertyCity, lead.propertyState, lead.propertyZip]
+        .filter(Boolean)
+        .join(', ') || null;
   const priceRange =
     lead.priceRangeLow != null || lead.priceRangeHigh != null
       ? `${formatCurrency(lead.priceRangeLow)} – ${formatCurrency(lead.priceRangeHigh)}`
@@ -94,7 +99,7 @@ export default async function AgentLeadDetailPage({
                 href={`/listing/${encodeURIComponent(lead.interestedListingKey)}`}
                 className="font-semibold text-platinum-blue hover:underline"
               >
-                View the home this buyer inquired on →
+                View the home this buyer is interested in →
               </Link>
             </p>
           ) : null}
@@ -147,12 +152,14 @@ export default async function AgentLeadDetailPage({
             </EditContactForm>
           </div>
 
-          {/* Full property record from the AVM provider */}
-          <PropertyDetails
-            record={propertyRecord?.record ?? null}
-            fetchedAt={propertyRecord?.fetchedAt}
-            provider={propertyRecord?.provider}
-          />
+          {/* Full property record from the AVM provider (seller/own-home leads only) */}
+          {propertyRecord ? (
+            <PropertyDetails
+              record={propertyRecord.record ?? null}
+              fetchedAt={propertyRecord.fetchedAt}
+              provider={propertyRecord.provider}
+            />
+          ) : null}
 
           {/* Buyer activity — only for leads linked to a buyer account. */}
           {lead.buyerUserId != null && <BuyerActivityPanel buyerUserId={lead.buyerUserId} />}

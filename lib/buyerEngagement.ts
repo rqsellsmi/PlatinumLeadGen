@@ -142,15 +142,17 @@ async function findExistingLeadForBuyer(buyerUserId: number, email: string | nul
 }
 
 /** The agent currently assigned to a lead (via its accepted offer), or null. */
-async function findAssignedAgent(leadId: number): Promise<{ id: number; email: string; name: string } | null> {
+async function findAssignedAgent(
+  leadId: number,
+): Promise<{ id: number; email: string; name: string; offerId: number } | null> {
   const rows = await db
-    .select({ id: agents.id, email: agents.email, first: agents.firstName, last: agents.lastName })
+    .select({ id: agents.id, email: agents.email, first: agents.firstName, last: agents.lastName, offerId: leadOffers.id })
     .from(leadOffers)
     .innerJoin(agents, eq(leadOffers.agentId, agents.id))
     .where(and(eq(leadOffers.leadId, leadId), eq(leadOffers.status, 'accepted')))
     .limit(1);
   const r = rows[0];
-  return r ? { id: r.id, email: r.email, name: `${r.first} ${r.last}`.trim() } : null;
+  return r ? { id: r.id, email: r.email, name: `${r.first} ${r.last}`.trim(), offerId: r.offerId } : null;
 }
 
 interface EngagementContext {
@@ -160,6 +162,14 @@ interface EngagementContext {
   address: string | null;
   city: string | null;
   state: string | null;
+  /**
+   * True only when `address` is the buyer's OWN home (a valuation) — the one case
+   * where it should become the lead's propertyAddress. For a listing the buyer
+   * favorited/inquired on, the address is an *interest*, not their property, so it
+   * is NOT stored as propertyAddress (that would show a seller-style valuation for
+   * a home they don't own); it stays linked via interestedListingKey instead.
+   */
+  isOwnHome: boolean;
 }
 
 async function resolveContext(input: EngagementInput): Promise<EngagementContext> {
@@ -174,6 +184,7 @@ async function resolveContext(input: EngagementInput): Promise<EngagementContext
         address: listing.address ?? null,
         city: listing.city ?? null,
         state: listing.stateOrProvince ?? null,
+        isOwnHome: false,
       };
     }
   }
@@ -185,6 +196,7 @@ async function resolveContext(input: EngagementInput): Promise<EngagementContext
       address: null,
       city: null,
       state: null,
+      isOwnHome: false,
     };
   }
   if (input.home) {
@@ -195,15 +207,24 @@ async function resolveContext(input: EngagementInput): Promise<EngagementContext
       address: input.home.address,
       city: null,
       state: null,
+      isOwnHome: true,
     };
   }
-  return { label: engagementVerb(input.kind), lat: null, lng: null, address: null, city: null, state: null };
+  return {
+    label: engagementVerb(input.kind),
+    lat: null,
+    lng: null,
+    address: null,
+    city: null,
+    state: null,
+    isOwnHome: false,
+  };
 }
 
 function engagementVerb(kind: EngagementKind): string {
   switch (kind) {
     case 'favorite':
-      return 'saved a home';
+      return 'favorited a home';
     case 'saved_search':
       return 'saved a search';
     case 'showing':
@@ -245,6 +266,7 @@ export async function onFirstEngagement(input: EngagementInput): Promise<Engagem
 
     const agent = await findAssignedAgent(existing.id);
     if (agent) {
+      const listingKey = input.listingKey ?? existing.interestedListingKey ?? null;
       try {
         await sendEmail(
           buyerEngagementEmail({
@@ -252,9 +274,12 @@ export async function onFirstEngagement(input: EngagementInput): Promise<Engagem
             agentName: agent.name,
             buyerName: buyer.name || buyer.email,
             buyerEmail: buyer.email,
+            leadId: existing.id,
             action: engagementVerb(input.kind),
             detail: ctx.address ?? ctx.label,
-            portalUrl: `${siteUrl()}/agent/leads`,
+            // Deep link to THIS lead + a link to the home they engaged with.
+            leadUrl: `${siteUrl()}/agent/leads/${agent.offerId}`,
+            listingUrl: listingKey ? `${siteUrl()}/listing/${encodeURIComponent(listingKey)}` : null,
             relatedLeadId: existing.id,
             relatedAgentId: agent.id,
           }),
@@ -292,9 +317,13 @@ export async function onFirstEngagement(input: EngagementInput): Promise<Engagem
       lastName,
       email: buyer.email,
       phone: buyer.phone ?? null,
-      propertyAddress: ctx.address,
-      propertyCity: ctx.city,
-      propertyState: ctx.state,
+      // Only the buyer's OWN home (a valuation) becomes the lead's address; a
+      // favorited/inquired listing is an interest (interestedListingKey), not their
+      // property — storing it here would show a seller valuation for a home they
+      // don't own. Coords are still kept for proximity routing.
+      propertyAddress: ctx.isOwnHome ? ctx.address : null,
+      propertyCity: ctx.isOwnHome ? ctx.city : null,
+      propertyState: ctx.isOwnHome ? ctx.state : null,
       propertyLat: ctx.lat,
       propertyLng: ctx.lng,
       interestedListingKey: input.listingKey ?? null,

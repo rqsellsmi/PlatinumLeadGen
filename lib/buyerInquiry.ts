@@ -109,9 +109,12 @@ export async function createBuyerInquiry(
         lastName: input.lastName ?? null,
         email: input.email,
         phone: input.phone ?? null,
-        propertyAddress: listing.address ?? null,
-        propertyCity: listing.city ?? null,
-        propertyState: listing.stateOrProvince ?? null,
+        // The inquired listing is an interest (interestedListingKey), not the
+        // buyer's own property — don't store it as the lead's address (it would
+        // show a seller valuation for a home they don't own). Coords kept for routing.
+        propertyAddress: null,
+        propertyCity: null,
+        propertyState: null,
         propertyLat: listing.latitude ?? null,
         propertyLng: listing.longitude ?? null,
         interestedListingKey: input.listingKey,
