@@ -19,7 +19,8 @@ export interface MapPin {
   photoUrl: string | null;
 }
 
-// SE Michigan-ish default center/zoom when there are no results to frame.
+// Southeast-Michigan home view — the standing default until the search is
+// location-scoped (city/area/radius) or the user moves the map.
 const DEFAULT_CENTER = { lat: 42.73, lng: -83.7 };
 const DEFAULT_ZOOM = 9;
 
@@ -278,10 +279,15 @@ export default function SearchMap({ pins }: { pins: MapPin[] }) {
       bounds.extend(pos);
       count++;
     }
-    // Frame the results — but NOT in viewport (bbox) mode, where the user drives
-    // the camera and a refit would yank it out from under them. Mark the fit as
-    // ours so the idle it fires doesn't kick off a re-search.
-    if (count > 0 && !paramsRef.current?.get('bbox')) {
+    // Frame the results ONLY when the search is geographically scoped (a city,
+    // drawn area, or radius). On the unfiltered / attribute-only default, leave
+    // the map on the SE-Michigan home view instead of zooming out to fit the
+    // newest listings scattered across the whole service area (which looked like
+    // "the whole state"). In viewport (bbox) mode the user drives the camera, so
+    // never refit. Mark our fit so the idle it fires doesn't kick off a re-search.
+    const p = paramsRef.current;
+    const locationScoped = !!(p?.get('city') || p?.get('poly') || p?.get('lat'));
+    if (count > 0 && !p?.get('bbox') && locationScoped) {
       lastProgrammaticRef.current = Date.now();
       map.fitBounds(bounds, 48);
     }
