@@ -54,6 +54,14 @@ export interface SearchFilters {
 /** The "for sale" statuses a buyer search shows (O2: Active + AUC only). */
 export const FOR_SALE_STATUSES = ['Active', 'ActiveUnderContract'] as const;
 
+/**
+ * The Southeast-Michigan service region — the default map frame AND the default
+ * search bounds when nothing else scopes the query, so the unfiltered /homes list
+ * is the newest homes IN this region (not the newest scattered statewide). Covers
+ * the brokerage's core: Ann Arbor/Brighton/Howell/Fenton/Flint/Pontiac area.
+ */
+export const DEFAULT_REGION: BBox = { minLat: 42.2, minLng: -84.2, maxLat: 43.3, maxLng: -83.0 };
+
 export const DEFAULT_PAGE_SIZE = 24;
 export const MAX_PAGE_SIZE = 60;
 

@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { loadGoogleMaps } from '@/lib/googleMaps';
-import { encodePolygon, parsePolygon, coarsenPin, parseBBox, encodeBBox, type BBox } from '@/lib/listingSearch';
+import { encodePolygon, parsePolygon, coarsenPin, parseBBox, encodeBBox, DEFAULT_REGION, type BBox } from '@/lib/listingSearch';
 import { emitListingHover, onListingHover } from '@/lib/listingHover';
 import { formatCurrency } from '@/lib/utils';
 
@@ -279,17 +279,27 @@ export default function SearchMap({ pins }: { pins: MapPin[] }) {
       bounds.extend(pos);
       count++;
     }
-    // Frame the results ONLY when the search is geographically scoped (a city,
-    // drawn area, or radius). On the unfiltered / attribute-only default, leave
-    // the map on the SE-Michigan home view instead of zooming out to fit the
-    // newest listings scattered across the whole service area (which looked like
-    // "the whole state"). In viewport (bbox) mode the user drives the camera, so
-    // never refit. Mark our fit so the idle it fires doesn't kick off a re-search.
+    // Frame the map. In viewport (bbox) mode the user drives the camera — never
+    // refit. When the search is geographically scoped (city/drawn area/radius),
+    // fit the results. Otherwise (unfiltered / attribute-only default) frame the
+    // SE-Michigan region, which is exactly the region the default query covers —
+    // so the pins on the map match the newest homes in the list. Mark our fit so
+    // the idle it fires doesn't kick off a re-search.
     const p = paramsRef.current;
     const locationScoped = !!(p?.get('city') || p?.get('poly') || p?.get('lat'));
-    if (count > 0 && !p?.get('bbox') && locationScoped) {
+    if (!p?.get('bbox')) {
       lastProgrammaticRef.current = Date.now();
-      map.fitBounds(bounds, 48);
+      if (locationScoped && count > 0) {
+        map.fitBounds(bounds, 48);
+      } else if (!locationScoped) {
+        map.fitBounds(
+          new g.maps.LatLngBounds(
+            { lat: DEFAULT_REGION.minLat, lng: DEFAULT_REGION.minLng },
+            { lat: DEFAULT_REGION.maxLat, lng: DEFAULT_REGION.maxLng },
+          ),
+          24,
+        );
+      }
     }
   }, [ready, pins]);
 

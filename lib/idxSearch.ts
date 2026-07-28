@@ -16,6 +16,7 @@ import { canDisplay, notLease, notCommercial, gateAddress, approxMiles, type Idx
 import {
   FOR_SALE_STATUSES,
   DEFAULT_PAGE_SIZE,
+  DEFAULT_REGION,
   boundingBox,
   bboxFromRadius,
   pointInPolygon,
@@ -120,11 +121,16 @@ export async function searchListings(f: SearchFilters): Promise<SearchResult> {
 
   // Determine whether we must filter geometry in JS (polygon or radius circle).
   const polygon = f.polygon ?? null;
+  // When nothing scopes the search (no drawn area, radius, viewport bbox, or
+  // city), fall back to the SE-Michigan service region so the default list is the
+  // newest homes IN that region — matching the map's default frame — rather than
+  // the newest scattered across the whole feed.
+  const hasScope = !!polygon || !!(f.center && f.radiusMiles) || !!f.bbox || !!f.city;
   const geoBox: BBox | null = polygon
     ? boundingBox(polygon)
     : f.center && f.radiusMiles
       ? bboxFromRadius(f.center, f.radiusMiles)
-      : f.bbox ?? null;
+      : f.bbox ?? (hasScope ? null : DEFAULT_REGION);
   const needsJsGeo = !!polygon || !!(f.center && f.radiusMiles);
 
   const where = buildConditions(f, geoBox);
