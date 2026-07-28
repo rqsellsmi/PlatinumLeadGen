@@ -1,13 +1,25 @@
 'use client';
 
 import { Suspense, useEffect, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { Button, Input, Label, Card, CardBody } from '@/components/ui';
 
 const RESET_SUCCESS = 'If that email matches an agent, a password reset link is on its way.';
 
+/**
+ * Send the freshly-authenticated agent into the portal with a **full document
+ * load** rather than a soft `router.push`. `/api/agent/login` sets the session
+ * cookie via Set-Cookie, but the `/agent` layout (a Server Component) already
+ * rendered while unauthenticated — with no sidebar — and is shared with the
+ * login route. A soft navigation keeps that stale, sidebar-less layout until a
+ * manual refresh; a hard navigation re-runs the layout on the server with the
+ * cookie present, so the nav appears on first login.
+ */
+function goToPortal(destination: string) {
+  window.location.assign(destination);
+}
+
 function LoginInner() {
-  const router = useRouter();
   const searchParams = useSearchParams();
 
   // Forgot-password (email a reset link) form
@@ -46,7 +58,7 @@ function LoginInner() {
         });
         if (cancelled) return;
         if (res.ok) {
-          router.push(destination);
+          goToPortal(destination);
           return;
         }
         const data = (await res.json().catch(() => ({}))) as { error?: string };
@@ -64,7 +76,7 @@ function LoginInner() {
     return () => {
       cancelled = true;
     };
-  }, [token, router, destination]);
+  }, [token, destination]);
 
   async function handleResetSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -95,7 +107,7 @@ function LoginInner() {
         body: JSON.stringify({ email, password }),
       });
       if (res.ok) {
-        router.push(destination);
+        goToPortal(destination);
         return;
       }
       setPwError('Invalid email or password.');
