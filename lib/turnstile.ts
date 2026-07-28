@@ -4,14 +4,24 @@
  * environment without the key aren't blocked — the same fail-safe posture the SMS
  * layer uses. Set NEXT_PUBLIC_TURNSTILE_SITE_KEY (client) + TURNSTILE_SECRET_KEY
  * (server) to turn it on.
+ *
+ * It is enforced ONLY on the production deployment (VERCEL_ENV === 'production').
+ * Preview and local builds skip it — a Turnstile widget is domain-locked to the
+ * production hostname, so it can't complete on preview URLs and would otherwise
+ * hard-block sign-in there. Client + server use the same rule so they agree.
  */
 export function turnstileConfigured(): boolean {
   return !!process.env.TURNSTILE_SECRET_KEY;
 }
 
+/** True only when Turnstile is configured AND we're the production deployment. */
+export function turnstileActive(): boolean {
+  return turnstileConfigured() && process.env.VERCEL_ENV === 'production';
+}
+
 export async function verifyTurnstile(token: string | null | undefined, ip?: string): Promise<boolean> {
   const secret = process.env.TURNSTILE_SECRET_KEY;
-  if (!secret) return true; // not configured → no-op pass
+  if (!secret || !turnstileActive()) return true; // unconfigured or preview/dev → no-op pass
   if (!token) return false;
   try {
     const body = new URLSearchParams({ secret, response: token });

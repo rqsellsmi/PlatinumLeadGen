@@ -289,6 +289,11 @@ branch). They add: `buyer_users` + `buyer_auth_tokens` (0035); `buyer_favorites`
   - `TURNSTILE_SECRET_KEY` — the secret (server-side verification).
 - Omit **both** to disable the check entirely: the server no-ops (passes) and the
   widget doesn't render. Set both to require it before a magic link is emailed.
+- **Enforced on the production deployment only** (`VERCEL_ENV === 'production'`).
+  Preview and local builds skip Turnstile even when the keys are set, because a
+  widget is domain-locked to the production hostname and errors ("Unable to
+  connect to website") on preview URLs. Add the production domain (and any others)
+  to the widget's **Hostname Management** allowlist in the Cloudflare dashboard.
 
 **4. Email.** Magic links reuse the existing Microsoft Graph email pipeline — no
 extra config beyond what agent/homeowner email already uses.

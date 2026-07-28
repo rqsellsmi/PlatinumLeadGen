@@ -33,6 +33,11 @@ const securityHeaders = [
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  // Expose the Vercel deployment environment to the client so the buyer sign-in
+  // modal can skip the Turnstile bot-check on preview/dev (only prod enforces it).
+  env: {
+    NEXT_PUBLIC_VERCEL_ENV: process.env.VERCEL_ENV || '',
+  },
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: '**' },

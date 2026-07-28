@@ -19,12 +19,16 @@ declare global {
   }
 }
 
-const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
+// Enforce Turnstile only on the production deployment — a widget is domain-locked
+// to the prod hostname, so on preview URLs it errors ("Unable to connect to
+// website") and would hard-block sign-in. Mirrors turnstileActive() on the server.
+const TURNSTILE_SITE_KEY =
+  process.env.NEXT_PUBLIC_VERCEL_ENV === 'production' ? process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY : undefined;
 
 /**
  * Passwordless buyer sign-in: "Continue with Google" (OAuth) + email magic link.
  * Mounted once globally; opened via the OPEN_BUYER_SIGNIN event. Turnstile renders
- * only when a site key is configured (the server verification no-ops otherwise).
+ * only when a site key is configured AND we're in production (server no-ops otherwise).
  */
 export default function SignInModal() {
   const [mounted, setMounted] = React.useState(false);
