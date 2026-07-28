@@ -91,7 +91,7 @@ export default function SearchFilterPanel({
   const buildQs = React.useCallback(
     (next: Draft): string => {
       const p = new URLSearchParams();
-      for (const key of ['poly', 'lat', 'lng', 'radius'] as const) {
+      for (const key of ['poly', 'lat', 'lng', 'radius', 'bbox'] as const) {
         const v = searchParams?.get(key);
         if (v) p.set(key, v);
       }
@@ -131,13 +131,13 @@ export default function SearchFilterPanel({
   React.useEffect(() => {
     const target = buildQs(d);
     if (target === buildQs(toDraft(filters))) return; // already in sync
-    const t = setTimeout(() => router.push(`${pathname}?${target}`), 350);
+    const t = setTimeout(() => router.push(`${pathname}?${target}`, { scroll: false }), 350);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [d]);
 
   function reset() {
-    router.push(pathname);
+    router.push(pathname, { scroll: false });
   }
 
   const toggleType = (v: string) =>

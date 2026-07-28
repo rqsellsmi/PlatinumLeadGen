@@ -105,7 +105,7 @@ export default function SearchMap({ pins }: { pins: MapPin[] }) {
         p.set('lng', String(geo.lng));
         if (geo.radius) p.set('radius', String(geo.radius));
       }
-      router.push(`${pathname}?${p.toString()}`);
+      router.push(`${pathname}?${p.toString()}`, { scroll: false });
     },
     [router, pathname, searchParams],
   );
@@ -117,7 +117,7 @@ export default function SearchMap({ pins }: { pins: MapPin[] }) {
       const p = new URLSearchParams(searchParams?.toString() ?? '');
       ['poly', 'lat', 'lng', 'radius', 'bbox', 'page'].forEach((k) => p.delete(k));
       p.set('city', city);
-      router.push(`${pathname}?${p.toString()}`);
+      router.push(`${pathname}?${p.toString()}`, { scroll: false });
     },
     [router, pathname, searchParams],
   );
@@ -130,7 +130,7 @@ export default function SearchMap({ pins }: { pins: MapPin[] }) {
       const p = new URLSearchParams(paramsRef.current?.toString() ?? '');
       ['poly', 'lat', 'lng', 'radius', 'bbox', 'city', 'page'].forEach((k) => p.delete(k));
       p.set('bbox', encodeBBox(b));
-      router.push(`${pathname}?${p.toString()}`);
+      router.push(`${pathname}?${p.toString()}`, { scroll: false });
     },
     [router, pathname],
   );
