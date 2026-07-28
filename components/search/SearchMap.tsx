@@ -27,6 +27,11 @@ const DEFAULT_ZOOM = 9;
 // fitBounds) is ours, not the user's — used to avoid a fit → idle → search loop.
 const PROGRAMMATIC_IDLE_MS = 1200;
 
+// Grace period after leaving a pin before its hover tile closes, so the pointer
+// can travel from the pin up onto the tile and click it (moving onto the tile
+// cancels the close). Also applies when leaving the tile itself.
+const POPUP_CLOSE_DELAY_MS = 400;
+
 // Shared brand styling for the drawn/restored area polygon.
 const AREA_STYLE = {
   fillColor: '#0043FF',
@@ -63,6 +68,7 @@ export default function SearchMap({ pins }: { pins: MapPin[] }) {
   const polyOverlayRef = React.useRef<GMaps>(null);
   const infoRef = React.useRef<GMaps>(null);
   const pinnedRef = React.useRef(false); // true when the popover was opened by a click
+  const closeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const acInputRef = React.useRef<HTMLInputElement>(null);
   // Timestamp of our last programmatic camera move (map load / fitBounds). An
   // idle within PROGRAMMATIC_IDLE_MS of it is ours, not the user's — see above.
@@ -218,6 +224,25 @@ export default function SearchMap({ pins }: { pins: MapPin[] }) {
     markersRef.current.forEach((m) => m.setMap(null));
     markersRef.current = [];
     markersByKeyRef.current = new Map();
+    // Close the hover tile after a grace period unless the pointer reaches it
+    // (mouseenter on the tile cancels this). A clicked/pinned tile never auto-closes.
+    const cancelClose = () => {
+      if (closeTimerRef.current) {
+        clearTimeout(closeTimerRef.current);
+        closeTimerRef.current = null;
+      }
+    };
+    const scheduleClose = () => {
+      cancelClose();
+      closeTimerRef.current = setTimeout(() => {
+        closeTimerRef.current = null;
+        if (!pinnedRef.current) {
+          infoRef.current.close();
+          emitListingHover(null, 'map');
+        }
+      }, POPUP_CLOSE_DELAY_MS);
+    };
+
     const bounds = new g.maps.LatLngBounds();
     let count = 0;
     for (const p of pins) {
@@ -225,7 +250,14 @@ export default function SearchMap({ pins }: { pins: MapPin[] }) {
       const pos = coarsenPin(p.lat, p.lng, p.hidden);
       const marker = new g.maps.Marker({ position: pos, map });
       const openPopover = (pinned: boolean) => {
-        infoRef.current.setContent(pinHtml(p));
+        cancelClose();
+        // Build the content as a real node so we can bridge the hover: entering
+        // the tile cancels the pending close, leaving it restarts it.
+        const el = document.createElement('div');
+        el.innerHTML = pinHtml(p);
+        el.addEventListener('mouseenter', cancelClose);
+        el.addEventListener('mouseleave', scheduleClose);
+        infoRef.current.setContent(el);
         infoRef.current.open(map, marker);
         pinnedRef.current = pinned;
       };
@@ -233,12 +265,12 @@ export default function SearchMap({ pins }: { pins: MapPin[] }) {
       // lets you click through to the listing). Hover also tells the list to ring
       // the matching card.
       marker.addListener('mouseover', () => {
+        cancelClose();
         if (!pinnedRef.current) openPopover(false);
         emitListingHover(p.listingKey, 'map');
       });
       marker.addListener('mouseout', () => {
-        if (!pinnedRef.current) infoRef.current.close();
-        emitListingHover(null, 'map');
+        if (!pinnedRef.current) scheduleClose();
       });
       marker.addListener('click', () => openPopover(true));
       markersRef.current.push(marker);
@@ -265,6 +297,12 @@ export default function SearchMap({ pins }: { pins: MapPin[] }) {
     return onListingHover((p) => {
       if (p.from !== 'card') return; // only react to card hovers
       clearBounce();
+      // A card hover takes over the tile — cancel any pending pin-hover close so
+      // it can't tear down the tile we're about to (re)open.
+      if (closeTimerRef.current) {
+        clearTimeout(closeTimerRef.current);
+        closeTimerRef.current = null;
+      }
       if (!p.key) {
         if (!pinnedRef.current) infoRef.current?.close();
         return;
@@ -278,6 +316,14 @@ export default function SearchMap({ pins }: { pins: MapPin[] }) {
       }
     });
   }, [ready]);
+
+  // Clear any pending tile-close timer on unmount.
+  React.useEffect(
+    () => () => {
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    },
+    [],
+  );
 
   function toggleDraw() {
     const g = (window as unknown as { google: GMaps }).google;
