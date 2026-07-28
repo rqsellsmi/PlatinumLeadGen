@@ -23,7 +23,7 @@ import {
   type CityMarketReport,
 } from '@/lib/idx';
 import { getMarketNarrative } from '@/lib/marketNarrative';
-import type { MarketTrends } from '@/lib/valuation';
+import { activeProvider, type MarketTrends } from '@/lib/valuation';
 import type { MarketStat } from '@/drizzle/schema';
 
 export const dynamic = 'force-dynamic';
@@ -213,6 +213,7 @@ export default async function ThankYouPage({
         <Suspense fallback={null}>
           <ThankYouClient
             report={report}
+            valuationProvider={activeProvider()}
             comps={comps}
             compsSource={compsSource}
             marketTrends={marketTrends}
