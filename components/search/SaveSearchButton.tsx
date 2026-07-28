@@ -23,7 +23,7 @@ export default function SaveSearchButton({ filters }: { filters: Record<string, 
       });
       if (res.status === 401) {
         setState('idle');
-        openBuyerSignIn(window.location.pathname + window.location.search);
+        openBuyerSignIn(window.location.pathname + window.location.search, 'save_search');
         return;
       }
       if (!res.ok) throw new Error('failed');

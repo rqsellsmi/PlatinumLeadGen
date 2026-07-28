@@ -47,7 +47,7 @@ async function ensureLoaded() {
 
 async function toggle(listingKey: string, next: string) {
   if (!state.signedIn) {
-    openBuyerSignIn(next);
+    openBuyerSignIn(next, 'favorite');
     return;
   }
   const has = state.keys.has(listingKey);

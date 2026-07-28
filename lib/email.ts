@@ -597,12 +597,20 @@ If you did not request this, ignore this email.`;
 export interface BuyerMagicLinkEmailData {
   to: string;
   signInUrl: string;
+  /** What the buyer was doing — mirrors the sign-in modal so the copy matches. */
+  reason?: 'favorite' | 'save_search' | 'account' | null;
 }
 
 export function buyerMagicLinkEmail(d: BuyerMagicLinkEmailData): SendEmailArgs {
+  const heading =
+    d.reason === 'favorite'
+      ? 'Sign in to save this home'
+      : d.reason === 'save_search'
+        ? 'Sign in to save your search'
+        : 'Sign in to RE/MAX Platinum';
   const html = shell(
     'Sign in to RE/MAX Platinum',
-    `<h1 style="margin:0 0 12px;font-size:22px;color:${BRAND_BLUE};">Sign in to save your search</h1>
+    `<h1 style="margin:0 0 12px;font-size:22px;color:${BRAND_BLUE};">${heading}</h1>
      <p style="font-size:15px;line-height:1.5;">Use the button below to sign in to your RE/MAX Platinum account. This link expires in 30 minutes and can be used once.</p>
      <p style="margin:24px 0;">${button(d.signInUrl, 'Sign in')}</p>
      <p style="font-size:13px;line-height:1.5;color:#64748b;">If you did not request this, you can safely ignore this email.</p>`,

@@ -3,12 +3,22 @@
 import * as React from 'react';
 import { createPortal } from 'react-dom';
 
+/** Why the sign-in modal opened — drives the modal + magic-link email copy. */
+export type SignInReason = 'favorite' | 'save_search' | 'account';
+
 /** Fire to open the buyer sign-in modal from anywhere. detail.next = post-login path. */
 export const OPEN_BUYER_SIGNIN = 'open-buyer-signin';
 
-export function openBuyerSignIn(next?: string) {
-  window.dispatchEvent(new CustomEvent(OPEN_BUYER_SIGNIN, { detail: { next } }));
+export function openBuyerSignIn(next?: string, reason?: SignInReason) {
+  window.dispatchEvent(new CustomEvent(OPEN_BUYER_SIGNIN, { detail: { next, reason } }));
 }
+
+// Per-reason modal copy (the email mirrors this via the `reason` it's sent).
+const REASON_COPY: Record<SignInReason, { title: string; blurb: string }> = {
+  favorite: { title: 'Save this home', blurb: 'Sign in to save homes — it’s free, no password.' },
+  save_search: { title: 'Save your search', blurb: 'Sign in to save searches — it’s free, no password.' },
+  account: { title: 'Sign in', blurb: 'Sign in to save homes and searches — it’s free, no password.' },
+};
 
 declare global {
   interface Window {
@@ -34,6 +44,7 @@ export default function SignInModal() {
   const [mounted, setMounted] = React.useState(false);
   const [open, setOpen] = React.useState(false);
   const [next, setNext] = React.useState('/account');
+  const [reason, setReason] = React.useState<SignInReason>('account');
   const [email, setEmail] = React.useState('');
   const [sent, setSent] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
@@ -46,8 +57,9 @@ export default function SignInModal() {
 
   React.useEffect(() => {
     const onOpen = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { next?: string } | undefined;
+      const detail = (e as CustomEvent).detail as { next?: string; reason?: SignInReason } | undefined;
       setNext(detail?.next || '/account');
+      setReason(detail?.reason || 'account');
       setSent(false);
       setError(null);
       setOpen(true);
@@ -98,7 +110,7 @@ export default function SignInModal() {
       const res = await fetch('/api/buyer/auth/magic/request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim(), turnstileToken: tsToken, next }),
+        body: JSON.stringify({ email: email.trim(), turnstileToken: tsToken, next, reason }),
       });
       if (!res.ok) throw new Error('failed');
       setSent(true);
@@ -117,12 +129,12 @@ export default function SignInModal() {
     <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/50 p-4" onClick={() => setOpen(false)}>
       <div className="w-full max-w-sm rounded-2xl bg-white p-6" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between">
-          <h2 className="text-xl font-extrabold text-charcoal">Save your search</h2>
+          <h2 className="text-xl font-extrabold text-charcoal">{REASON_COPY[reason].title}</h2>
           <button type="button" aria-label="Close" onClick={() => setOpen(false)} className="text-2xl leading-none text-mute hover:text-charcoal">
             ×
           </button>
         </div>
-        <p className="mt-1 text-sm text-mute">Sign in to save homes and searches — it&rsquo;s free, no password.</p>
+        <p className="mt-1 text-sm text-mute">{REASON_COPY[reason].blurb}</p>
 
         {sent ? (
           <div className="mt-6 rounded-xl bg-success-bg p-5 text-center">

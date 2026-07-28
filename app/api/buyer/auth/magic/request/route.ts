@@ -19,6 +19,7 @@ const schema = z.object({
   email: z.string().trim().email().max(200),
   turnstileToken: z.string().optional().nullable(),
   next: z.string().optional().nullable(),
+  reason: z.enum(['favorite', 'save_search', 'account']).optional().nullable(),
 });
 
 export async function POST(req: NextRequest) {
@@ -45,7 +46,7 @@ export async function POST(req: NextRequest) {
     const next = parsed.data.next ? `&next=${encodeURIComponent(parsed.data.next)}` : '';
     const url = `${siteUrl()}/api/buyer/auth/magic/verify?token=${token}${next}`;
     try {
-      await sendEmail(buyerMagicLinkEmail({ to: parsed.data.email, signInUrl: url }));
+      await sendEmail(buyerMagicLinkEmail({ to: parsed.data.email, signInUrl: url, reason: parsed.data.reason }));
     } catch (err) {
       console.error('[buyer/magic/request] email failed:', err);
     }
