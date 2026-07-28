@@ -4,6 +4,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { Button, Input, Select, Badge } from '@/components/ui';
 import { toggleAgentActive, toggleAgentAvailable } from '@/app/admin/agents/actions';
+import { filterAgents, agentFullName } from '@/lib/agentDirectoryFilter';
 
 export interface AgentRow {
   id: number;
@@ -32,7 +33,7 @@ function initials(first: string | null, last: string | null): string {
   return `${first?.[0] ?? ''}${last?.[0] ?? ''}`.toUpperCase() || '?';
 }
 function fullName(a: AgentRow): string {
-  return `${a.firstName ?? ''} ${a.lastName ?? ''}`.trim() || a.email;
+  return agentFullName(a);
 }
 function fmtConversion(p: number | null): string {
   return p == null ? '—' : `${p}%`;
@@ -68,17 +69,9 @@ export default function AgentDirectory({ agents }: { agents: AgentRow[] }) {
   );
 
   const filtered = React.useMemo(() => {
-    const q = search.trim().toLowerCase();
-    const list = agents.filter((a) => {
-      if (status === 'active' && !a.isActive) return false;
-      if (status === 'inactive' && a.isActive) return false;
-      if (office && a.officeName !== office) return false;
-      if (q) {
-        const hay = `${fullName(a)} ${a.email} ${a.officeName ?? ''} ${a.officeCity ?? ''}`.toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
-      return true;
-    });
+    // Filtering (incl. the "search spans all statuses" rule) lives in the pure,
+    // unit-tested filterAgents; sorting stays here (view-only concern).
+    const list = filterAgents(agents, { search, office, status });
 
     const byName = (a: AgentRow, b: AgentRow) =>
       fullName(a).localeCompare(fullName(b), 'en', { sensitivity: 'base' });
