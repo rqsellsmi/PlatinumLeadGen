@@ -37,13 +37,21 @@ describe('googleAdsHash', () => {
 });
 
 describe('milestoneFor', () => {
-  it('maps only the three trigger statuses', () => {
+  it('maps only the four trigger statuses', () => {
     expect(milestoneFor('nurturing')).toBe('valid_seller_lead');
     expect(milestoneFor('signed')).toBe('listing_signed');
     expect(milestoneFor('closed')).toBe('closed');
-    for (const s of ['new', 'attempted_contact', 'connected', 'appointment_set', 'lost', 'reopened']) {
+    for (const s of ['new', 'attempted_contact', 'connected', 'lost', 'reopened']) {
       expect(milestoneFor(s)).toBeNull();
     }
+  });
+
+  it('maps the AGENT-confirmed appointment, not the public form (D4 MODIFIED)', () => {
+    // The bidding-quality "Appointment" conversion is the one an agent
+    // confirms. The public form still fires 'appointment_requested', but that
+    // action is configured SECONDARY (observation only) in Google Ads, so a
+    // visitor asking for a call cannot inflate bidding on its own.
+    expect(milestoneFor('appointment_set')).toBe('appointment_set');
   });
 });
 

@@ -476,6 +476,9 @@ export const leads = pgTable(
     // the reserved test-contact allowlist; excluded from routing, scoring,
     // leaderboards, agent notifications, Ads exports and KPIs.
     isTest: boolean('is_test').notNull().default(false),
+    // Which cheap abuse signal looked wrong at capture, if any (P0.3 / D5).
+    // Recorded, not blocked — see lib/abuseMitigation.ts.
+    abuseFlag: varchar('abuse_flag', { length: 40 }),
     // Optional seller qualifiers captured on /thank-you (D15). Non-blocking and
     // save-on-select; they inform follow-up priority and the agent's first-call
     // context — never routing (the lead is already routed) and never the agent
@@ -794,6 +797,11 @@ export const appointmentRequests = pgTable('appointment_requests', {
   preferredTime: varchar('preferred_time', { length: 200 }),
   notes: text('notes'),
   source: varchar('source', { length: 80 }).notNull().default('thank-you'),
+  // P0.3 / D5. Client-generated key so a double-submit is processed once, and
+  // which cheap abuse signal (if any) looked wrong. The interim controls FLAG
+  // rather than block — a false positive would discard a paid-for seller lead.
+  idempotencyKey: varchar('idempotency_key', { length: 100 }),
+  abuseFlag: varchar('abuse_flag', { length: 40 }),
   // Attribution (v1.6 §C.2) — mirrors leads.
   utmSource: varchar('utm_source', { length: 200 }),
   utmMedium: varchar('utm_medium', { length: 200 }),

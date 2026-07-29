@@ -48,6 +48,19 @@ export const attributionFields = {
   lastSeenAt: z.string().optional().nullable(),
 };
 
+/**
+ * Abuse-mitigation fields present on every public write form (P0.3, D5
+ * MODIFIED). Optional throughout: a missing signal is never held against the
+ * submitter — an older cached page or a privacy extension can strip them, and
+ * rejecting those would lose real leads. See lib/abuseMitigation.ts.
+ */
+export const abuseFields = {
+  /** Hidden honeypot. A human never sees it, so a value means a bot filled it. */
+  company: z.string().max(200).optional().nullable(),
+  /** Client ms-timestamp captured when the form rendered. */
+  formLoadedAt: z.number().optional().nullable(),
+};
+
 export const partialLeadSchema = z.object({
   sessionId: z.string().min(1).max(128),
   propertyAddress: z.string().min(3).max(300),
@@ -58,6 +71,7 @@ export const partialLeadSchema = z.object({
   propertyLng: z.number().optional().nullable(),
   locationSlug: z.string().max(120).optional().nullable(),
   pageVariant: z.enum(['seo', 'ads']).optional().nullable(),
+  ...abuseFields,
   ...attributionFields,
 });
 
@@ -85,6 +99,7 @@ export const leadSubmitSchema = z.object({
   // Which downloadable guide this came from (seller_guide leads), for per-guide
   // reporting (migration 0032). Sent by GuideDownloadBlock.
   guideId: z.number().int().positive().optional().nullable(),
+  ...abuseFields,
   ...attributionFields,
 });
 
@@ -131,8 +146,32 @@ export const appointmentSchema = z.object({
   email: z.string().email().max(200).optional().nullable(),
   preferredTime: z.string().max(200).optional().nullable(),
   notes: z.string().max(2000).optional().nullable(),
-  leadId: z.number().int().optional().nullable(),
+  /**
+   * The lead-bound CAPABILITY (P0.3 / review #10, D3). This replaced a raw
+   * `leadId`: the endpoint is public, so accepting a bare integer let anyone
+   * attach an appointment, a timeline event, a conversion and an agent email to
+   * any lead they cared to guess. The appointment form is only ever reachable
+   * with a report token, so the token is what proves the request belongs to
+   * that lead.
+   */
+  reportToken: z.string().min(16).max(64).optional().nullable(),
+  /** Client-generated key so a double-submit is processed once (D5). */
+  idempotencyKey: z.string().max(100).optional().nullable(),
+  ...abuseFields,
   ...attributionFields,
+});
+
+/**
+ * External appointment intake (/api/webhooks/appointment).
+ *
+ * This one KEEPS a raw `leadId`, and that is deliberate: the webhook is
+ * authenticated with a server-side API key, so the caller is a trusted system
+ * rather than an anonymous browser. The public route's capability requirement
+ * (P0.3 / #10) exists because a browser can claim to be anyone; a holder of the
+ * API key is already authorized to write on the brokerage's behalf.
+ */
+export const webhookAppointmentSchema = appointmentSchema.extend({
+  leadId: z.number().int().positive().optional().nullable(),
 });
 
 export type PartialLeadInput = z.infer<typeof partialLeadSchema>;

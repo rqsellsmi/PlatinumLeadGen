@@ -5,19 +5,38 @@ import { Button, Input, Label, Card, CardBody, CardHeader } from '@/components/u
 import { dataLayerPush } from '@/lib/clientAnalytics';
 import { fireAppointmentRequestConversion } from '@/lib/googleAdsConversions';
 import { getLeadAttribution } from '@/lib/attribution';
+import HoneypotField, { useFormLoadedAt, readHoneypot } from '@/components/HoneypotField';
 
-/** Optional appointment-request form on the thank-you page (Section 22.7). */
+/**
+ * Optional appointment-request form on the thank-you page (Section 22.7).
+ *
+ * Submitting is a lead SIGNAL, not a confirmed appointment (D4): it awards no
+ * agent points and does not move the lead's stage. The bidding-quality
+ * "Appointment" conversion fires when an AGENT sets appointment_set.
+ *
+ * The request is authorized by the lead-bound report token, not by a leadId
+ * (P0.3 / #10) — see app/api/appointments/route.ts.
+ */
 export default function AppointmentForm({
   initialName = '',
   initialPhone = '',
   initialEmail = '',
   leadId = null,
+  reportToken = null,
 }: {
   initialName?: string;
   initialPhone?: string;
   initialEmail?: string;
+  /** Used only for the client-side conversion transaction id, never sent as authorization. */
   leadId?: number | null;
+  /** The capability that authorizes attaching this request to a lead. */
+  reportToken?: string | null;
 }) {
+  const formLoadedAt = useFormLoadedAt();
+  const formRef = React.useRef<HTMLFormElement>(null);
+  const [idempotencyKey] = React.useState(() =>
+    typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : String(Math.random()),
+  );
   const [name, setName] = React.useState(initialName);
   const [phone, setPhone] = React.useState(initialPhone);
   const [preferredTime, setPreferredTime] = React.useState('');
@@ -48,7 +67,12 @@ export default function AppointmentForm({
           phone,
           email: initialEmail || undefined,
           preferredTime,
-          leadId: leadId ?? undefined,
+          // The capability, not a raw lead id — a public endpoint cannot trust
+          // a bare integer to say which lead a request belongs to (P0.3).
+          reportToken: reportToken ?? undefined,
+          idempotencyKey,
+          company: readHoneypot(formRef.current),
+          formLoadedAt: formLoadedAt.current || undefined,
           ...getLeadAttribution(),
         }),
       });
@@ -78,7 +102,8 @@ export default function AppointmentForm({
             Thanks! We&apos;ve received your request and an agent will be in touch shortly.
           </p>
         ) : (
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form ref={formRef} onSubmit={handleSubmit} className="relative space-y-4">
+            <HoneypotField />
             {error ? (
               <div
                 role="alert"

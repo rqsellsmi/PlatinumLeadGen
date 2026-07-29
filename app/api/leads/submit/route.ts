@@ -30,6 +30,11 @@ import {
   type LeadIdentityDecision,
 } from '@/lib/leadIdentity';
 import { isTestContact, configuredTestDomains } from '@/lib/testLeads';
+import {
+  evaluateAbuseSignals,
+  exceedsPayloadLimit,
+  MAX_PUBLIC_BODY_BYTES,
+} from '@/lib/abuseMitigation';
 import type { Lead } from '@/drizzle/schema';
 
 export const runtime = 'nodejs';
@@ -222,6 +227,9 @@ async function discardAddressPartials(normalizedAddress: string | null, keepLead
 
 export async function POST(req: NextRequest) {
   try {
+    if (exceedsPayloadLimit(req.headers.get('content-length'), MAX_PUBLIC_BODY_BYTES)) {
+      return NextResponse.json({ error: 'payload_too_large' }, { status: 413 });
+    }
     if (!(await checkPreset(clientIp(req.headers), 'lead_submit'))) {
       return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
     }
@@ -231,6 +239,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
     }
     const input = parsed.data;
+
+    // Cheap abuse signals (P0.3 / D5 MODIFIED). A filled honeypot is rejected
+    // outright — it has no innocent explanation. An implausibly fast completion
+    // is FLAGGED and still processed: losing a real seller lead we paid Google
+    // for costs far more than storing one spam row.
+    const abuse = evaluateAbuseSignals({
+      honeypot: input.company,
+      formLoadedAt: input.formLoadedAt,
+    });
+    if (abuse.action === 'reject') {
+      console.warn(`[api/leads/submit] rejected: ${abuse.reason}`);
+      return NextResponse.json({ success: true, existingRecord: true, reportLinkEmailed: false });
+    }
     const locationId = await resolveLocationId(input.locationSlug);
     const now = new Date();
     const email = input.email;
@@ -373,6 +394,7 @@ export async function POST(req: NextRequest) {
       // 555-01xx phone flags the lead at creation so it never routes, scores,
       // notifies an agent or exports a conversion.
       isTest: isTestContact({ email, phone }, configuredTestDomains(process.env.TEST_LEAD_EMAIL_DOMAINS)),
+      abuseFlag: abuse.action === 'flag' ? abuse.reason : null,
       ...attributionColumns(input),
       updatedAt: now,
     };

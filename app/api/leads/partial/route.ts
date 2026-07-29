@@ -10,6 +10,12 @@ import { partialLeadSchema } from '@/lib/validation';
 import { attributionColumns } from '@/lib/attributionServer';
 import { normalizeAddress } from '@/lib/addressNormalization';
 import { logLeadEvent } from '@/lib/leadEvents';
+import { checkPreset, clientIp } from '@/lib/rateLimit';
+import {
+  evaluateAbuseSignals,
+  exceedsPayloadLimit,
+  MAX_PUBLIC_BODY_BYTES,
+} from '@/lib/abuseMitigation';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -22,18 +28,41 @@ async function resolveLocationId(slug: string | null | undefined): Promise<numbe
 
 export async function POST(req: NextRequest) {
   try {
+    // P0.3 / D5: this endpoint had no rate limit and no bot control, and it
+    // trusts a client-generated session id. The limit is deliberately loose —
+    // one indecisive homeowner legitimately fires several of these while
+    // typing and re-selecting an address.
+    if (exceedsPayloadLimit(req.headers.get('content-length'), MAX_PUBLIC_BODY_BYTES)) {
+      return NextResponse.json({ error: 'payload_too_large' }, { status: 413 });
+    }
+    if (!(await checkPreset(clientIp(req.headers), 'partial'))) {
+      return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
+    }
+
     const body = await req.json().catch(() => null);
     const parsed = partialLeadSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
     }
     const input = parsed.data;
+
+    const abuse = evaluateAbuseSignals({
+      honeypot: input.company,
+      formLoadedAt: input.formLoadedAt,
+    });
+    if (abuse.action === 'reject') {
+      // Answer as if it worked so a bot learns nothing, but write nothing.
+      console.warn(`[api/leads/partial] rejected: ${abuse.reason}`);
+      return NextResponse.json({ leadId: null });
+    }
+
     const locationId = await resolveLocationId(input.locationSlug);
     const now = new Date();
     const normalizedAddress = normalizeAddress(input.propertyAddress).full || null;
 
     const propertyFields = {
       sessionId: input.sessionId,
+      abuseFlag: abuse.action === 'flag' ? abuse.reason : null,
       propertyAddress: input.propertyAddress,
       propertyCity: input.propertyCity ?? null,
       propertyState: input.propertyState ?? null,

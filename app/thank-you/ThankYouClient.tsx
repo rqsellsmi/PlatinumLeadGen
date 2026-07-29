@@ -412,7 +412,16 @@ export default function ThankYouClient({
       </div>
 
       <div className="mt-12">
-        <AppointmentForm initialName={name} initialPhone={phone} initialEmail={email} leadId={leadId} />
+        <AppointmentForm
+          initialName={name}
+          initialPhone={phone}
+          initialEmail={email}
+          leadId={leadId}
+          /* The capability that authorizes attaching the request to this lead
+             (P0.3 / #10). Read from the URL the report link put it in — it is
+             already the thing that unlocked this page. */
+          reportToken={params.get('report')}
+        />
       </div>
     </>
   );

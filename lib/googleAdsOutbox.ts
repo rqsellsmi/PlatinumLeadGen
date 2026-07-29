@@ -28,6 +28,12 @@ export type UpdateChannel = 'web' | 'phone' | 'other';
 /** Map a lead status to its pipeline conversion milestone, or null if not a trigger. */
 export function milestoneFor(status: string): OutboxMilestone | null {
   switch (status) {
+    // The AGENT confirming an appointment is the bidding-quality signal (D4
+    // MODIFIED). The public form's 'appointment_requested' still fires as a
+    // Secondary/observation action for funnel measurement, but only this one
+    // reflects an appointment that actually exists.
+    case 'appointment_set':
+      return 'appointment_set';
     case 'nurturing':
       return 'valid_seller_lead';
     case 'signed':
