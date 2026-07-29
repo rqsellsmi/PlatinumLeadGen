@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { dataLayerPush, EXIT_INTENT_FLAG, LEAD_SUBMITTED_FLAG } from '@/lib/clientAnalytics';
 import { OPEN_VALUATION_EVENT } from '@/components/HeroValuation';
+import PrivacyNote from '@/components/PrivacyNote';
 
 /**
  * Exit-intent overlay (Section 22.2). Desktop only. Triggers on mouseleave
@@ -127,9 +128,10 @@ export default function ExitIntentOverlay() {
             Show Me My Home Value →
           </button>
         </form>
-        <p className="mt-3 text-center text-xs text-mute-light">
-          Free estimate. We&apos;ll never share your address.
-        </p>
+        {/* The overlay only collects an ADDRESS, which we retain even if the
+            visitor never finishes — so the address-step disclosure is the
+            accurate one here (D8), not the contact-details one. */}
+        <PrivacyNote variant="address" className="mt-3 text-center" />
       </div>
     </div>
   );

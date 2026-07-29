@@ -6,12 +6,11 @@ import Script from 'next/script';
 import { Button, Input, Label, Select } from '@/components/ui';
 import { formatCurrency } from '@/lib/utils';
 import { dataLayerPush, LEAD_SUBMITTED_FLAG } from '@/lib/clientAnalytics';
-import {
-  fireSellerValuationConversion,
-  fireHeroSellerLeadConversion,
-} from '@/lib/googleAdsConversions';
+import { fireSellerValuationConversion } from '@/lib/googleAdsConversions';
 import { getLeadAttribution } from '@/lib/attribution';
 import { isValidPersonName, INVALID_NAME_MESSAGE } from '@/lib/validation';
+import PrivacyNote from '@/components/PrivacyNote';
+import ExistingRecordNotice from '@/components/ExistingRecordNotice';
 
 /** Fired by the sticky CTA / exit-intent overlay to open this flow. */
 export const OPEN_VALUATION_EVENT = 'open-valuation';
@@ -93,6 +92,10 @@ export default function HeroValuation({
 
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  // Set when the submit matched an existing lead by contact (D3). The report
+  // link is emailed to the address on file; nothing about the record reaches
+  // this browser.
+  const [existingRecord, setExistingRecord] = React.useState<{ emailed: boolean } | null>(null);
   const [mapsReady, setMapsReady] = React.useState(false);
   const [mounted, setMounted] = React.useState(false);
 
@@ -286,12 +289,29 @@ export default function HeroValuation({
         }),
       });
       if (!res.ok) throw new Error('We could not submit your request. Please try again.');
-      const data = (await res.json().catch(() => ({}))) as { leadId?: number; reportToken?: string | null };
+      const data = (await res.json().catch(() => ({}))) as {
+        leadId?: number;
+        reportToken?: string | null;
+        existingRecord?: boolean;
+        reportLinkEmailed?: boolean;
+      };
+
+      // This contact already has a lead. The server discloses nothing about it
+      // (D3) and has emailed the report link to the address on file, so there
+      // is no token to redirect with and no conversion to fire — re-firing
+      // would double-count a visitor who already converted.
+      if (data.existingRecord) {
+        setExistingRecord({ emailed: data.reportLinkEmailed === true });
+        setLoading(false);
+        return;
+      }
+
       const fullName = `${firstName} ${lastName}`.trim();
       if (data.leadId != null) {
-        const ud = { email, phone, name: fullName };
-        if (pageVariant === 'ads') fireHeroSellerLeadConversion(data.leadId, ud);
-        else fireSellerValuationConversion(data.leadId, ud);
+        // One Seller Valuation conversion covers every placement — the old $75
+        // "hero"/ads split was a placement distinction, not a different form
+        // (D1 / conversion-taxonomy T1).
+        fireSellerValuationConversion(data.leadId, { email, phone, name: fullName });
         sessionStorage.setItem('lead_id', String(data.leadId));
       }
       sessionStorage.setItem('lead_email', email);
@@ -385,7 +405,9 @@ export default function HeroValuation({
               ×
             </button>
 
-            {modalStep === 1 ? (
+            {existingRecord ? (
+              <ExistingRecordNotice emailed={existingRecord.emailed} />
+            ) : modalStep === 1 ? (
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
@@ -506,9 +528,8 @@ export default function HeroValuation({
                 <Button type="submit" size="lg" className="w-full" disabled={loading}>
                   {loading ? 'Submitting…' : 'See my full report →'}
                 </Button>
-                <p className="text-center text-xs text-mute-light">
-                  Free · No obligation · We never share your information.
-                </p>
+                <p className="text-center text-xs text-mute-light">Free · No obligation.</p>
+                <PrivacyNote className="text-center" />
               </form>
             )}
           </div>

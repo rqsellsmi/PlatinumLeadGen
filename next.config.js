@@ -43,6 +43,20 @@ const nextConfig = {
       },
     ];
   },
+  async redirects() {
+    return [
+      // The /ads/[slug] PPC pages are retired (D1 / review #34) — paid traffic
+      // now lands on the canonical /sell/[slug] city page, so source/medium/
+      // campaign/gclid stay attribution rather than becoming a second product
+      // with its own copy, phone lookup and conversion value.
+      //
+      // Permanent so any ad still pointing at the old URL lands correctly
+      // instead of 404-ing. The Google Ads Final URLs still need updating —
+      // this redirect covers in-flight clicks, not the account configuration.
+      { source: '/ads/:slug', destination: '/sell/:slug', permanent: true },
+      { source: '/ads', destination: '/sell', permanent: true },
+    ];
+  },
 };
 
 module.exports = nextConfig;

@@ -9,12 +9,11 @@ import {
   LEAD_SUBMITTED_FLAG,
   PREFILL_ADDRESS_KEY,
 } from '@/lib/clientAnalytics';
-import {
-  fireSellerValuationConversion,
-  fireHeroSellerLeadConversion,
-} from '@/lib/googleAdsConversions';
+import { fireSellerValuationConversion } from '@/lib/googleAdsConversions';
 import { getLeadAttribution } from '@/lib/attribution';
 import { isValidPersonName, INVALID_NAME_MESSAGE } from '@/lib/validation';
+import PrivacyNote from '@/components/PrivacyNote';
+import ExistingRecordNotice from '@/components/ExistingRecordNotice';
 
 interface ValuationFormProps {
   locationSlug: string;
@@ -87,6 +86,10 @@ export default function ValuationForm({ locationSlug, cityName, pageVariant = 's
 
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  // Set when the submit matched an existing lead by contact (D3). The report
+  // link is emailed to the address on file; nothing about the record reaches
+  // this browser.
+  const [existingRecord, setExistingRecord] = React.useState<{ emailed: boolean } | null>(null);
 
   const addressInputRef = React.useRef<HTMLInputElement>(null);
   const [mapsReady, setMapsReady] = React.useState(false);
@@ -245,15 +248,31 @@ export default function ValuationForm({ locationSlug, cityName, pageVariant = 's
         }),
       });
       if (!res.ok) throw new Error('We could not submit your request. Please try again.');
-      const data = (await res.json().catch(() => ({}))) as { leadId?: number; reportToken?: string | null };
+      const data = (await res.json().catch(() => ({}))) as {
+        leadId?: number;
+        reportToken?: string | null;
+        existingRecord?: boolean;
+        reportLinkEmailed?: boolean;
+      };
+
+      // This contact already has a lead. The server discloses nothing about it
+      // (D3) and has emailed the report link to the address on file, so there
+      // is no token to redirect with and no conversion to fire — re-firing
+      // would double-count a visitor who already converted.
+      if (data.existingRecord) {
+        setExistingRecord({ emailed: data.reportLinkEmailed === true });
+        setLoading(false);
+        return;
+      }
+
       const fullName = `${firstName} ${lastName}`.trim();
 
       // Fire the Google Ads conversion IMMEDIATELY after the confirmed save,
-      // before the redirect (§B.4) — value/transaction_id depend on page type.
+      // before the redirect (§B.4). One Seller Valuation action covers every
+      // placement now — the old $75 "hero"/ads split was a placement
+      // distinction, not a different form (D1 / conversion-taxonomy T1).
       if (data.leadId != null) {
-        const ud = { email, phone, name: fullName };
-        if (pageVariant === 'ads') fireHeroSellerLeadConversion(data.leadId, ud);
-        else fireSellerValuationConversion(data.leadId, ud);
+        fireSellerValuationConversion(data.leadId, { email, phone, name: fullName });
       }
 
       // Handoff for the thank-you conversion event (Section 21.3) + CRO flags.
@@ -309,7 +328,9 @@ export default function ValuationForm({ locationSlug, cityName, pageVariant = 's
               </div>
             ) : null}
 
-            {step === 1 ? (
+            {existingRecord ? (
+              <ExistingRecordNotice emailed={existingRecord.emailed} />
+            ) : step === 1 ? (
               <form onSubmit={handleStep1Submit} className="space-y-4">
                 <div>
                   <Label htmlFor="valuation-address">Property Address</Label>
@@ -414,9 +435,7 @@ export default function ValuationForm({ locationSlug, cityName, pageVariant = 's
                 <Button type="submit" size="lg" className="w-full" disabled={loading}>
                   {loading ? 'Submitting…' : 'Get My Free Home Valuation →'}
                 </Button>
-                <p className="text-center text-xs text-mute-light">
-                  🔒 Your information is private and will never be shared or sold.
-                </p>
+                <PrivacyNote className="text-center" />
               </form>
             )}
           </CardBody>

@@ -11,13 +11,25 @@ import { leadSubmitSchema } from '@/lib/validation';
 import { autoOfferLead } from '@/lib/autoOffer';
 import { getValuation } from '@/lib/valuation';
 import { getValuationByToken, linkValuationToLead } from '@/lib/valuationStore';
-import { sendEmail, homeownerConfirmationEmail, leadResubmittedEmail } from '@/lib/email';
+import {
+  sendEmail,
+  homeownerConfirmationEmail,
+  leadResubmittedEmail,
+  existingReportLinkEmail,
+} from '@/lib/email';
 import { ensureReportToken, reportUrl } from '@/lib/reportAccess';
 import { checkPreset, clientIp } from '@/lib/rateLimit';
 import { attributionColumns } from '@/lib/attributionServer';
-import { findExistingLeadByContact, findLeadByAddress, normalizedAddressKey } from '@/lib/leadDedup';
+import { findExistingLeadByContact, normalizedAddressKey } from '@/lib/leadDedup';
 import { logLeadEvent } from '@/lib/leadEvents';
 import { enqueueGoogleAdsAcquisition } from '@/lib/googleAdsOutbox';
+import {
+  decideLeadIdentity,
+  buildSubmitResponse,
+  reportLinkRecipient,
+  type LeadIdentityDecision,
+} from '@/lib/leadIdentity';
+import { isTestContact, configuredTestDomains } from '@/lib/testLeads';
 import type { Lead } from '@/drizzle/schema';
 
 export const runtime = 'nodejs';
@@ -57,6 +69,53 @@ async function notifyAssignedAgentOfResubmit(lead: Lead, email: string | null, p
   } catch (err) {
     console.error('[api/leads/submit] resubmit notify failed:', err);
   }
+}
+
+/**
+ * Email the durable report link to the address ON FILE (decision D3).
+ *
+ * This is the possession check. A submit that matched an existing lead by email
+ * or phone proves nothing about who is typing, so nothing goes back to the
+ * browser — the link goes to the inbox already on the record, and clicking it
+ * is what authorizes the reveal. Deliberately NOT sent to the address just
+ * submitted: if the match came from a shared, recycled or mistyped phone, that
+ * would hand the record straight to the wrong person.
+ *
+ * Returns whether the send succeeded, so the form can say "check your email"
+ * only when that is actually true.
+ */
+async function emailExistingReportLink(
+  decision: LeadIdentityDecision,
+  lead: Lead,
+  citySlug: string | null | undefined,
+): Promise<boolean> {
+  const to = reportLinkRecipient(decision);
+  if (!to) return false; // nothing on file to verify possession against
+  try {
+    const token = await ensureReportToken(lead.id);
+    if (!token) return false;
+    const res = await sendEmail(
+      existingReportLinkEmail({
+        to,
+        firstName: lead.firstName,
+        reportUrl: reportUrl(citySlug, token),
+        relatedLeadId: lead.id,
+      }),
+    );
+    return res.ok;
+  } catch (err) {
+    console.error('[api/leads/submit] existing report link email failed:', err);
+    return false;
+  }
+}
+
+/**
+ * Record an additional valuation this lead ran (D3). A lead is a person, not an
+ * address — one lead may value several homes over time, so each run lands on
+ * the activity timeline instead of changing whose lead it is.
+ */
+async function recordValuationRun(leadId: number, address: string | null | undefined) {
+  await logLeadEvent(leadId, 'valuation_run', address ?? null);
 }
 
 /**
@@ -183,39 +242,80 @@ export async function POST(req: NextRequest) {
     const lastName = (input.lastName ?? '').trim() || null;
     const pageVariant = input.pageVariant ?? 'seo';
 
-    // ----- Dedup Layer 1: contact (email/phone) against prior leads -----
+    // ----- Identity (P0.1 / decision D3) -----------------------------------
+    //
+    // Contact (email OR phone) is the ONLY dedup signal. The old cross-session
+    // ADDRESS dedup is gone: a spouse, tenant, new owner, neighbour or someone
+    // who mistyped a house number all reach the same address, and it used to
+    // hand them the prior lead's id and report token.
+    //
+    // A contact match is still not an identity — anyone who knows a victim's
+    // email or phone (and shared/recycled numbers, and typos) reaches the same
+    // record. So it is used INTERNALLY ONLY, and the browser is told nothing
+    // about the existing lead. See lib/leadIdentity.ts.
     const contactMatch = await findExistingLeadByContact(email, phone);
-    if (contactMatch) {
-      // Reopen (spec v2 §4.4): a Lost lead whose contact submitted again is a
-      // real returning client — flip Lost → Reopened, reset the lifecycle clocks
-      // and the Contacted precondition, and route back to the same agent when
-      // still assigned + active, else route fresh.
-      if (contactMatch.status === 'lost') {
-        await reopenLostLead(contactMatch, email, phone);
-        await discardSessionPartial(input.sessionId, contactMatch.id);
-        await discardAddressPartials(normalizedAddressKey(input.propertyAddress), contactMatch.id);
-        if (input.valuationToken) await linkValuationToLead(input.valuationToken, contactMatch.id);
-        return NextResponse.json({
-          success: true,
-          leadId: contactMatch.id,
-          isReopened: true,
-          reportToken: await ensureReportToken(contactMatch.id),
-        });
+
+    // This browser session's own CONTACT-LESS partial. `isNull(email)` matters:
+    // if this session already produced a full lead and a different contact now
+    // submits, that is a second person, so they get a second lead rather than
+    // overwriting the first (D3: each distinct contact is its own lead).
+    const sessionRows = contactMatch
+      ? []
+      : await db
+          .select({ id: leads.id })
+          .from(leads)
+          .where(
+            and(
+              eq(leads.sessionId, input.sessionId),
+              eq(leads.isDeleted, false),
+              isNull(leads.email),
+            ),
+          )
+          .limit(1);
+
+    const decision = decideLeadIdentity({
+      contactMatch: contactMatch
+        ? { id: contactMatch.id, status: contactMatch.status, email: contactMatch.email }
+        : null,
+      sessionPartial: sessionRows[0] ?? null,
+    });
+
+    if (decision.kind === 'reopen' || decision.kind === 'duplicate_contact') {
+      const existing = contactMatch!;
+
+      if (decision.kind === 'reopen') {
+        // Spec v2 §4.4: a Lost lead whose contact submitted again is a real
+        // returning client — reset the lifecycle clocks and the Contacted
+        // precondition, and route back to the same agent when still assigned
+        // and active, else route fresh. All internal; nothing is disclosed.
+        await reopenLostLead(existing, email, phone);
+      } else {
+        await logLeadEvent(
+          existing.id,
+          'duplicate_submission',
+          `Resubmitted via ${pageVariant} page`,
+        );
+        await notifyAssignedAgentOfResubmit(existing, email, phone);
       }
 
-      await logLeadEvent(contactMatch.id, 'duplicate_submission', `Resubmitted via ${pageVariant} page`);
-      await notifyAssignedAgentOfResubmit(contactMatch, email, phone);
-      await discardSessionPartial(input.sessionId, contactMatch.id);
-      await discardAddressPartials(normalizedAddressKey(input.propertyAddress), contactMatch.id);
-      if (input.valuationToken) await linkValuationToLead(input.valuationToken, contactMatch.id);
-      // From Google's perspective the user converted — client still fires the
-      // conversion (§D.2). No new lead, no new offer.
-      return NextResponse.json({
-        success: true,
-        leadId: contactMatch.id,
-        isDuplicate: true,
-        reportToken: await ensureReportToken(contactMatch.id),
-      });
+      // The valuation the visitor just ran belongs on this lead's timeline —
+      // one lead, many runs (D3). The address is recorded as activity, never as
+      // the lead's identity.
+      await recordValuationRun(existing.id, input.propertyAddress);
+      await discardSessionPartial(input.sessionId, existing.id);
+      await discardAddressPartials(normalizedAddressKey(input.propertyAddress), existing.id);
+      if (input.valuationToken) await linkValuationToLead(input.valuationToken, existing.id);
+
+      // No acquisition conversion is enqueued here: this contact already
+      // converted, and re-firing would double-count in Smart Bidding. The
+      // outbox's UNIQUE(lead_id, milestone) index is the durable guard (D14).
+
+      const reportLinkEmailed = await emailExistingReportLink(
+        decision,
+        existing,
+        input.locationSlug,
+      );
+      return NextResponse.json(buildSubmitResponse(decision, { reportLinkEmailed }));
     }
 
     // Valuation fill-in. Prefer the server-stored valuation (linked by token)
@@ -269,47 +369,21 @@ export async function POST(req: NextRequest) {
       priceRangeHigh,
       locationId,
       pageVariant,
+      // Prod smoke-test suppression (D20/D23). A reserved test email domain or a
+      // 555-01xx phone flags the lead at creation so it never routes, scores,
+      // notifies an agent or exports a conversion.
+      isTest: isTestContact({ email, phone }, configuredTestDomains(process.env.TEST_LEAD_EMAIL_DOMAINS)),
       ...attributionColumns(input),
       updatedAt: now,
     };
 
-    // ----- Choose the row to write: session partial, address merge, or new -----
-    let target: { id: number } | null = null;
-
-    const sessionRows = await db
-      .select({ id: leads.id })
-      .from(leads)
-      .where(and(eq(leads.sessionId, input.sessionId), eq(leads.isDeleted, false)))
-      .limit(1);
-    if (sessionRows[0]) target = sessionRows[0];
-
-    // ----- Dedup Layer 2: cross-session address -----
-    if (!target && input.propertyAddress) {
-      const addrMatch = await findLeadByAddress(input.propertyAddress);
-      if (addrMatch) {
-        if (!addrMatch.email) {
-          // Partial-only prior lead at this address → merge into it.
-          target = { id: addrMatch.id };
-        } else {
-          // Address belongs to an existing contacted lead → duplicate.
-          await logLeadEvent(addrMatch.id, 'duplicate_submission', `Address resubmitted via ${pageVariant} page`);
-          await notifyAssignedAgentOfResubmit(addrMatch, email, phone);
-          await discardSessionPartial(input.sessionId, addrMatch.id);
-          await discardAddressPartials(normalizedAddressKey(input.propertyAddress), addrMatch.id);
-          if (input.valuationToken) await linkValuationToLead(input.valuationToken, addrMatch.id);
-          return NextResponse.json({
-            success: true,
-            leadId: addrMatch.id,
-            isDuplicate: true,
-            reportToken: await ensureReportToken(addrMatch.id),
-          });
-        }
-      }
-    }
-
+    // ----- Write the row -----------------------------------------------------
+    // Either this browser's own contact-less partial, or a brand-new lead.
+    // There is deliberately NO cross-session address branch here (D3) — see the
+    // identity block above.
     let leadId: number;
-    if (target) {
-      leadId = target.id;
+    if (decision.kind === 'update_partial') {
+      leadId = decision.leadId;
       await db.update(leads).set(fields).where(eq(leads.id, leadId));
     } else {
       const inserted = await db
@@ -324,12 +398,15 @@ export async function POST(req: NextRequest) {
     // Google Ads website/acquisition conversion (best-effort, no-op until
     // configured): seller_valuation for valuation leads, guide_download for
     // seller_guide leads. The outbox UNIQUE(lead_id, milestone) dedups repeats.
-    await enqueueGoogleAdsAcquisition({
-      leadId,
-      leadType: input.leadType,
-      sourceEventId: submitEventId,
-      occurredAt: now,
-    });
+    // Skipped for smoke-test leads so a prod test never lands in Smart Bidding.
+    if (!fields.isTest) {
+      await enqueueGoogleAdsAcquisition({
+        leadId,
+        leadType: input.leadType,
+        sourceEventId: submitEventId,
+        occurredAt: now,
+      });
+    }
 
     // Link the stored valuation to this lead — this is the reveal gate for the
     // detailed report page.
@@ -338,27 +415,35 @@ export async function POST(req: NextRequest) {
     // Clean up any other unnamed partials at this address (repeat/abandoned entries).
     await discardAddressPartials(fields.normalizedAddress, leadId);
 
-    // Increment social proof count for this location (never decremented).
-    if (locationId != null) {
+    // Count the valuation REQUEST for this location. This is an internal
+    // operations metric only (D2) — it counts form submissions, not sales, and
+    // must never reach a public surface. Public "homes sold" is driven by
+    // verified transactions (market_stats / IDX office deals).
+    if (locationId != null && !fields.isTest) {
       try {
         await db
           .update(locations)
-          .set({ socialProofCount: sql`${locations.socialProofCount} + 1` })
+          .set({ valuationRequestsCount: sql`${locations.valuationRequestsCount} + 1` })
           .where(eq(locations.id, locationId));
       } catch (err) {
-        console.error('[api/leads/submit] socialProofCount increment failed:', err);
+        console.error('[api/leads/submit] valuationRequestsCount increment failed:', err);
       }
     }
 
     // Routing + confirmation must not 500 the request.
-    try {
-      await autoOfferLead(leadId);
-    } catch (err) {
-      console.error('[api/leads/submit] autoOfferLead failed:', err);
+    if (fields.isTest) {
+      console.info(`[api/leads/submit] lead ${leadId} flagged is_test — routing suppressed`);
+    } else {
+      try {
+        await autoOfferLead(leadId);
+      } catch (err) {
+        console.error('[api/leads/submit] autoOfferLead failed:', err);
+      }
     }
 
     // Durable report link (IDX spec §5.3) — generate before the email so the
     // link is included, and return it so the client can redirect to the report.
+    // This browser created the lead, so it is entitled to its own capability.
     const token = await ensureReportToken(leadId);
 
     if (email) {
@@ -377,7 +462,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ success: true, leadId, reportToken: token });
+    return NextResponse.json(
+      buildSubmitResponse(decision, { ownLead: { leadId, reportToken: token } }),
+    );
   } catch (err) {
     console.error('[api/leads/submit] error:', err);
     return NextResponse.json({ error: 'internal_error' }, { status: 500 });

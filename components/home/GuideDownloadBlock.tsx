@@ -7,6 +7,7 @@ import Logo from '@/components/Logo';
 import { fireSellerGuideConversion } from '@/lib/googleAdsConversions';
 import { getLeadAttribution } from '@/lib/attribution';
 import type { Guide } from '@/drizzle/schema';
+import PrivacyNote from '@/components/PrivacyNote';
 
 function parseBullets(json: string | null): string[] {
   if (!json) return [];
@@ -163,7 +164,8 @@ export default function GuideDownloadBlock({ guide }: { guide: Guide }) {
               <Button type="submit" size="lg" className="w-full" disabled={loading}>
                 {loading ? 'Sending…' : (guide.ctaLabel ?? 'Email me the guide') + ' →'}
               </Button>
-              <p className="text-xs text-mute-light">Free · We never share your information.</p>
+              <p className="text-xs text-mute-light">Free.</p>
+              <PrivacyNote />
             </form>
           )}
         </div>

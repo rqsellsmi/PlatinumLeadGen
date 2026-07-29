@@ -199,8 +199,13 @@ export const locations = pgTable(
     // Comma-separated mailing cities this location covers (matches closings.city).
     // Null/empty → fall back to the location's own short name.
     matchCities: text('match_cities'),
-    // Social proof + Google review display (Section 3.3 / 3.5).
-    socialProofCount: integer('social_proof_count').notNull().default(0),
+    // INTERNAL operations metric only (D2, migration 0034): how many valuation
+    // REQUESTS this city page has taken. It counts form submissions, not sales,
+    // so it must never drive a public figure — public "homes sold" reads
+    // verified transactions (market_stats / IDX office deals). Surfaced in the
+    // admin analytics, nowhere else.
+    valuationRequestsCount: integer('valuation_requests_count').notNull().default(0),
+    // Google review display (Section 3.3 / 3.5).
     googleReviewCount: integer('google_review_count'),
     googleReviewRating: real('google_review_rating'),
     // Office whose Google Business Profile powers this city page's reviews.
@@ -454,11 +459,32 @@ export const leads = pgTable(
     milestoneAppointmentSet: boolean('milestone_appointment_set').notNull().default(false),
     milestoneSigned: boolean('milestone_signed').notNull().default(false),
     reactivationCount: integer('reactivation_count').notNull().default(0),
-    // IDX market report (IDX spec §5.3 / §8.3): durable signed token for the
+    // IDX market report (IDX spec §5.3 / §8.3): durable opaque token for the
     // homeowner's report link, plus view tracking for the admin access log.
+    // Migration 0033 turned it into a real capability — expiring and revocable
+    // (review #14) — and it is now the lead-bound credential the appointment
+    // request (D4/#10) and the seller qualifiers (D15) ride as well.
+    // Possession of a live token is the ONLY thing that authorizes revealing a
+    // lead's record; a matching address or contact is not (D3, lib/leadIdentity).
     reportToken: varchar('report_token', { length: 64 }),
+    reportTokenIssuedAt: timestamp('report_token_issued_at'),
+    reportTokenExpiresAt: timestamp('report_token_expires_at'),
+    reportTokenRevokedAt: timestamp('report_token_revoked_at'),
     reportFirstAccessedAt: timestamp('report_first_accessed_at'),
     reportViewCount: integer('report_view_count').notNull().default(0),
+    // Prod smoke-test suppression (D20/D23 MODIFIED). Auto-set at creation from
+    // the reserved test-contact allowlist; excluded from routing, scoring,
+    // leaderboards, agent notifications, Ads exports and KPIs.
+    isTest: boolean('is_test').notNull().default(false),
+    // Optional seller qualifiers captured on /thank-you (D15). Non-blocking and
+    // save-on-select; they inform follow-up priority and the agent's first-call
+    // context — never routing (the lead is already routed) and never the agent
+    // performance score.
+    qualifierIsOwner: varchar('qualifier_is_owner', { length: 20 }),
+    qualifierOccupancy: varchar('qualifier_occupancy', { length: 20 }),
+    qualifierCondition: varchar('qualifier_condition', { length: 30 }),
+    qualifierMotivation: varchar('qualifier_motivation', { length: 500 }),
+    qualifiersUpdatedAt: timestamp('qualifiers_updated_at'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },

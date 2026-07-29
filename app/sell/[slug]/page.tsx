@@ -115,6 +115,11 @@ export default async function CityPage({ params }: { params: { slug: string } })
       />
       <SiteHeader />
       <main>
+        {/* `homesSold` on both bars below is VERIFIED transactions (market_stats
+            / IDX office deals). It used to read location.socialProofCount — a
+            count of FORM SUBMISSIONS rendered as "N+ homes sold", which is how
+            this page came to claim "1+ homes sold" directly above its own
+            market section reporting 89 real sales (D2). */}
         <HeroSection
           headline={headline}
           subheadline={subheadline}
@@ -124,11 +129,11 @@ export default async function CityPage({ params }: { params: { slug: string } })
           eyebrow={location.name}
           rating={reviewRating}
           reviewCount={reviewCount}
-          homesSold={location.socialProofCount ?? stats?.homesSold ?? null}
+          homesSold={stats?.homesSold ?? null}
         />
         <SocialProofBar
           cityName={cityName}
-          socialProofCount={location.socialProofCount ?? 0}
+          homesSold={stats?.homesSold ?? null}
           googleReviewRating={reviewRating}
           googleReviewCount={reviewCount}
           topTestimonial={testimonials.find((t) => t.isActive) ?? null}

@@ -546,6 +546,46 @@ If you did not request this, ignore this email.`;
   };
 }
 
+export interface ExistingReportLinkEmailData {
+  to: string;
+  firstName: string | null;
+  reportUrl: string;
+  relatedLeadId?: number;
+}
+
+/**
+ * "We already have a report for you — here is the link" (decision D3).
+ *
+ * Sent when a submit matches an existing lead by email or phone. A contact
+ * match is NOT proof the person at the keyboard is the person on file, so the
+ * browser is told nothing; the link goes to the address ON FILE instead, and
+ * clicking it is what proves possession. Worst case, the real owner receives a
+ * link to their own report.
+ */
+export function existingReportLinkEmail(d: ExistingReportLinkEmailData): SendEmailArgs {
+  const greeting = d.firstName ? `Hi ${escapeHtml(d.firstName)},` : 'Hi,';
+  const html = shell(
+    'Your home valuation report',
+    `<h1 style="margin:0 0 12px;font-size:22px;color:${BRAND_BLUE};">Your valuation report</h1>
+     <p style="font-size:15px;line-height:1.5;">${greeting} we already have a valuation on file for you, so here is a secure link straight to your report.</p>
+     <p style="margin:24px 0;">${button(d.reportUrl, 'View your report')}</p>
+     <p style="font-size:13px;line-height:1.5;color:#64748b;">This link is personal to you — please don't forward it. If you didn't request a home valuation from RE/MAX Platinum, you can ignore this email and no report will be shared.</p>`,
+  );
+  const text = `${d.firstName ? `Hi ${d.firstName},` : 'Hi,'} we already have a valuation on file for you.
+
+View your report: ${d.reportUrl}
+
+This link is personal to you — please don't forward it. If you didn't request a home valuation from RE/MAX Platinum, you can ignore this email.`;
+  return {
+    to: d.to,
+    subject: 'Your RE/MAX Platinum home valuation report',
+    html,
+    text,
+    templateName: 'existing_report_link',
+    relatedLeadId: d.relatedLeadId,
+  };
+}
+
 /** Generic admin alert (used when no agent could be found for a lead). */
 export function adminAlertEmail(subject: string, message: string): SendEmailArgs {
   const html = shell(subject, `<p style="font-size:15px;line-height:1.5;">${escapeHtml(message)}</p>`);

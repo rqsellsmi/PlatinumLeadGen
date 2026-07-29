@@ -7,6 +7,12 @@ import { leadEvents } from '../drizzle/schema';
 export type LeadEventType =
   | 'address_entered'
   | 'valuation_submitted'
+  /**
+   * An additional valuation this lead ran after their first one (D3). One lead
+   * may value many addresses — the address is recorded here on the timeline
+   * rather than redefining whose lead this is.
+   */
+  | 'valuation_run'
   | 'duplicate_submission'
   | 'appointment_requested'
   | 'offer_sent'

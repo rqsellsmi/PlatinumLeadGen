@@ -232,6 +232,20 @@
       "when": 1785900000000,
       "tag": "0032_lead_guide_id",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1786000000000,
+      "tag": "0033_report_token_capability",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1786100000000,
+      "tag": "0034_valuation_requests_count",
+      "breakpoints": true
     }
   ]
 }
