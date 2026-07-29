@@ -35,9 +35,15 @@ export async function middleware(req: NextRequest) {
     pathname !== '/agent/reset-password'
   ) {
     const cookie = req.cookies.get(AGENT_SESSION_COOKIE)?.value;
-    const secret = process.env.NEXTAUTH_SECRET ?? '';
-    const agentId = await verifyAgentSessionEdge(cookie, secret);
-    if (!agentId) {
+    // `|| ''` not `?? ''`: an unset secret arrives as undefined locally but as
+    // '' from some hosts. Either way verifyAgentSessionEdge refuses an empty
+    // key rather than HMAC-ing with it (which would verify forged cookies).
+    const secret = process.env.NEXTAUTH_SECRET || '';
+    // Signature + expiry only. Revocation (session_version) and isActive are
+    // checked server-side in getCurrentAgent() — they need the database, which
+    // this Edge gate deliberately does not touch on every request.
+    const claims = await verifyAgentSessionEdge(cookie, secret);
+    if (!claims) {
       const url = req.nextUrl.clone();
       url.pathname = '/agent/login';
       return NextResponse.redirect(url);

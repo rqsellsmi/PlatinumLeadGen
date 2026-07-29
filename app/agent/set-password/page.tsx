@@ -2,17 +2,25 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { Button, Input, Label, Card, CardBody } from '@/components/ui';
 
 /**
- * Public agent password setup / reset page. One shared URL — the agent enters
- * the brokerage setup code + their (rostered) email + a new password. Serves
- * both first-time setup and self-service reset. Gated server-side by the setup
- * code and a matching agent email (see /api/agent/set-password).
+ * First-time account setup, reached from a per-agent invite email (D7).
+ *
+ * The page used to ask for a shared brokerage setup code plus the agent's
+ * email. That combination proved nothing about who was using it — a shared
+ * secret circulates, and knowing a roster email is not control of it. The
+ * invite token in the URL is unique to one agent, single-use and expiring, so
+ * arriving here at all is the proof.
+ *
+ * There is deliberately no way to reach this page without a token: an agent who
+ * needs a link asks the office, and an agent who already has a password uses
+ * "Forgot your password?" on the sign-in page.
  */
 export default function SetPasswordPage() {
-  const [code, setCode] = useState('');
-  const [email, setEmail] = useState('');
+  const params = useSearchParams();
+  const token = (params.get('token') ?? '').trim();
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [pending, setPending] = useState(false);
@@ -35,7 +43,7 @@ export default function SetPasswordPage() {
       const res = await fetch('/api/agent/set-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: code.trim(), email: email.trim(), password }),
+        body: JSON.stringify({ token, password }),
       });
       if (res.ok) {
         setDone(true);
@@ -43,19 +51,17 @@ export default function SetPasswordPage() {
       }
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       setError(
-        data.error === 'invalid_code'
-          ? 'That setup code is not correct. Check with your broker.'
-          : data.error === 'email_not_found'
-            ? 'That email is not on our agent roster. Ask your broker to add you, then try again.'
+        data.error === 'invalid_token'
+          ? 'This invitation link is no longer valid — it may have expired or already been used. Ask the office to send a new one.'
+          : data.error === 'inactive'
+            ? 'This account is not active. Please contact the office.'
             : data.error === 'already_set'
               ? 'You already have a password. Use “Forgot your password?” on the sign-in page to reset it.'
               : data.error === 'weak_password'
                 ? 'Choose a password of at least 8 characters.'
-                : data.error === 'setup_closed'
-                  ? 'Password setup is not enabled yet. Ask your broker to set the agent setup code.'
-                  : data.error === 'rate_limited'
-                    ? 'Too many attempts. Please wait a moment and try again.'
-                    : 'Could not set your password. Please try again.',
+                : data.error === 'rate_limited'
+                  ? 'Too many attempts. Please wait a moment and try again.'
+                  : 'Could not set your password. Please try again.',
       );
     } catch {
       setError('Could not set your password. Please try again.');
@@ -70,7 +76,7 @@ export default function SetPasswordPage() {
         <CardBody>
           <div className="mb-6 text-center">
             <h1 className="text-xl font-bold text-brand-blue">RE/MAX Platinum</h1>
-            <p className="text-sm text-slate-500">First-time password setup</p>
+            <p className="text-sm text-slate-500">Set up your account</p>
           </div>
 
           {done ? (
@@ -82,32 +88,27 @@ export default function SetPasswordPage() {
                 <Button className="w-full">Go to sign in</Button>
               </Link>
             </div>
+          ) : !token ? (
+            <div className="space-y-4">
+              <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-brand-red">
+                This page needs the invitation link the office emailed you. Open that link, or ask
+                the office to send a new invitation.
+              </p>
+              <p className="text-center text-sm">
+                <Link href="/agent/login" className="font-semibold text-brand-blue hover:underline">
+                  Back to sign in
+                </Link>
+              </p>
+            </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
               <p className="text-sm text-slate-500">
-                Setting up for the first time? Enter the setup code from your broker and the email
-                address on file for you, then choose a password. Already have a password? Use{' '}
+                Choose a password for your agent portal. Already have one? Use{' '}
                 <Link href="/agent/login" className="font-semibold text-brand-blue hover:underline">
                   Forgot your password
                 </Link>{' '}
                 on the sign-in page instead.
               </p>
-              <div>
-                <Label htmlFor="code">Setup code</Label>
-                <Input id="code" name="code" required value={code} onChange={(e) => setCode(e.target.value)} />
-              </div>
-              <div>
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  name="email"
-                  type="email"
-                  autoComplete="username"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              </div>
               <div>
                 <Label htmlFor="password">New password</Label>
                 <Input

@@ -586,6 +586,88 @@ This link is personal to you — please don't forward it. If you didn't request 
   };
 }
 
+export interface AgentMagicLinkEmailData {
+  to: string;
+  agentName: string;
+  loginUrl: string;
+  expiresAt: Date;
+  relatedAgentId?: number;
+}
+
+/**
+ * The "sign in to your portal" link (D6).
+ *
+ * Previously hand-rolled inline in app/api/agent/login/route.ts, which meant it
+ * bypassed this module's send log entirely and recorded as templateName
+ * 'generic' with no agent attribution. Credential emails are exactly the ones
+ * worth being able to audit.
+ */
+export function agentMagicLinkEmail(d: AgentMagicLinkEmailData): SendEmailArgs {
+  const expires = d.expiresAt.toLocaleDateString('en-US', {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+  const html = shell(
+    'Your agent portal link',
+    `<h1 style="margin:0 0 12px;font-size:22px;color:${BRAND_BLUE};">Sign in to your portal</h1>
+     <p style="font-size:15px;line-height:1.5;">Hi ${escapeHtml(d.agentName)}, use the button below to open your RE/MAX Platinum agent portal. This link works until ${escapeHtml(expires)}.</p>
+     <p style="margin:24px 0;">${button(d.loginUrl, 'Open the agent portal')}</p>
+     <p style="font-size:13px;line-height:1.5;color:#64748b;">This link signs in as you and shows your clients' contact details, so please don't forward it. If you did not request it, you can ignore this email.</p>`,
+  );
+  const text = `Hi ${d.agentName},
+
+Sign in to your RE/MAX Platinum agent portal: ${d.loginUrl}
+
+This link works until ${expires}. It signs in as you, so please don't forward it. If you did not request it, ignore this email.`;
+  return {
+    to: d.to,
+    subject: 'Your RE/MAX Platinum agent portal link',
+    html,
+    text,
+    templateName: 'agent_magic_link',
+    relatedAgentId: d.relatedAgentId,
+  };
+}
+
+export interface AgentInviteEmailData {
+  to: string;
+  agentName: string;
+  inviteUrl: string;
+  relatedAgentId?: number;
+}
+
+/**
+ * Per-agent account invite (D7 / review #17/#70).
+ *
+ * Replaces the shared brokerage setup code, which anyone holding could use to
+ * claim any agent who had not yet set a password. This link is unique to one
+ * agent, single-use, expiring, and sent only to the address on the roster — so
+ * setting up an account requires proving control of that inbox.
+ */
+export function agentInviteEmail(d: AgentInviteEmailData): SendEmailArgs {
+  const html = shell(
+    'Set up your agent portal account',
+    `<h1 style="margin:0 0 12px;font-size:22px;color:${BRAND_BLUE};">Set up your account</h1>
+     <p style="font-size:15px;line-height:1.5;">Hi ${escapeHtml(d.agentName)}, your RE/MAX Platinum agent portal account is ready. Choose a password to finish setting it up — this invitation is personal to you and expires in 7 days.</p>
+     <p style="margin:24px 0;">${button(d.inviteUrl, 'Choose your password')}</p>
+     <p style="font-size:13px;line-height:1.5;color:#64748b;">Once you've set a password you'll also be able to turn on lead routing from your portal settings. If you weren't expecting this, let the office know.</p>`,
+  );
+  const text = `Hi ${d.agentName},
+
+Your RE/MAX Platinum agent portal account is ready. Choose a password to finish setting it up: ${d.inviteUrl}
+
+This invitation is personal to you and expires in 7 days. If you weren't expecting it, let the office know.`;
+  return {
+    to: d.to,
+    subject: 'Set up your RE/MAX Platinum agent portal account',
+    html,
+    text,
+    templateName: 'agent_invite',
+    relatedAgentId: d.relatedAgentId,
+  };
+}
+
 /** Generic admin alert (used when no agent could be found for a lead). */
 export function adminAlertEmail(subject: string, message: string): SendEmailArgs {
   const html = shell(subject, `<p style="font-size:15px;line-height:1.5;">${escapeHtml(message)}</p>`);

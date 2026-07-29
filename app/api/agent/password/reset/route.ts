@@ -5,7 +5,7 @@
  * login page afterward.
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import bcrypt from 'bcryptjs';
 import { db } from '@/lib/db';
 import { agents } from '@/drizzle/schema';
@@ -48,6 +48,15 @@ export async function POST(req: NextRequest) {
         passwordHash,
         passwordResetToken: null,
         passwordResetExpiresAt: null,
+        // Revoke every existing session (review #18). A password reset is
+        // frequently a response to "someone may have my account" — leaving the
+        // attacker's 7-day cookie and 14-day magic link working would defeat
+        // the point of resetting at all. `revokeAgentSessions` bumps the
+        // session version AND clears the magic link.
+        sessionVersion: sql`${agents.sessionVersion} + 1`,
+        magicLinkToken: null,
+        magicLinkTokenHash: null,
+        magicLinkExpiresAt: null,
         updatedAt: new Date(),
       })
       .where(eq(agents.id, agent.id));

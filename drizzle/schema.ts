@@ -153,13 +153,37 @@ export const agents = pgTable(
     // Agent self-controlled availability (Section 16). Both must be true to
     // receive new offers. Toggled from the agent portal.
     isAvailable: boolean('is_available').notNull().default(true),
-    // Magic link auth: 64-char hex token, 30-day expiry, refreshed on every email.
+    // Magic link auth (migration 0036, decision D6). The token is stored ONLY
+    // as a SHA-256 hash — the raw value lives in the email that was sent and
+    // nowhere else, so a readable row is no longer a working login. TTL is 14
+    // days. `magicLinkToken` is retained (unused for new issues) so links from
+    // already-delivered emails resolve during the transition.
     magicLinkToken: varchar('magic_link_token', { length: 128 }),
+    magicLinkTokenHash: varchar('magic_link_token_hash', { length: 64 }),
     magicLinkExpiresAt: timestamp('magic_link_expires_at'),
-    // Password auth (set by admin only) — Section 3.3 additions.
+    /**
+     * Session revocation (migration 0036, review #18). Embedded in the signed
+     * session cookie and compared on every authenticated read. Bumping it
+     * invalidates every outstanding session for this agent at once — which is
+     * what makes a leaked 14-day magic link or a stolen cookie actually
+     * killable. Bumped on password reset, deactivation, and "sign out
+     * everywhere".
+     */
+    sessionVersion: integer('session_version').notNull().default(0),
+    // Password auth — Section 3.3 additions.
     passwordHash: varchar('password_hash', { length: 200 }),
     passwordResetToken: varchar('password_reset_token', { length: 128 }),
     passwordResetExpiresAt: timestamp('password_reset_expires_at'), // emailed reset-link expiry (0030)
+    /**
+     * Per-agent, single-use, expiring invite (migration 0036, D7 / review #17).
+     * Replaces the shared brokerage setup code, which anyone holding could use
+     * to claim any agent who had not yet set a password. Hashed at rest for the
+     * same reason as the magic link.
+     */
+    inviteTokenHash: varchar('invite_token_hash', { length: 64 }),
+    inviteExpiresAt: timestamp('invite_expires_at'),
+    inviteSentAt: timestamp('invite_sent_at'),
+    inviteAcceptedAt: timestamp('invite_accepted_at'),
     smsOptOut: boolean('sms_opt_out').notNull().default(false),
     smsOptOutAt: timestamp('sms_opt_out_at'),
     // Set the first time this agent activates (isAvailable=true); guards the
@@ -172,6 +196,9 @@ export const agents = pgTable(
   (t) => ({
     emailIdx: uniqueIndex('agents_email_idx').on(t.email),
     magicTokenIdx: index('agents_magic_token_idx').on(t.magicLinkToken),
+    magicTokenHashIdx: index('agents_magic_token_hash_idx').on(t.magicLinkTokenHash),
+    inviteTokenHashIdx: index('agents_invite_token_hash_idx').on(t.inviteTokenHash),
+    passwordResetTokenIdx: index('agents_password_reset_token_idx').on(t.passwordResetToken),
   }),
 );
 
@@ -846,9 +873,19 @@ export const notificationSettings = pgTable('notification_settings', {
   // Testimonials source (Section — reviews): 'manual' | 'google' | 'both'.
   testimonialSource: varchar('testimonial_source', { length: 10 }).notNull().default('manual'),
   googlePlaceId: varchar('google_place_id', { length: 200 }), // for Google reviews
-  // Shared code an agent must enter on /agent/set-password before setting/
-  // resetting their password (migration 0029). Null/empty = setup page closed.
+  /**
+   * RETIRED (migration 0036, D7 / review #17). The shared brokerage setup code
+   * let anyone holding it claim any agent who had not yet set a password. It is
+   * replaced by per-agent, single-use, expiring invites. The column stays so
+   * existing rows and the admin form don't break, but nothing reads it as an
+   * authorization signal any more — see app/api/agent/set-password/route.ts.
+   */
   agentSetupCode: varchar('agent_setup_code', { length: 60 }),
+  /**
+   * One-time guard for the Launch button (D7): set when the bulk invite send
+   * runs, so a second click cannot mass-re-email the roster.
+   */
+  launchInvitesSentAt: timestamp('launch_invites_sent_at'),
   // Scoring v2 periodic-reset guards (so the maintenance cron resets each track
   // only once per boundary). Store the period key that was last reset.
   scoreMonthlyResetKey: varchar('score_monthly_reset_key', { length: 7 }), // 'YYYY-MM'
