@@ -11,6 +11,7 @@ import { getLeadAttribution } from '@/lib/attribution';
 import { isValidPersonName, INVALID_NAME_MESSAGE } from '@/lib/validation';
 import PrivacyNote from '@/components/PrivacyNote';
 import ExistingRecordNotice from '@/components/ExistingRecordNotice';
+import { parsePlaceComponents, type PlaceAddressComponent } from '@/lib/placeComponents';
 
 /** Fired by the sticky CTA / exit-intent overlay to open this flow. */
 export const OPEN_VALUATION_EVENT = 'open-valuation';
@@ -23,6 +24,11 @@ interface PlaceData {
   propertyAddress: string;
   propertyLat: number | null;
   propertyLng: number | null;
+  // From Places address_components (D22). Previously never captured, which left
+  // leads.property_city / property_state NULL on every organic lead.
+  propertyCity?: string | null;
+  propertyState?: string | null;
+  propertyZip?: string | null;
 }
 /** Pre-contact teaser returned by /api/valuation — no precise estimate. */
 interface Teaser {
@@ -122,18 +128,26 @@ export default function HeroValuation({
     const ac = new places.Autocomplete(el, {
       types: ['address'],
       componentRestrictions: { country: 'us' },
-      fields: ['formatted_address', 'geometry'],
+      // address_components rides along in the same Place result at no extra
+      // cost, and gives the real city/state instead of a parsed guess. Without
+      // it leads.property_state stayed NULL on every organic lead, which made
+      // the out-of-state routing gate a no-op (D22).
+      fields: ['formatted_address', 'geometry', 'address_components'],
     });
     ac.addListener('place_changed', () => {
       const sel = ac.getPlace();
       const formatted = sel.formatted_address;
       const loc = sel.geometry?.location;
       if (!formatted) return;
+      const parts = parsePlaceComponents(sel.address_components);
       setAddress(formatted);
       setPlace({
         propertyAddress: formatted,
         propertyLat: loc ? loc.lat() : null,
         propertyLng: loc ? loc.lng() : null,
+        propertyCity: parts.city,
+        propertyState: parts.state,
+        propertyZip: parts.zip,
       });
     });
   }, []);
@@ -168,6 +182,9 @@ export default function HeroValuation({
               propertyAddress: data.propertyAddress,
               propertyLat: data.propertyLat,
               propertyLng: data.propertyLng,
+              propertyCity: data.propertyCity ?? undefined,
+              propertyState: data.propertyState ?? undefined,
+              propertyZip: data.propertyZip ?? undefined,
               locationSlug: locationSlug || undefined,
               pageVariant,
               ...getLeadAttribution(),
@@ -281,6 +298,9 @@ export default function HeroValuation({
           propertyAddress: place.propertyAddress,
           propertyLat: place.propertyLat,
           propertyLng: place.propertyLng,
+          propertyCity: place.propertyCity ?? undefined,
+          propertyState: place.propertyState ?? undefined,
+          propertyZip: place.propertyZip ?? undefined,
           valuationToken: valuation?.token ?? undefined,
           leadType: 'valuation',
           locationSlug: locationSlug || '',

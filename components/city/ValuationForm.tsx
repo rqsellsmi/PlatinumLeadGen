@@ -14,6 +14,7 @@ import { getLeadAttribution } from '@/lib/attribution';
 import { isValidPersonName, INVALID_NAME_MESSAGE } from '@/lib/validation';
 import PrivacyNote from '@/components/PrivacyNote';
 import ExistingRecordNotice from '@/components/ExistingRecordNotice';
+import { parsePlaceComponents, type PlaceAddressComponent } from '@/lib/placeComponents';
 
 interface ValuationFormProps {
   locationSlug: string;
@@ -25,6 +26,11 @@ interface PlaceData {
   propertyAddress: string;
   propertyLat: number | null;
   propertyLng: number | null;
+  // From Places address_components (D22). Previously never captured, which left
+  // leads.property_city / property_state NULL on every organic lead.
+  propertyCity?: string | null;
+  propertyState?: string | null;
+  propertyZip?: string | null;
 }
 
 /** Pre-contact teaser returned by /api/valuation — no precise estimate. */
@@ -47,6 +53,7 @@ declare global {
             getPlace: () => {
               formatted_address?: string;
               geometry?: { location?: { lat: () => number; lng: () => number } };
+              address_components?: PlaceAddressComponent[];
             };
           };
         };
@@ -100,17 +107,24 @@ export default function ValuationForm({ locationSlug, cityName, pageVariant = 's
     const autocomplete = new places.Autocomplete(addressInputRef.current, {
       types: ['address'],
       componentRestrictions: { country: 'us' },
-      fields: ['formatted_address', 'geometry'],
+      // See HeroValuation: address_components is free in the same Place result
+      // and is what makes leads.property_state real, so the out-of-state gate
+      // (D22) has something to act on.
+      fields: ['formatted_address', 'geometry', 'address_components'],
     });
     autocomplete.addListener('place_changed', () => {
       const selected = autocomplete.getPlace();
       const formatted = selected.formatted_address;
       const loc = selected.geometry?.location;
       if (!formatted) return;
+      const parts = parsePlaceComponents(selected.address_components);
       setPlace({
         propertyAddress: formatted,
         propertyLat: loc ? loc.lat() : null,
         propertyLng: loc ? loc.lng() : null,
+        propertyCity: parts.city,
+        propertyState: parts.state,
+        propertyZip: parts.zip,
       });
     });
     setMapsReady(true);
@@ -153,6 +167,9 @@ export default function ValuationForm({ locationSlug, cityName, pageVariant = 's
             propertyAddress: data.propertyAddress,
             propertyLat: data.propertyLat,
             propertyLng: data.propertyLng,
+            propertyCity: data.propertyCity ?? undefined,
+            propertyState: data.propertyState ?? undefined,
+            propertyZip: data.propertyZip ?? undefined,
             locationSlug,
             pageVariant,
             ...getLeadAttribution(),
@@ -207,6 +224,9 @@ export default function ValuationForm({ locationSlug, cityName, pageVariant = 's
       propertyAddress: address,
       propertyLat: place.propertyLat,
       propertyLng: place.propertyLng,
+      propertyCity: place.propertyCity,
+      propertyState: place.propertyState,
+      propertyZip: place.propertyZip,
     });
   }
 
@@ -240,6 +260,9 @@ export default function ValuationForm({ locationSlug, cityName, pageVariant = 's
           propertyAddress: place.propertyAddress,
           propertyLat: place.propertyLat,
           propertyLng: place.propertyLng,
+          propertyCity: place.propertyCity ?? undefined,
+          propertyState: place.propertyState ?? undefined,
+          propertyZip: place.propertyZip ?? undefined,
           valuationToken: valuation?.token ?? undefined,
           locationSlug,
           leadType: 'valuation',

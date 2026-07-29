@@ -22,6 +22,7 @@ import { sendClientInfoSms } from './clientInfoSms';
 import { offerText } from './smsTemplates';
 import { generateMagicLinkToken, magicLinkExpiry, isTokenExpired } from './agentPortalAuth';
 import { logLeadEvent } from './leadEvents';
+import { decideCoverage } from './coverage';
 
 /** Format a price range for emails, e.g. "$398K–$442K". */
 function formatRange(low: number | null, high: number | null): string | null {
@@ -118,6 +119,48 @@ export async function autoOfferLead(
   const leadRows = await db.select().from(leads).where(eq(leads.id, leadId)).limit(1);
   const lead = leadRows[0];
   if (!lead) return { ok: false, sent: false, reason: 'lead-not-found' };
+
+  // Prod smoke-test leads never reach an agent (D20/D23 MODIFIED).
+  if (lead.isTest) {
+    console.info(`[autoOffer] Lead ${leadId} is flagged is_test — not routed`);
+    return { ok: false, sent: false, reason: 'test-lead' };
+  }
+
+  // ----- Out-of-state gate (D22 / #76) ------------------------------------
+  // A 250-mile radius from parts of Michigan reaches Ohio, Indiana, Illinois
+  // and Ontario, so the radius alone cannot keep a Michigan brokerage's queue
+  // in Michigan. A full lead on an out-of-state property is never auto-assigned
+  // — even when an agent's circle covers it — and goes to the admin instead.
+  //
+  // An UNKNOWN state routes normally. leads.propertyState is NULL for every
+  // organically-submitted lead today (the public forms post only the formatted
+  // address and coordinates), so treating "no state" as "out of state" would
+  // send the entire funnel to the admin. Same distinction the outside-area rule
+  // already makes between "outside the area" and "we can't tell where it is".
+  const coverage = decideCoverage({
+    propertyState: lead.propertyState,
+    propertyAddress: lead.propertyAddress,
+  });
+  if (coverage.kind === 'out_of_state') {
+    console.warn(
+      `[autoOffer] Lead ${leadId} is out of state (${coverage.state}) — routed to the admin`,
+    );
+    const leadName = `${lead.firstName ?? ''} ${lead.lastName ?? ''}`.trim() || 'New lead';
+    await sendEmail(
+      leadOutsideAreaEmail({
+        leadName,
+        leadEmail: lead.email,
+        leadPhone: lead.phone,
+        propertyAddress: lead.propertyAddress,
+        propertyCity: lead.propertyCity,
+        estimatedValue: lead.estimatedValue,
+        nearestAgentMiles: null,
+        adminLeadUrl: `${siteUrl()}/admin/leads/${leadId}`,
+        relatedLeadId: leadId,
+      }),
+    );
+    return { ok: false, sent: false, reason: 'out-of-state' };
+  }
 
   const settings = await getSettings();
   const routingAgents = await getActiveRoutingAgents();
