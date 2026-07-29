@@ -150,9 +150,17 @@ export const agents = pgTable(
     scoreRolling365: real('score_rolling_365').notNull().default(0), // trailing 365d; drives routing slots
     // Admin-controlled membership.
     isActive: boolean('is_active').notNull().default(true),
-    // Agent self-controlled availability (Section 16). Both must be true to
-    // receive new offers. Toggled from the agent portal.
-    isAvailable: boolean('is_available').notNull().default(true),
+    /**
+     * Agent self-controlled availability (Section 16), toggled from the agent
+     * portal. Defaults to FALSE since migration 0038 (D7): a newly-added agent
+     * used to start in the routing queue and receive seller leads before they
+     * had set a password or seen the Help guide, so it is opt-in now.
+     *
+     * Since D7 this no longer controls queue MEMBERSHIP — see `queueJoinedAt`.
+     * It is a send-time check: an unavailable agent keeps their place, and a
+     * surfaced slot is skipped to the back.
+     */
+    isAvailable: boolean('is_available').notNull().default(false),
     // Magic link auth (migration 0036, decision D6). The token is stored ONLY
     // as a SHA-256 hash — the raw value lives in the email that was sent and
     // nowhere else, so a readable row is no longer a working login. TTL is 14
@@ -190,6 +198,16 @@ export const agents = pgTable(
     // one-time +50 rolling-365 "starting credit" queue head start so it is
     // never re-granted on later toggles (see lib/scoring.ts).
     startingCreditGrantedAt: timestamp('starting_credit_granted_at'),
+    /**
+     * Queue MEMBERSHIP (migration 0037, D7): when this agent first opted in.
+     *
+     * Membership persists across availability pauses and ends only at Departed.
+     * Availability is a separate, runtime send-time check — decoupling them is
+     * what removes the toggle-gaming vector (see lib/routing.ts). The value also
+     * carries JOIN ORDER: first to opt in holds the top slot, and newcomers
+     * append behind the existing line rather than weaving into it.
+     */
+    queueJoinedAt: timestamp('queue_joined_at'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },

@@ -45,6 +45,22 @@ export interface RoutingAgent {
   score: number;
   /** Per-agent acceptance radius in miles. Undefined → use the global default. */
   radiusMiles?: number | null;
+  /**
+   * Whether the agent is currently accepting leads (D7).
+   *
+   * This is a RUNTIME check, not a membership one. An unavailable agent keeps
+   * their slots and their place in the queue; when one of their slots surfaces
+   * it is skipped and moved to the BACK. Undefined is treated as available, so
+   * callers that don't model availability (the admin rotation preview) behave
+   * as before.
+   */
+  isAvailable?: boolean;
+  /**
+   * When this agent first opted in — their JOIN ORDER (D7). Used only to order
+   * NEW slots appended to the queue, so the line is first-come-first-served.
+   * Undefined sorts last among additions, then by id.
+   */
+  joinedAtMs?: number | null;
 }
 
 /**
@@ -72,15 +88,25 @@ export function buildRotationList(agents: RoutingAgent[]): number[] {
 }
 
 /**
- * Reconcile an existing queue with the current routable set WITHOUT rebuilding
- * from scratch — preserving the live order (and move-to-back progress). Existing
- * slots keep their relative order; extras from a score decrease and slots for
- * now-unavailable agents are dropped; new agents (or extra slots from a score
- * increase) are woven in evenly rather than appended at the end.
+ * Reconcile an existing queue with the current MEMBER set without rebuilding
+ * from scratch — preserving the live order (and move-to-back progress).
+ *
+ * `members` is every agent who belongs in the queue: active, and opted in at
+ * least once. It is NOT filtered by current availability (D7). An agent who has
+ * paused keeps their slots and their position; availability is applied later,
+ * at send time, by `recommendAgents`. Removing a paused agent's slots here is
+ * exactly what let a pause/resume cycle act as a queue reset.
+ *
+ * Existing slots keep their relative order. Extra slots from a score decrease
+ * are dropped (latest occurrences first). Additions — a new member, or extra
+ * slots from a score increase — are APPENDED BEHIND the existing line, ordered
+ * by join time then id, rather than woven into the middle. That is what
+ * guarantees an agent's position never moves because someone else joined or
+ * gained a slot.
  */
-export function reconcileRotation(current: number[], available: RoutingAgent[]): number[] {
+export function reconcileRotation(current: number[], members: RoutingAgent[]): number[] {
   const desired = new Map<number, number>();
-  for (const a of available) desired.set(a.id, slotCountForScore(a.score));
+  for (const a of members) desired.set(a.id, slotCountForScore(a.score));
 
   // Keep existing occurrences up to the desired count, preserving order.
   const keptCount = new Map<number, number>();
@@ -94,26 +120,20 @@ export function reconcileRotation(current: number[], available: RoutingAgent[]):
     }
   }
 
-  // Additions: brand-new agents, or extra slots from a score increase. Give each
-  // agent's additions evenly-spaced positions; existing slots hold their order.
-  const slots: { id: number; pos: number; isNew: boolean }[] = kept.map((id, i) => ({
-    id,
-    pos: kept.length > 0 ? (i + 0.5) / kept.length : 0,
-    isNew: false,
-  }));
-  let anyAdd = false;
-  for (const a of available) {
+  // Additions, in join order (earliest joiner first; unknown join time last,
+  // then by id for determinism). Appended, never interleaved.
+  const additions: number[] = [];
+  const byJoin = [...members].sort((a, b) => {
+    const ja = a.joinedAtMs ?? Number.POSITIVE_INFINITY;
+    const jb = b.joinedAtMs ?? Number.POSITIVE_INFINITY;
+    return ja - jb || a.id - b.id;
+  });
+  for (const a of byJoin) {
     const add = (desired.get(a.id) ?? 0) - (keptCount.get(a.id) ?? 0);
-    for (let k = 0; k < add; k++) {
-      anyAdd = true;
-      slots.push({ id: a.id, pos: (k + 0.5) / add, isNew: true });
-    }
+    for (let k = 0; k < add; k++) additions.push(a.id);
   }
-  if (!anyAdd) return kept;
 
-  // Stable merge by position; ties keep existing slots ahead of new ones.
-  slots.sort((x, y) => x.pos - y.pos || Number(x.isNew) - Number(y.isNew) || x.id - y.id);
-  return slots.map((s) => s.id);
+  return additions.length > 0 ? [...kept, ...additions] : kept;
 }
 
 export interface RecommendParams {
@@ -217,8 +237,50 @@ export function recommendAgents(params: RecommendParams): RecommendResult {
     }
   }
 
+  // Availability is a SEND-TIME check, not a membership one (D7). An agent who
+  // has paused keeps their slots and their position; the skip happens here,
+  // when one of their slots actually surfaces.
+  //
+  // The two skip kinds are deliberately different, and the difference is the
+  // whole point:
+  //   DISTANCE skip  — the agent did nothing wrong and a lead was never really
+  //                    theirs to take, so the slot KEEPS its place at the front
+  //                    and they are reconsidered first next time.
+  //   UNAVAILABLE    — a lead WOULD have gone to them and they had routing
+  //                    switched off, so the slot moves to the BACK. Penalised
+  //                    on surface, not on toggle.
+  //
+  // Because pausing never removes an agent from the queue, and un-pausing never
+  // re-inserts them, toggling availability cannot improve a position — the
+  // gaming vector is closed by construction rather than by policy.
+  const unavailable = new Set(eligible.filter((a) => a.isAvailable === false).map((a) => a.id));
+  const skippedUnavailable: number[] = [];
+  if (unavailable.size > 0) {
+    // Peel unavailable slots off the front until an available one surfaces.
+    // Only slots that actually reached the front are penalised.
+    while (rotation.length > 0 && unavailable.has(rotation[0])) {
+      skippedUnavailable.push(rotation[0]);
+      rotation = rotation.slice(1);
+    }
+    if (rotation.length === 0) {
+      // Everyone in the queue is paused. Restore the order (with the skipped
+      // slots moved to the back, since each did surface) and report no agent.
+      return {
+        agentId: null,
+        rotationList: skippedUnavailable,
+        distanceMiles: null,
+        usedProximity: false,
+        outcome: 'no-agents',
+      };
+    }
+  }
+
   // Find the slot to serve: first in-range slot when a pool exists (skipping
-  // out-of-range slots), else the front slot.
+  // out-of-range slots), else the front slot. Unavailable agents are excluded
+  // from the proximity pool too, so a paused agent deeper in the queue can't be
+  // selected just because they happen to be the closest.
+  for (const id of unavailable) proximityPool.delete(id);
+
   let servedIndex = 0;
   let usedProximity = false;
   if (proximityPool.size > 0) {
@@ -236,7 +298,7 @@ export function recommendAgents(params: RecommendParams): RecommendResult {
     const nearest = distanceById.size > 0 ? Math.min(...distanceById.values()) : null;
     return {
       agentId: null,
-      rotationList: rotation,
+      rotationList: [...rotation, ...skippedUnavailable],
       distanceMiles: nearest,
       usedProximity: false,
       outcome: 'outside-area',
@@ -248,10 +310,11 @@ export function recommendAgents(params: RecommendParams): RecommendResult {
 
   const agentId = rotation[servedIndex];
 
-  // Move the served slot to the back; skipped (front) slots keep their place.
+  // Move the served slot to the back; distance-skipped (front) slots keep their
+  // place, and any unavailable slots that surfaced go to the back behind it.
   const newRotation = rotation.slice();
   newRotation.splice(servedIndex, 1);
-  newRotation.push(agentId);
+  newRotation.push(agentId, ...skippedUnavailable);
 
   return {
     agentId,

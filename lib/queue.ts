@@ -55,24 +55,29 @@ function sameOrder(a: number[], b: number[]): boolean {
 }
 
 /**
- * Get the routing queue, RECONCILING it with the current routable set in place
+ * Get the routing queue, RECONCILING it with the current MEMBER set in place
  * rather than rebuilding from scratch — so the live order and move-to-back
- * progress survive roster/score changes (new agents weave in; removed agents
- * and score-decrease extras drop out). `available` = active AND available agents
- * (already filtered by the caller). Pointer is always 0 — front is "next".
+ * progress survive roster/score changes (new members append at the back;
+ * departed agents and score-decrease extras drop out).
+ *
+ * `members` = active agents who have opted in at least once (D7). It is
+ * deliberately NOT filtered by current availability: reconciling on
+ * availability is what let a pause delete an agent's slots and a resume
+ * re-insert them mid-queue. Availability is applied at send time by
+ * `recommendAgents` instead. Pointer is always 0 — front is "next".
  */
 export async function getRoutingQueue(
-  available: RoutingAgent[],
+  members: RoutingAgent[],
 ): Promise<{ rotationList: number[]; pointer: number }> {
   const current = await readQueue();
 
   if (!current) {
-    const freshList = buildRotationList(available);
+    const freshList = buildRotationList(members);
     await writeQueue(freshList, null);
     return { rotationList: freshList, pointer: 0 };
   }
 
-  const reconciled = reconcileRotation(current.rotationList, available);
+  const reconciled = reconcileRotation(current.rotationList, members);
   if (!sameOrder(reconciled, current.rotationList)) {
     await writeQueue(reconciled, current.id);
   }

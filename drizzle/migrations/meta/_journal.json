@@ -260,6 +260,20 @@
       "when": 1786300000000,
       "tag": "0036_agent_credentials",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1786400000000,
+      "tag": "0037_queue_membership",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1786500000000,
+      "tag": "0038_availability_opt_in",
+      "breakpoints": true
     }
   ]
 }

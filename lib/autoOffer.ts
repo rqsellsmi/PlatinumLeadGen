@@ -4,7 +4,7 @@
  */
 import { siteUrl } from './siteUrl';
 import crypto from 'crypto';
-import { eq, inArray, and, isNull } from 'drizzle-orm';
+import { eq, inArray, and, isNull, isNotNull } from 'drizzle-orm';
 import { db } from './db';
 import {
   leads,
@@ -38,10 +38,21 @@ const INITIAL_UPDATE_DEADLINE_MS = 24 * 60 * 60 * 1000; // v4 §5 — 24h to fir
 const WEEKLY_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
- * Load active+available agents with their effective proximity anchor: the
- * agent's geocoded custom location when they chose 'custom' (and it geocoded),
- * otherwise their office coordinates. Also carries each agent's own acceptance
- * radius (null → global default applied in routing).
+ * Load the queue's MEMBERS with their effective proximity anchor: the agent's
+ * geocoded custom location when they chose 'custom' (and it geocoded), otherwise
+ * their office coordinates. Also carries each agent's own acceptance radius
+ * (null → global default applied in routing).
+ *
+ * MEMBERSHIP vs AVAILABILITY (D7). This used to filter on
+ * `isAvailable = true`, which made availability a membership filter: pausing
+ * deleted every one of an agent's slots from the persisted rotation, and
+ * resuming re-wove them into the middle — so a pause/resume cycle acted as a
+ * queue reset and could be used to jump the line.
+ *
+ * Membership is now "active AND has opted in at least once" (`queueJoinedAt`),
+ * and it survives pauses. `isAvailable` rides along on each RoutingAgent so
+ * `recommendAgents` can apply it as a SEND-TIME skip instead. An agent who has
+ * never opted in is not a member at all, so they are never added to the queue.
  */
 export async function getActiveRoutingAgents(): Promise<RoutingAgent[]> {
   const rows = await db
@@ -53,14 +64,14 @@ export async function getActiveRoutingAgents(): Promise<RoutingAgent[]> {
       radius: agents.proximityRadiusMiles,
       // Routing slots are driven by the rolling-365 track (spec v2 §3).
       score: agents.scoreRolling365,
+      isAvailable: agents.isAvailable,
+      joinedAt: agents.queueJoinedAt,
       officeLat: offices.latitude,
       officeLng: offices.longitude,
     })
     .from(agents)
     .leftJoin(offices, eq(agents.officeId, offices.id))
-    // Both must be true: admin keeps the agent active AND the agent hasn't
-    // paused their own lead routing (Section 16.3).
-    .where(and(eq(agents.isActive, true), eq(agents.isAvailable, true)));
+    .where(and(eq(agents.isActive, true), isNotNull(agents.queueJoinedAt)));
 
   return rows.map((r) => {
     const useCustom = r.anchor === 'custom' && r.lat != null && r.lng != null;
@@ -70,6 +81,8 @@ export async function getActiveRoutingAgents(): Promise<RoutingAgent[]> {
       lng: useCustom ? r.lng : r.officeLng ?? null,
       score: r.score ?? 0,
       radiusMiles: r.radius ?? null,
+      isAvailable: r.isAvailable,
+      joinedAtMs: r.joinedAt?.getTime() ?? null,
     };
   });
 }
