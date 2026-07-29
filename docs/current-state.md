@@ -252,3 +252,79 @@ Two related follow-ups discussed with the owner while reworking the sold-comps r
 - **Set `TELNYX_API_KEY`/`TELNYX_PUBLIC_KEY` in both Vercel (app) and anywhere the crons run**, and populate `offices.telnyx_number` per office — same "set it in every environment that reads it" trap as `REALCOMP_OFFICE_KEYS` (lessons §15).
 - **Point the Telnyx portal's inbound webhook at `https://<domain>/api/webhooks/telnyx`** and confirm the Messaging Profile's public key matches `TELNYX_PUBLIC_KEY` — a mismatch fails closed (every inbound text silently 401s) rather than accepting an unverified message.
 - **Live send/receive is untested** — no Telnyx credentials exist in the build sandbox. All logic is unit-tested pure functions (parsing, templates, signature verification, number resolution) plus typecheck/build; a live text round-trip is the owner's first-connection step, same pattern as the IDX feed's `idx:verify`.
+
+---
+
+## 10. P0 launch-blocker remediation (2026-07-29)
+
+The formal project review (`PlatinumLeadGen_Project_Review_Final.docx`, graded C
+/ 74) listed eight P0 items as the gate on scaling paid traffic. All eight are
+closed in code. What each one actually was, and what remains owner-side, is
+below. Owner decisions referenced as D1–D23; review items as #N.
+
+**CI first (D18 REVISED).** `.github/workflows/ci.yml` runs `npm ci` →
+typecheck → tests → build on every push and PR. It landed BEFORE the first P0
+patch, because the P0 work (identity, tokens, routing, conversion cutover) is
+the most regression-prone change set in the repo. No secrets required.
+Test count went 189 → 307 across this work.
+
+- **P0.1 — cross-lead identity/report-token exposure** (#6–#9, #58; D3 REVISED).
+  Cross-session ADDRESS dedup deleted: it returned an existing contacted lead's
+  id and report token to whoever submitted the same address, and /thank-you then
+  rendered that lead's name, email and phone. CONTACT match is now internal-only
+  (duplicate-conversion suppression + reconciliation candidate) and never
+  discloses an id, token or PII; revealing an existing record requires verified
+  POSSESSION, via a report link emailed to the address ON FILE. `lib/leadIdentity.ts`
+  is pure so `buildSubmitResponse` can assert the invariant directly.
+- **Report-token capability** (#7/#10/#14; migration 0033). Opaque, expiring,
+  revocable, resolved through one choke point that fails closed — including on a
+  legacy NULL expiry. The reveal, appointments (D4) and qualifiers (D15) all
+  ride this one capability.
+- **P0.2 — PII out of analytics** (#37/#62). The `lead_conversion` dataLayer push
+  carried raw email and phone on every /thank-you view. Removed; enhanced
+  conversions use gtag's `user_data` channel and the hashed server outbox.
+- **P0.3 — appointment + partial abuse** (#10/#11; D4/D5 MODIFIED; migration 0035).
+  Appointments require the capability instead of an arbitrary `leadId`. Rate-limit
+  presets, per-capability limits, idempotency keys, payload limits, honeypot and
+  minimum-completion-time. Interim controls are ABUSE MITIGATION, not bot
+  detection, and are biased toward FLAG over BLOCK — a false positive discards a
+  paid-for lead. `appointment_set` added as the bidding-quality conversion;
+  `appointment_requested` retained as Secondary.
+- **P0.4 — city phone + coverage** (#3/#27/#32/#76; D22). The fabricated
+  fallback address and 555 phone (rendered as a live `tel:` on any DB error) are
+  replaced by the real office of record plus a throttled alert. Radius capped at
+  250mi in both write paths. Out-of-state full leads route to the admin; the
+  forms now capture `property_state` from Places, which is what makes that gate
+  more than a no-op. `/ads` removed with a 301 to `/sell`.
+- **P0.5 — dependencies** (#12). next-auth (critical) and drizzle-orm (high)
+  patched; production audit is 0 critical. The two remaining highs resolve only
+  to `next@16`, a framework major — documented with real exposure analysis in
+  `docs/security-advisories.md`.
+- **P0.6 — privacy disclosure** (#19/#20). Four contradictory form promises
+  replaced by one constant + `<PrivacyNote>` beside every submit. **Needs counsel
+  sign-off on the wording.**
+- **P0.7 — social proof** (#2/#29/#50; D2; migration 0034). `socialProofCount`
+  counted form submissions and rendered as "N+ homes sold". Renamed
+  `valuationRequestsCount`, admin-only; public figures read verified transactions.
+- **P0.8a — agent credentials** (#16/#17/#18/#67/#70; D6 REVISED; migration 0036).
+  Magic link hashed at rest, 14 days, rotates on use. Session-version revocation,
+  bumped on reset/deactivation/sign-out-everywhere. Shared setup code replaced by
+  per-agent single-use invites + the Launch button. Offer-accept no longer grants
+  a portal session.
+- **P0.8b — queue integrity** (D7 MODIFIED; migrations 0037/0038). Membership
+  decoupled from availability, so a pause/resume cycle can no longer act as a
+  queue reset. On-surface skip-to-back; join-order appends. 16 invariant tests
+  over multi-lead simulations, written before enabling, per D7 MODIFIED.
+
+### Migrations added: 0033–0038
+Apply the full chain **in order on every Neon branch** — a skipped middle
+migration breaks whole admin pages that `select` a full row (lessons §11).
+
+### Behaviour changes worth knowing before launch
+- A repeat submit by an existing contact no longer redirects to the report. The
+  form shows "check your email" and the link goes to the address on file. This
+  is intentional (D3) and is the single most visible funnel change.
+- Availability defaults to FALSE for NEW agents. Existing rows are untouched
+  until the Launch button runs.
+- Each outbound agent magic link supersedes the previous one — we no longer hold
+  the plaintext, so we cannot re-send a current link.

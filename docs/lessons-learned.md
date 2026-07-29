@@ -1036,3 +1036,83 @@ recurring theme: the *guarding* logic is where the value is, not the form.
   city form rather than a fourth surface. A compliance/expectation-setting line
   that's on one of three surfaces still leaves two surfaces making an
   un-disclaimed claim — enumerate the surfaces before deciding you're done.
+
+## 22. P0 launch-blocker remediation session (formal review response)
+
+Closing the eight P0 items from the external project review. Durable lessons:
+
+- **"Knowing an identifier" is never "being the person."** The released defect
+  was address-based dedup handing a stranger an existing lead's report token
+  and PII. The instinctive fix — switch from address to email/phone — is the
+  *same bug wearing a better disguise*, because anyone who knows a victim's
+  email or phone (plus shared numbers, recycled numbers and typos) still walks
+  in. The correct split is INTERNAL use (dedup a conversion, flag a
+  reconciliation candidate — no disclosure) vs DISCLOSURE (requires proving
+  possession, e.g. clicking a link we email to the address already on file).
+  Whenever a lookup key is about to authorize *showing* something, ask what an
+  attacker who knows that key gets.
+- **Put the disclosure decision in a pure function and test it directly.**
+  `buildSubmitResponse(decision, ctx)` is the only place that decides what
+  leaves the server, and the test asserts it returns no id and no token for a
+  contact match *even when a caller wrongly passes one*. That is far stronger
+  than testing a route: the invariant is stated once, in one place, and a
+  future edit that reintroduces the leak fails a named test rather than
+  silently passing.
+- **Fail closed on the ambiguous case, especially for legacy rows.**
+  `isReportTokenUsable` treats a NULL expiry as EXPIRED. Reading it as "never
+  expires" would have quietly kept every pre-migration permanent token alive —
+  the exact defect the migration existed to close. A "safe" default that
+  preserves old behaviour is the wrong default for a security fix.
+- **A biased-toward-false-negative filter belongs on a paid funnel.** The
+  honeypot hard-rejects (a filled hidden field has no innocent explanation);
+  the timing check only FLAGS. Every missing signal — stripped field, cached
+  page, skewed client clock — is accepted. On a form fed by Google Ads spend, a
+  false positive silently discards a lead you paid for, which costs more than
+  storing a spam row. Say which controls are which: "abuse mitigation" and "bot
+  detection" are not synonyms, and same-origin + idempotency are neither.
+- **A test that fails after a deliberate decision reversal is information, not
+  an obstacle.** `reconcileRotation` had a test asserting a newcomer *weaves
+  into the middle*; D7 requires them to *append behind*. The right move was to
+  rewrite the test with the reason in the test name, not to work around it. The
+  failing test proved the change actually took effect.
+- **Invariants over sequences catch what step assertions can't.** The
+  availability-toggle gaming vector is invisible in any single call — it only
+  appears across pause → serve → resume. Simulating N leads and asserting
+  properties ("toggling never improves position", "reconcile is idempotent",
+  "slot count is conserved") found the shape of the fix, not just its
+  correctness.
+- **When a gate reads a column nothing populates, the gate is decoration.**
+  The out-of-state routing gate keys on `leads.property_state` — which was NULL
+  on every organically-submitted lead, because the forms only ever posted the
+  formatted address and coordinates. Shipping the gate alone would have been a
+  no-op that *looked* like a control. Asking Places for `address_components`
+  (free, same Place result) is what made it real. Before building logic on a
+  field, grep for who writes it.
+- **Distinguish "outside" from "unknown" — again.** §20 recorded this for the
+  proximity handoff; it recurred verbatim for the state gate. `unknown` must
+  route normally, or a parsing miss sends the entire funnel to the admin.
+- **Hashing a bearer token costs you the ability to re-send it, and that is
+  the correct trade.** Once `magic_link_token` is stored as a hash we cannot
+  reissue the *current* link, so every outbound message mints a fresh one that
+  supersedes the last. Older links die sooner — which is the point. Design the
+  UX for that (an expired link lands on "request a new link", never a dead
+  error) rather than keeping plaintext for convenience.
+- **Hashing protects the database; revocation protects against a leaked URL.**
+  They are different threats and you need both. The owner kept a 14-day magic
+  link, so session-version revocation is what actually bounds the damage — and
+  revoking sessions while leaving a working login link would be theatre, so
+  `revokeAgentSessions` clears both.
+- **Audit every place a session is minted, not just the login route.** The
+  offer-accept handler was a third mint point and the least guarded: no
+  `isActive` check, no expiry check, reachable from a forwarded email. Grepping
+  for the mint function (not the login page) is what surfaced it.
+- **A bulk outbound action needs a persisted one-time guard, not just a
+  confirm dialog.** `launch_invites_sent_at` is checked server-side, so a
+  double-click, a refresh, or a second admin cannot mass-re-email the roster.
+  A client-side confirmation alone would not survive any of those.
+- **`Button` takes `variant`, not `tone`** — §1 warned that the UI primitives
+  accept specific props, and this bit again. Read the component's props before
+  passing one that "obviously" exists.
+- **Backticks in a `git commit -m` heredoc-less shell string will silently
+  truncate the message** via command substitution. Write long commit messages
+  to a file and use `-F`.
