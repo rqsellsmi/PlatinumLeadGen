@@ -11,6 +11,7 @@ import { tierFor } from '@/lib/scoreTiers';
 import { loadTierContext } from '@/lib/scoreTiersServer';
 import { updateAgent, setAgentPassword, adjustScore } from './actions';
 import { toggleAgentActive, toggleAgentAvailable } from '@/app/admin/agents/actions';
+import { MAX_PROXIMITY_RADIUS_MILES, isUnusuallyBroadRadius } from '@/lib/coverage';
 
 export const dynamic = 'force-dynamic';
 
@@ -116,10 +117,17 @@ export default async function AgentDetailPage({ params }: { params: { id: string
                   name="radiusMiles"
                   type="number"
                   min="1"
+                  max={MAX_PROXIMITY_RADIUS_MILES}
                   step="1"
                   defaultValue={agent.proximityRadiusMiles ?? ''}
                   placeholder="Brokerage default"
                 />
+                <p className="mt-1 text-xs text-mute-light">
+                  Max {MAX_PROXIMITY_RADIUS_MILES} mi (D22).
+                  {isUnusuallyBroadRadius(agent.proximityRadiusMiles)
+                    ? ' This agent covers an unusually wide area.'
+                    : ''}
+                </p>
               </div>
               <div className="col-span-2">
                 <Label htmlFor="locationCity">City (used when anchor is “A city”)</Label>

@@ -6,6 +6,7 @@ import { getCurrentAgent } from '@/lib/agentSession';
 import { Card, CardHeader, CardBody, Button, Input, Label, Select } from '@/components/ui';
 import AvailabilityToggle from '@/components/agent/AvailabilityToggle';
 import { updateRoutingPreferences } from './actions';
+import { MAX_PROXIMITY_RADIUS_MILES, isUnusuallyBroadRadius } from '@/lib/coverage';
 
 export const dynamic = 'force-dynamic';
 
@@ -69,11 +70,20 @@ export default async function AgentSettingsPage() {
                 name="radiusMiles"
                 type="number"
                 min="1"
+                max={MAX_PROXIMITY_RADIUS_MILES}
                 step="1"
                 defaultValue={agent.proximityRadiusMiles ?? ''}
                 placeholder={`Brokerage default (${defaultRadius})`}
               />
-              <p className="mt-1 text-xs text-mute-light">Leave blank to use the brokerage default.</p>
+              <p className="mt-1 text-xs text-mute-light">
+                Leave blank to use the brokerage default. Maximum {MAX_PROXIMITY_RADIUS_MILES} miles.
+              </p>
+              {isUnusuallyBroadRadius(agent.proximityRadiusMiles) ? (
+                <p className="mt-1 text-xs font-semibold text-platinum-red">
+                  That is an unusually wide area — you may be offered leads hours away. You can
+                  decline any offer, but a tighter radius means better-matched leads.
+                </p>
+              ) : null}
             </div>
 
             <div className="sm:col-span-2">
