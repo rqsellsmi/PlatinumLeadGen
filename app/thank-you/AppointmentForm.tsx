@@ -61,7 +61,12 @@ export default function AppointmentForm({
   );
   const [name, setName] = React.useState(initialName);
   const [phone, setPhone] = React.useState(initialPhone);
+  const [email, setEmail] = React.useState(initialEmail);
   const [preferredTime, setPreferredTime] = React.useState('');
+  // Email is the identity key AND the fallback contact channel, so it is
+  // required whenever this request would CREATE a lead (no report token). With a
+  // token the existing lead already carries contact info.
+  const emailRequired = !reportToken;
   const [address, setAddress] = React.useState(initialAddress);
   const [place, setPlace] = React.useState<PlaceData>({
     propertyAddress: initialAddress,
@@ -79,11 +84,12 @@ export default function AppointmentForm({
   React.useEffect(() => {
     if (initialName) setName(initialName);
     if (initialPhone) setPhone(initialPhone);
+    if (initialEmail) setEmail(initialEmail);
     if (initialAddress) {
       setAddress(initialAddress);
       setPlace((p) => ({ ...p, propertyAddress: initialAddress }));
     }
-  }, [initialName, initialPhone, initialAddress]);
+  }, [initialName, initialPhone, initialEmail, initialAddress]);
 
   const attach = React.useCallback((el: HTMLInputElement | null) => {
     const places = window.google?.maps?.places;
@@ -126,6 +132,10 @@ export default function AppointmentForm({
       setError('Please enter your name.');
       return;
     }
+    if (emailRequired && !email.trim()) {
+      setError('Please enter your email so an agent can reach you.');
+      return;
+    }
     setError(null);
     setLoading(true);
     try {
@@ -136,7 +146,7 @@ export default function AppointmentForm({
           buildAppointmentBody({
             name,
             phone,
-            email: initialEmail || undefined,
+            email: email.trim() || undefined,
             preferredTime,
             // Optional — lets a tokenless appointment create a routable lead.
             propertyAddress: place.propertyAddress || address || undefined,
@@ -158,7 +168,7 @@ export default function AppointmentForm({
       if (!res.ok) throw new Error('We could not submit your request. Please try again.');
       dataLayerPush('appointment_requested');
       // Google Ads appointment conversion — fire after the confirmed save (§B.4 / §K.6).
-      fireAppointmentRequestConversion(leadId, initialEmail || undefined);
+      fireAppointmentRequestConversion(leadId, email.trim() || initialEmail || undefined);
       setDone(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong. Please try again.');
@@ -206,7 +216,18 @@ export default function AppointmentForm({
               <Input id="appt-name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" required />
             </div>
             <div>
-              <Label htmlFor="appt-phone">Phone</Label>
+              <Label htmlFor="appt-email">Email{emailRequired ? '' : ' (optional)'}</Label>
+              <Input
+                id="appt-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
+                required={emailRequired}
+              />
+            </div>
+            <div>
+              <Label htmlFor="appt-phone">Phone (optional)</Label>
               <Input
                 id="appt-phone"
                 type="tel"

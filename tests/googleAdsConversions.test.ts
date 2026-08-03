@@ -8,6 +8,7 @@ import {
   isExportEligible,
   buildIngestRequest,
 } from '../lib/googleAdsOutbox';
+import { eligibleLeadTypes } from '../lib/googleAdsConfig';
 
 describe('googleAdsHash', () => {
   it('lowercases + trims email and strips gmail dots', () => {
@@ -88,13 +89,29 @@ describe('eventSourceFor', () => {
 });
 
 describe('isExportEligible', () => {
-  const allow = ['valuation', 'seller_guide'];
+  const allow = ['valuation', 'seller_guide', 'appointment'];
   it('requires a non-deleted lead with an approved type', () => {
     expect(isExportEligible({ isDeleted: false, leadType: 'valuation' }, allow)).toBe(true);
     expect(isExportEligible({ isDeleted: false, leadType: 'seller_guide' }, allow)).toBe(true);
+    expect(isExportEligible({ isDeleted: false, leadType: 'appointment' }, allow)).toBe(true);
     expect(isExportEligible({ isDeleted: true, leadType: 'valuation' }, allow)).toBe(false);
     expect(isExportEligible({ isDeleted: false, leadType: 'webhook' }, allow)).toBe(false);
     expect(isExportEligible({ isDeleted: false, leadType: null }, allow)).toBe(false);
+  });
+
+  it('includes appointment-origin leads by DEFAULT, so their conversions export without an env override', () => {
+    const prev = process.env.GOOGLE_ADS_ELIGIBLE_LEAD_TYPES;
+    delete process.env.GOOGLE_ADS_ELIGIBLE_LEAD_TYPES;
+    try {
+      const types = eligibleLeadTypes();
+      expect(types).toContain('appointment');
+      expect(types).toContain('valuation');
+      expect(types).toContain('seller_guide');
+      expect(isExportEligible({ isDeleted: false, leadType: 'appointment' }, types)).toBe(true);
+    } finally {
+      if (prev === undefined) delete process.env.GOOGLE_ADS_ELIGIBLE_LEAD_TYPES;
+      else process.env.GOOGLE_ADS_ELIGIBLE_LEAD_TYPES = prev;
+    }
   });
 });
 

@@ -281,6 +281,13 @@
       "when": 1786600000000,
       "tag": "0039_appointment_lead_type",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1786700000000,
+      "tag": "0040_appointment_idempotency_unique",
+      "breakpoints": true
     }
   ]
 }

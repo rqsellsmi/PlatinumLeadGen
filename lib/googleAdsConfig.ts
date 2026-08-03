@@ -105,13 +105,15 @@ export function validateOnly(): boolean {
 }
 
 /**
- * Approved lead_type values eligible for export (decision D11). Today every
- * capture flow is the seller-valuation workflow, so the default is the two
- * seller lead types; third-party `webhook` leads are excluded until added.
- * Override with a comma list in GOOGLE_ADS_ELIGIBLE_LEAD_TYPES.
+ * Approved lead_type values eligible for export (decision D11). The capture
+ * flows are the two seller lead types plus appointment-origin leads (the
+ * appointment form as a first touch — its `appointment_lead` / `appointment_
+ * requested` conversions must export by default, not only when an env override
+ * is set); third-party `webhook` leads are excluded until added. Override with a
+ * comma list in GOOGLE_ADS_ELIGIBLE_LEAD_TYPES.
  */
 export function eligibleLeadTypes(): string[] {
-  const raw = (process.env.GOOGLE_ADS_ELIGIBLE_LEAD_TYPES || 'valuation,seller_guide').trim();
+  const raw = (process.env.GOOGLE_ADS_ELIGIBLE_LEAD_TYPES || 'valuation,seller_guide,appointment').trim();
   return raw
     .split(',')
     .map((s) => s.trim())

@@ -28,7 +28,7 @@
  * routing, not appointment confirmation.
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { and, eq, gt } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { appointmentRequests, leadEvents, leads } from '@/drizzle/schema';
 import { appointmentSchema } from '@/lib/validation';
@@ -49,9 +49,6 @@ import {
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-/** Window in which an identical idempotency key is treated as the same request. */
-const IDEMPOTENCY_WINDOW_MS = 10 * 60 * 1000;
 
 /** Split a single "name" field into first / last for the leads table. */
 function splitName(full: string): { first: string; last: string | null } {
@@ -89,24 +86,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true });
     }
 
-    // ----- Idempotency (D5) ------------------------------------------------
-    // Checked BEFORE any lead is created so a double-tap cannot produce two
-    // leads, two appointments, two timeline entries and two agent emails.
-    if (input.idempotencyKey) {
-      const since = new Date(Date.now() - IDEMPOTENCY_WINDOW_MS);
-      const dupe = await db
-        .select({ id: appointmentRequests.id })
-        .from(appointmentRequests)
-        .where(
-          and(
-            eq(appointmentRequests.idempotencyKey, input.idempotencyKey),
-            gt(appointmentRequests.createdAt, since),
-          ),
-        )
-        .limit(1);
-      if (dupe[0]) return NextResponse.json({ success: true, deduped: true });
-    }
-
     // ----- Resolve WHICH lead this belongs to (D3 / D4) --------------------
     // 1) A valid token names the lead outright. 2) Otherwise email is the
     // identity key: a match attaches to that lead. 3) No match → create one.
@@ -123,6 +102,44 @@ export async function POST(req: NextRequest) {
       leadId = resolved?.leadId ?? null;
     }
 
+    // A request not tied to a lead by a token needs an email — to match an
+    // existing lead or to CREATE a contactable one. Without it we'd route a
+    // name-only lead to an agent who can't reach the seller. Phone stays
+    // optional (owner decision).
+    if (leadId == null && !email) {
+      return NextResponse.json({ error: 'email_required' }, { status: 400 });
+    }
+
+    // ----- Idempotency (D5), enforced ATOMICALLY ---------------------------
+    // Claim the request by inserting its appointment row up front, guarded by
+    // the UNIQUE(idempotency_key) index (migration 0040). If a concurrent or
+    // earlier copy already claimed the key, ON CONFLICT DO NOTHING returns no
+    // row and we stop here — so the race cannot produce a duplicate lead,
+    // appointment, email or routing. The lead id is filled in below once
+    // resolved; a NULL key never conflicts, so keyless requests always proceed.
+    const claimed = await db
+      .insert(appointmentRequests)
+      .values({
+        leadId,
+        name: input.name,
+        phone,
+        email,
+        preferredTime: input.preferredTime ?? null,
+        notes: input.notes ?? null,
+        source: 'thank-you',
+        idempotencyKey: input.idempotencyKey ?? null,
+        abuseFlag: abuse.action === 'flag' ? abuse.reason : null,
+        ...attributionColumns(input),
+      })
+      .onConflictDoNothing({ target: appointmentRequests.idempotencyKey })
+      .returning({ id: appointmentRequests.id });
+
+    if (claimed.length === 0) {
+      return NextResponse.json({ success: true, deduped: true });
+    }
+    const appointmentId = claimed[0].id;
+
+    // Now that this request owns the claim, resolve/create the lead.
     let newLeadCreated = false;
     if (leadId == null) {
       const match = await findLeadByEmail(email);
@@ -161,6 +178,11 @@ export async function POST(req: NextRequest) {
         leadId = inserted[0].id;
         newLeadCreated = true;
       }
+      // Link the resolved lead onto the claimed appointment row.
+      await db
+        .update(appointmentRequests)
+        .set({ leadId })
+        .where(eq(appointmentRequests.id, appointmentId));
     }
 
     // Suppress everything downstream for a prod smoke test (D20/D23).
@@ -173,19 +195,6 @@ export async function POST(req: NextRequest) {
         .limit(1);
       isTest = rows[0]?.isTest ?? false;
     }
-
-    await db.insert(appointmentRequests).values({
-      leadId,
-      name: input.name,
-      phone,
-      email,
-      preferredTime: input.preferredTime ?? null,
-      notes: input.notes ?? null,
-      source: 'thank-you',
-      idempotencyKey: input.idempotencyKey ?? null,
-      abuseFlag: abuse.action === 'flag' ? abuse.reason : null,
-      ...attributionColumns(input),
-    });
 
     let apptEventId: number | null = null;
     if (leadId != null) {
