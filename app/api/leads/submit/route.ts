@@ -20,14 +20,14 @@ import {
 import { ensureReportToken, reportUrl } from '@/lib/reportAccess';
 import { checkPreset, clientIp } from '@/lib/rateLimit';
 import { attributionColumns } from '@/lib/attributionServer';
-import { findExistingLeadByContact, normalizedAddressKey } from '@/lib/leadDedup';
+import { findLeadByEmail, normalizedAddressKey } from '@/lib/leadDedup';
+import { alertAdminOfPhoneCollision } from '@/lib/leadDuplicateAlert';
 import { logLeadEvent } from '@/lib/leadEvents';
 import { enqueueGoogleAdsAcquisition } from '@/lib/googleAdsOutbox';
 import {
   decideLeadIdentity,
   buildSubmitResponse,
   reportLinkRecipient,
-  contactMatchBasis,
   type LeadIdentityDecision,
 } from '@/lib/leadIdentity';
 import { isTestContact, configuredTestDomains } from '@/lib/testLeads';
@@ -120,16 +120,8 @@ async function emailExistingReportLink(
  * address — one lead may value several homes over time, so each run lands on
  * the activity timeline instead of changing whose lead it is.
  */
-async function recordValuationRun(
-  leadId: number,
-  address: string | null | undefined,
-  matchBasis?: string,
-) {
-  // The note keeps the address on the timeline and, for a run attached to an
-  // existing lead, HOW the contact matched (D3) — so a phone-only merge behind
-  // a shared/recycled number can be found and corrected later.
-  const note = matchBasis ? `${address ?? '(no address)'} — matched on ${matchBasis}` : (address ?? null);
-  await logLeadEvent(leadId, 'valuation_run', note);
+async function recordValuationRun(leadId: number, address: string | null | undefined) {
+  await logLeadEvent(leadId, 'valuation_run', address ?? null);
 }
 
 /**
@@ -272,18 +264,19 @@ export async function POST(req: NextRequest) {
     const lastName = (input.lastName ?? '').trim() || null;
     const pageVariant = input.pageVariant ?? 'seo';
 
-    // ----- Identity (P0.1 / decision D3) -----------------------------------
+    // ----- Identity (P0.1 / decision D3, email-primary) --------------------
     //
-    // Contact (email OR phone) is the ONLY dedup signal. The old cross-session
-    // ADDRESS dedup is gone: a spouse, tenant, new owner, neighbour or someone
-    // who mistyped a house number all reach the same address, and it used to
-    // hand them the prior lead's id and report token.
+    // EMAIL is the identity key. A different email is a different lead; a
+    // matching phone alone does NOT merge (numbers are shared, recycled and
+    // mistyped). The old cross-session ADDRESS dedup is gone for the same
+    // reason — a spouse, tenant, new owner or neighbour all reach the same
+    // address, and it used to hand them the prior lead's id and report token.
     //
-    // A contact match is still not an identity — anyone who knows a victim's
-    // email or phone (and shared/recycled numbers, and typos) reaches the same
-    // record. So it is used INTERNALLY ONLY, and the browser is told nothing
-    // about the existing lead. See lib/leadIdentity.ts.
-    const contactMatch = await findExistingLeadByContact(email, phone);
+    // Even an email match is used INTERNALLY ONLY: the browser is told nothing
+    // about the existing lead (see lib/leadIdentity.ts). A phone that matches a
+    // DIFFERENT-email lead is handled separately, as an admin heads-up, after
+    // the new lead is created — never as a merge.
+    const contactMatch = await findLeadByEmail(email);
 
     // This browser session's own CONTACT-LESS partial. `isNull(email)` matters:
     // if this session already produced a full lead and a different contact now
@@ -329,27 +322,15 @@ export async function POST(req: NextRequest) {
       }
 
       // The valuation the visitor just ran belongs on this lead's timeline —
-      // one lead, many runs (D3). Attach it on EITHER an exact email or an
-      // exact phone match: the deliberate tradeoff (D3, code-team direction) is
-      // simpler dedup and better continuity for returning sellers, accepting the
-      // limited risk of a shared/recycled phone number. The safeguards that make
-      // that risk tolerable live around this block, not in a stricter gate:
-      //   - the match is exact on the normalized value, never fuzzy;
-      //   - nothing about the existing lead — id, report token, PII — is ever
-      //     returned to the browser (buildSubmitResponse, D3);
-      //   - a report link goes only to the email already ON FILE
-      //     (reportLinkRecipient → emailExistingReportLink);
-      //   - the existing lead's contact fields are NOT overwritten from this
-      //     submission (neither this block nor reopenLostLead touches them);
-      //   - and the run records WHICH field matched, so a phone-only merge can
-      //     be found and corrected later.
-      const matchBasis = contactMatchBasis(
-        { email, phone },
-        { email: existing.email, phone: existing.phone },
-      );
+      // one lead, many runs (D3). This is an EMAIL match, so it is the same
+      // person by identity and the run attaches directly. The email on file
+      // equals the submitted email, so the report link (below) goes to the very
+      // address they just typed; still, nothing about the existing lead — id,
+      // token, PII — is returned to the browser (buildSubmitResponse), and the
+      // existing lead's contact fields are not overwritten from this submission.
       await discardSessionPartial(input.sessionId, existing.id);
       await discardAddressPartials(normalizedAddressKey(input.propertyAddress), existing.id);
-      await recordValuationRun(existing.id, input.propertyAddress, matchBasis);
+      await recordValuationRun(existing.id, input.propertyAddress);
       if (input.valuationToken) await linkValuationToLead(input.valuationToken, existing.id);
 
       // No acquisition conversion is enqueued here: this contact already
@@ -441,6 +422,15 @@ export async function POST(req: NextRequest) {
     }
 
     const submitEventId = await logLeadEvent(leadId, 'valuation_submitted', input.propertyAddress ?? null);
+
+    // Email-primary heads-up (D3): this lead reached the create path, so its
+    // email did NOT match any existing lead. If its PHONE matches a
+    // different-email lead, the admin — who can see every lead — is told right
+    // away to check for the same seller with a new email vs. a shared number.
+    // Suppressed for smoke-test leads. Best-effort; never blocks the response.
+    if (!fields.isTest) {
+      await alertAdminOfPhoneCollision({ id: leadId, firstName, lastName, email, phone });
+    }
 
     // Google Ads website/acquisition conversion (best-effort, no-op until
     // configured): seller_valuation for valuation leads, guide_download for
