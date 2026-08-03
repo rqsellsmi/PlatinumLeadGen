@@ -1,13 +1,10 @@
 'use client';
 
-import * as React from 'react';
 import Image from 'next/image';
-import { Button, Input } from '@/components/ui';
 import Logo from '@/components/Logo';
-import { fireSellerGuideConversion } from '@/lib/googleAdsConversions';
-import { getLeadAttribution } from '@/lib/attribution';
 import type { Guide } from '@/drizzle/schema';
 import PrivacyNote from '@/components/PrivacyNote';
+import GuideCaptureForm from '@/components/GuideCaptureForm';
 
 function parseBullets(json: string | null): string[] {
   if (!json) return [];
@@ -22,49 +19,11 @@ function parseBullets(json: string | null): string[] {
 /**
  * Admin-managed guide download with inline lead capture. Reuses the
  * seller_guide lead flow (leadType 'seller_guide'); the homepage passes no
- * city so the lead routes by property proximity.
+ * city so the lead routes by property proximity. The capture form itself lives
+ * in the shared GuideCaptureForm (P0.3), which carries the abuse signals.
  */
 export default function GuideDownloadBlock({ guide }: { guide: Guide }) {
   const bullets = parseBullets(guide.bulletsJson);
-  const [firstName, setFirstName] = React.useState('');
-  const [email, setEmail] = React.useState('');
-  const [loading, setLoading] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-  const [done, setDone] = React.useState(false);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!email.trim()) {
-      setError('Email is required.');
-      return;
-    }
-    setError(null);
-    setLoading(true);
-    try {
-      const res = await fetch('/api/leads/submit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId: crypto.randomUUID(),
-          firstName,
-          email,
-          leadType: 'seller_guide',
-          guideId: guide.id,
-          locationSlug: '',
-          ...getLeadAttribution(),
-        }),
-      });
-      if (!res.ok) throw new Error('We could not process your request. Please try again.');
-      const data = (await res.json().catch(() => ({}))) as { leadId?: number };
-      if (data.leadId != null) fireSellerGuideConversion(data.leadId, email);
-      setDone(true);
-      window.open(guide.fileUrl, '_blank', 'noopener,noreferrer');
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Something went wrong. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  }
 
   return (
     <section className="bg-white">
@@ -121,53 +80,21 @@ export default function GuideDownloadBlock({ guide }: { guide: Guide }) {
             </ul>
           ) : null}
 
-          {done ? (
-            <p className="mt-6 flex items-center gap-2 font-bold text-success">
-              ✓ Check your inbox — your guide is on the way.{' '}
-              <a
-                href={guide.fileUrl}
-                className="underline"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Download
-              </a>
-            </p>
-          ) : (
-            <form onSubmit={handleSubmit} className="mt-6 max-w-md space-y-2.5">
-              {error ? (
-                <div
-                  role="alert"
-                  className="rounded-lg border border-platinum-red/30 bg-danger-bg px-4 py-3 text-sm text-platinum-red"
-                >
-                  {error}
-                </div>
-              ) : null}
-              <div className="flex flex-wrap gap-2.5">
-                <Input
-                  value={firstName}
-                  onChange={(e) => setFirstName(e.target.value)}
-                  placeholder="First name"
-                  autoComplete="given-name"
-                  className="flex-1"
-                />
-                <Input
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  type="email"
-                  required
-                  placeholder="Email address"
-                  autoComplete="email"
-                  className="flex-1"
-                />
-              </div>
-              <Button type="submit" size="lg" className="w-full" disabled={loading}>
-                {loading ? 'Sending…' : (guide.ctaLabel ?? 'Email me the guide') + ' →'}
-              </Button>
-              <p className="text-xs text-mute-light">Free.</p>
-              <PrivacyNote />
-            </form>
-          )}
+          <GuideCaptureForm
+            guideId={guide.id}
+            locationSlug=""
+            fileUrl={guide.fileUrl}
+            ctaLabel={(guide.ctaLabel ?? 'Email me the guide') + ' →'}
+            inputLayout="row"
+            className="mt-6 max-w-md space-y-2.5"
+            doneClassName="mt-6 flex items-center gap-2 font-bold text-success"
+            footer={
+              <>
+                <p className="text-xs text-mute-light">Free.</p>
+                <PrivacyNote />
+              </>
+            }
+          />
         </div>
       </div>
     </section>

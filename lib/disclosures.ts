@@ -4,7 +4,6 @@
  * Before this module the public forms carried four different promises, and all
  * four contradicted the published Privacy Policy:
  *
- *   ValuationForm      "Your information is private and will never be shared or sold."
  *   HeroValuation      "We never share your information."
  *   ExitIntentOverlay  "We'll never share your address."
  *   GuideDownloadBlock "We never share your information."

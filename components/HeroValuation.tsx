@@ -12,6 +12,8 @@ import { isValidPersonName, INVALID_NAME_MESSAGE } from '@/lib/validation';
 import PrivacyNote from '@/components/PrivacyNote';
 import ExistingRecordNotice from '@/components/ExistingRecordNotice';
 import { parsePlaceComponents, type PlaceAddressComponent } from '@/lib/placeComponents';
+import { buildValuationPartialBody, buildValuationSubmitBody } from '@/lib/leadRequests';
+import HoneypotField, { useFormLoadedAt, readHoneypot } from '@/components/HoneypotField';
 
 /** Fired by the sticky CTA / exit-intent overlay to open this flow. */
 export const OPEN_VALUATION_EVENT = 'open-valuation';
@@ -120,6 +122,10 @@ export default function HeroValuation({
 
   const heroInputRef = React.useRef<HTMLInputElement>(null);
   const modalInputRef = React.useRef<HTMLInputElement>(null);
+  // Abuse signals (P0.3). formLoadedAt is stamped on mount; the honeypot lives
+  // in the contact step's form, read via contactFormRef at submit time.
+  const formLoadedAt = useFormLoadedAt();
+  const contactFormRef = React.useRef<HTMLFormElement>(null);
   const mapsKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
 
   const attach = React.useCallback((el: HTMLInputElement | null) => {
@@ -177,18 +183,22 @@ export default function HeroValuation({
           await fetch('/api/leads/partial', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              sessionId,
-              propertyAddress: data.propertyAddress,
-              propertyLat: data.propertyLat,
-              propertyLng: data.propertyLng,
-              propertyCity: data.propertyCity ?? undefined,
-              propertyState: data.propertyState ?? undefined,
-              propertyZip: data.propertyZip ?? undefined,
-              locationSlug: locationSlug || undefined,
-              pageVariant,
-              ...getLeadAttribution(),
-            }),
+            body: JSON.stringify(
+              buildValuationPartialBody({
+                sessionId,
+                propertyAddress: data.propertyAddress,
+                propertyLat: data.propertyLat,
+                propertyLng: data.propertyLng,
+                propertyCity: data.propertyCity ?? undefined,
+                propertyState: data.propertyState ?? undefined,
+                propertyZip: data.propertyZip ?? undefined,
+                locationSlug: locationSlug || undefined,
+                pageVariant,
+                honeypot: readHoneypot(contactFormRef.current),
+                formLoadedAt: formLoadedAt.current,
+                attribution: getLeadAttribution(),
+              }),
+            ),
           });
         } catch {
           /* non-critical */
@@ -288,25 +298,28 @@ export default function HeroValuation({
       const res = await fetch('/api/leads/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId,
-          firstName,
-          lastName,
-          email,
-          phone,
-          timeframe: timeframe || undefined,
-          propertyAddress: place.propertyAddress,
-          propertyLat: place.propertyLat,
-          propertyLng: place.propertyLng,
-          propertyCity: place.propertyCity ?? undefined,
-          propertyState: place.propertyState ?? undefined,
-          propertyZip: place.propertyZip ?? undefined,
-          valuationToken: valuation?.token ?? undefined,
-          leadType: 'valuation',
-          locationSlug: locationSlug || '',
-          pageVariant,
-          ...getLeadAttribution(),
-        }),
+        body: JSON.stringify(
+          buildValuationSubmitBody({
+            sessionId,
+            firstName,
+            lastName,
+            email,
+            phone,
+            timeframe: timeframe || undefined,
+            propertyAddress: place.propertyAddress,
+            propertyLat: place.propertyLat,
+            propertyLng: place.propertyLng,
+            propertyCity: place.propertyCity ?? undefined,
+            propertyState: place.propertyState ?? undefined,
+            propertyZip: place.propertyZip ?? undefined,
+            valuationToken: valuation?.token ?? undefined,
+            locationSlug: locationSlug || '',
+            pageVariant,
+            honeypot: readHoneypot(contactFormRef.current),
+            formLoadedAt: formLoadedAt.current,
+            attribution: getLeadAttribution(),
+          }),
+        ),
       });
       if (!res.ok) throw new Error('We could not submit your request. Please try again.');
       const data = (await res.json().catch(() => ({}))) as {
@@ -470,7 +483,8 @@ export default function HeroValuation({
                 <p className="mt-1 text-sm text-mute-light">{place.propertyAddress}</p>
               </div>
             ) : (
-              <form onSubmit={submitDetails} className="space-y-4">
+              <form ref={contactFormRef} onSubmit={submitDetails} className="relative space-y-4">
+                <HoneypotField />
                 {valuation && valuation.rangeLow != null && valuation.rangeHigh != null ? (
                   <div className="rounded-card bg-cream px-5 py-6 text-center">
                     <p className="text-[11px] font-bold uppercase tracking-[0.06em] text-mute-light">

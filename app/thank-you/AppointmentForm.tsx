@@ -5,6 +5,7 @@ import { Button, Input, Label, Card, CardBody, CardHeader } from '@/components/u
 import { dataLayerPush } from '@/lib/clientAnalytics';
 import { fireAppointmentRequestConversion } from '@/lib/googleAdsConversions';
 import { getLeadAttribution } from '@/lib/attribution';
+import { buildAppointmentBody } from '@/lib/leadRequests';
 import HoneypotField, { useFormLoadedAt, readHoneypot } from '@/components/HoneypotField';
 
 /**
@@ -62,19 +63,21 @@ export default function AppointmentForm({
       const res = await fetch('/api/appointments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name,
-          phone,
-          email: initialEmail || undefined,
-          preferredTime,
-          // The capability, not a raw lead id — a public endpoint cannot trust
-          // a bare integer to say which lead a request belongs to (P0.3).
-          reportToken: reportToken ?? undefined,
-          idempotencyKey,
-          company: readHoneypot(formRef.current),
-          formLoadedAt: formLoadedAt.current || undefined,
-          ...getLeadAttribution(),
-        }),
+        body: JSON.stringify(
+          buildAppointmentBody({
+            name,
+            phone,
+            email: initialEmail || undefined,
+            preferredTime,
+            // The capability, not a raw lead id — a public endpoint cannot trust
+            // a bare integer to say which lead a request belongs to (P0.3).
+            reportToken: reportToken ?? undefined,
+            idempotencyKey,
+            honeypot: readHoneypot(formRef.current),
+            formLoadedAt: formLoadedAt.current,
+            attribution: getLeadAttribution(),
+          }),
+        ),
       });
       if (!res.ok) throw new Error('We could not submit your request. Please try again.');
       dataLayerPush('appointment_requested');
