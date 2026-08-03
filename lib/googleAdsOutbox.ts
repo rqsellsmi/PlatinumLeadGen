@@ -52,6 +52,8 @@ export function acquisitionMilestoneFor(leadType: string | null | undefined): Ou
       return 'seller_valuation';
     case 'seller_guide':
       return 'guide_download';
+    case 'appointment':
+      return 'appointment_lead';
     default:
       return null; // 'webhook' and anything else: no acquisition conversion
   }

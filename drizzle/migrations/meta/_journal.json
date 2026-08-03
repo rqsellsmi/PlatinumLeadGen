@@ -274,6 +274,13 @@
       "when": 1786500000000,
       "tag": "0038_availability_opt_in",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1786600000000,
+      "tag": "0039_appointment_lead_type",
+      "breakpoints": true
     }
   ]
 }

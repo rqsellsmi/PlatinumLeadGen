@@ -59,6 +59,7 @@ describe('acquisitionMilestoneFor', () => {
   it('maps lead types to website/acquisition milestones', () => {
     expect(acquisitionMilestoneFor('valuation')).toBe('seller_valuation');
     expect(acquisitionMilestoneFor('seller_guide')).toBe('guide_download');
+    expect(acquisitionMilestoneFor('appointment')).toBe('appointment_lead');
     expect(acquisitionMilestoneFor('webhook')).toBeNull();
     expect(acquisitionMilestoneFor(null)).toBeNull();
     expect(acquisitionMilestoneFor(undefined)).toBeNull();

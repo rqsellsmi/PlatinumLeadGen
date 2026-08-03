@@ -29,7 +29,7 @@ import {
 // ---------------------------------------------------------------------------
 // Enums
 // ---------------------------------------------------------------------------
-export const leadTypeEnum = pgEnum('lead_type', ['valuation', 'seller_guide', 'webhook']);
+export const leadTypeEnum = pgEnum('lead_type', ['valuation', 'seller_guide', 'webhook', 'appointment']);
 
 // Buyer/Seller classification (migration 0026). Label only — no routing impact.
 // All current capture flows are seller-side, so this defaults to 'seller';

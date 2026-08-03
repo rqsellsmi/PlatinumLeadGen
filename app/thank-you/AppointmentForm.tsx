@@ -1,12 +1,23 @@
 'use client';
 
 import * as React from 'react';
+import Script from 'next/script';
 import { Button, Input, Label, Card, CardBody, CardHeader } from '@/components/ui';
 import { dataLayerPush } from '@/lib/clientAnalytics';
 import { fireAppointmentRequestConversion } from '@/lib/googleAdsConversions';
 import { getLeadAttribution } from '@/lib/attribution';
 import { buildAppointmentBody } from '@/lib/leadRequests';
+import { parsePlaceComponents } from '@/lib/placeComponents';
 import HoneypotField, { useFormLoadedAt, readHoneypot } from '@/components/HoneypotField';
+
+interface PlaceData {
+  propertyAddress: string;
+  propertyLat: number | null;
+  propertyLng: number | null;
+  propertyCity?: string | null;
+  propertyState?: string | null;
+  propertyZip?: string | null;
+}
 
 /**
  * Optional appointment-request form on the thank-you page (Section 22.7).
@@ -15,19 +26,27 @@ import HoneypotField, { useFormLoadedAt, readHoneypot } from '@/components/Honey
  * agent points and does not move the lead's stage. The bidding-quality
  * "Appointment" conversion fires when an AGENT sets appointment_set.
  *
- * The request is authorized by the lead-bound report token, not by a leadId
- * (P0.3 / #10) — see app/api/appointments/route.ts.
+ * With a report token the request attaches to that existing lead. WITHOUT one
+ * (the form reached as a first touch) the endpoint reconciles by email and, if
+ * new, CREATES a lead from these details — so the address field lets that lead
+ * be routed. The token, when present, prefills the address; otherwise the
+ * visitor picks it from Places autocomplete. The address is OPTIONAL: a
+ * "call me" request is never blocked on it (a lead with no address routes to
+ * the admin). See app/api/appointments/route.ts.
  */
 export default function AppointmentForm({
   initialName = '',
   initialPhone = '',
   initialEmail = '',
+  initialAddress = '',
   leadId = null,
   reportToken = null,
 }: {
   initialName?: string;
   initialPhone?: string;
   initialEmail?: string;
+  /** Prefilled property address when we already know the lead (token context). */
+  initialAddress?: string;
   /** Used only for the client-side conversion transaction id, never sent as authorization. */
   leadId?: number | null;
   /** The capability that authorizes attaching this request to a lead. */
@@ -35,21 +54,70 @@ export default function AppointmentForm({
 }) {
   const formLoadedAt = useFormLoadedAt();
   const formRef = React.useRef<HTMLFormElement>(null);
+  const addressRef = React.useRef<HTMLInputElement>(null);
   const [idempotencyKey] = React.useState(() =>
     typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : String(Math.random()),
   );
   const [name, setName] = React.useState(initialName);
   const [phone, setPhone] = React.useState(initialPhone);
   const [preferredTime, setPreferredTime] = React.useState('');
+  const [address, setAddress] = React.useState(initialAddress);
+  const [place, setPlace] = React.useState<PlaceData>({
+    propertyAddress: initialAddress,
+    propertyLat: null,
+    propertyLng: null,
+  });
+  const [mapsReady, setMapsReady] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [done, setDone] = React.useState(false);
+
+  const mapsKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
 
   // Prefill once values arrive from sessionStorage on the client.
   React.useEffect(() => {
     if (initialName) setName(initialName);
     if (initialPhone) setPhone(initialPhone);
-  }, [initialName, initialPhone]);
+    if (initialAddress) {
+      setAddress(initialAddress);
+      setPlace((p) => ({ ...p, propertyAddress: initialAddress }));
+    }
+  }, [initialName, initialPhone, initialAddress]);
+
+  const attach = React.useCallback((el: HTMLInputElement | null) => {
+    const places = window.google?.maps?.places;
+    if (!places || !el) return;
+    const ac = new places.Autocomplete(el, {
+      types: ['address'],
+      componentRestrictions: { country: 'us' },
+      fields: ['formatted_address', 'geometry', 'address_components'],
+    });
+    ac.addListener('place_changed', () => {
+      const sel = ac.getPlace();
+      const formatted = sel.formatted_address;
+      const loc = sel.geometry?.location;
+      if (!formatted) return;
+      const parts = parsePlaceComponents(sel.address_components);
+      setAddress(formatted);
+      setPlace({
+        propertyAddress: formatted,
+        propertyLat: loc ? loc.lat() : null,
+        propertyLng: loc ? loc.lng() : null,
+        propertyCity: parts.city,
+        propertyState: parts.state,
+        propertyZip: parts.zip,
+      });
+    });
+  }, []);
+
+  // Attach autocomplete once Maps is ready (it may already be loaded by the
+  // header's valuation widget, so check on mount as well as via Script onLoad).
+  React.useEffect(() => {
+    if (window.google?.maps?.places) {
+      setMapsReady(true);
+      attach(addressRef.current);
+    }
+  }, [attach]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -69,6 +137,13 @@ export default function AppointmentForm({
             phone,
             email: initialEmail || undefined,
             preferredTime,
+            // Optional — lets a tokenless appointment create a routable lead.
+            propertyAddress: place.propertyAddress || address || undefined,
+            propertyLat: place.propertyLat,
+            propertyLng: place.propertyLng,
+            propertyCity: place.propertyCity,
+            propertyState: place.propertyState,
+            propertyZip: place.propertyZip,
             // The capability, not a raw lead id — a public endpoint cannot trust
             // a bare integer to say which lead a request belongs to (P0.3).
             reportToken: reportToken ?? undefined,
@@ -93,6 +168,16 @@ export default function AppointmentForm({
 
   return (
     <Card>
+      {mapsKey && !mapsReady ? (
+        <Script
+          src={`https://maps.googleapis.com/maps/api/js?key=${mapsKey}&libraries=places`}
+          strategy="afterInteractive"
+          onLoad={() => {
+            setMapsReady(true);
+            attach(addressRef.current);
+          }}
+        />
+      ) : null}
       <CardHeader>
         <h2 className="text-xl font-bold text-charcoal">Prefer to schedule a call?</h2>
         <p className="mt-1 text-sm text-mute">
@@ -127,6 +212,20 @@ export default function AppointmentForm({
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 autoComplete="tel"
+              />
+            </div>
+            <div>
+              <Label htmlFor="appt-address">Property address</Label>
+              <Input
+                id="appt-address"
+                ref={addressRef}
+                value={address}
+                onChange={(e) => {
+                  setAddress(e.target.value);
+                  setPlace((p) => ({ ...p, propertyAddress: e.target.value }));
+                }}
+                autoComplete="off"
+                placeholder="Start typing your address (optional)"
               />
             </div>
             <div>

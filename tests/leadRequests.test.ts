@@ -108,6 +108,42 @@ describe('lead request bodies carry the abuse signals (P0.3)', () => {
     expect(body.idempotencyKey).toBe('idem');
   });
 
+  it('appointment forwards the optional property fields for lead creation', () => {
+    const body = buildAppointmentBody({
+      name: 'Jane Doe',
+      phone: '5551234567',
+      preferredTime: '',
+      propertyAddress: '1 Main St, Brighton, MI 48116, USA',
+      propertyLat: 42.5,
+      propertyLng: -83.8,
+      propertyCity: 'Brighton',
+      propertyState: 'MI',
+      propertyZip: '48116',
+      idempotencyKey: 'idem',
+      honeypot: '',
+      formLoadedAt: 4100,
+      attribution,
+    });
+    expect(body.propertyAddress).toBe('1 Main St, Brighton, MI 48116, USA');
+    expect(body.propertyLat).toBe(42.5);
+    expect(body.propertyLng).toBe(-83.8);
+    expect(body.propertyState).toBe('MI');
+  });
+
+  it('appointment omits property fields entirely when no address is entered', () => {
+    const body = buildAppointmentBody({
+      name: 'Jane Doe',
+      phone: '5551234567',
+      preferredTime: '',
+      idempotencyKey: 'idem',
+      honeypot: '',
+      formLoadedAt: 4200,
+      attribution,
+    });
+    expect(body.propertyAddress).toBeUndefined();
+    expect(body.propertyLat).toBeUndefined();
+  });
+
   it('collapses an unset formLoadedAt (0) to undefined but keeps the key present', () => {
     const body = buildAppointmentBody({
       name: 'Jane Doe',

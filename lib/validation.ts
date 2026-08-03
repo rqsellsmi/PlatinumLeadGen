@@ -146,6 +146,17 @@ export const appointmentSchema = z.object({
   email: z.string().email().max(200).optional().nullable(),
   preferredTime: z.string().max(200).optional().nullable(),
   notes: z.string().max(2000).optional().nullable(),
+  // Property (optional). Present when the appointment form is a first touch and
+  // the visitor entered an address; used to CREATE and route a lead when no
+  // report token links to an existing one (D4). Prefilled from the existing
+  // lead when a token is present. Coordinates come from Places autocomplete so
+  // an appointment-origin lead can be proximity-routed and gated for coverage.
+  propertyAddress: z.string().max(300).optional().nullable(),
+  propertyLat: z.number().optional().nullable(),
+  propertyLng: z.number().optional().nullable(),
+  propertyCity: z.string().max(120).optional().nullable(),
+  propertyState: z.string().max(40).optional().nullable(),
+  propertyZip: z.string().max(20).optional().nullable(),
   /**
    * The lead-bound CAPABILITY (P0.3 / review #10, D3). This replaced a raw
    * `leadId`: the endpoint is public, so accepting a bare integer let anyone

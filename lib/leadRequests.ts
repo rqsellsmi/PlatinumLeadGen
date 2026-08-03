@@ -159,6 +159,14 @@ export interface AppointmentInput extends AbuseSignalInput {
   phone: string;
   email?: string;
   preferredTime: string;
+  /** Optional property (Places autocomplete). Lets a tokenless appointment
+   *  create and route a real lead; prefilled from the existing lead with a token. */
+  propertyAddress?: string | null;
+  propertyLat?: number | null;
+  propertyLng?: number | null;
+  propertyCity?: string | null;
+  propertyState?: string | null;
+  propertyZip?: string | null;
   /** The capability that authorizes attaching the request to a lead (P0.3). */
   reportToken?: string | null;
   idempotencyKey: string;
@@ -171,6 +179,12 @@ export function buildAppointmentBody(input: AppointmentInput) {
     phone: input.phone,
     email: input.email || undefined,
     preferredTime: input.preferredTime,
+    propertyAddress: input.propertyAddress || undefined,
+    propertyLat: input.propertyLat ?? undefined,
+    propertyLng: input.propertyLng ?? undefined,
+    propertyCity: input.propertyCity || undefined,
+    propertyState: input.propertyState || undefined,
+    propertyZip: input.propertyZip || undefined,
     reportToken: input.reportToken ?? undefined,
     idempotencyKey: input.idempotencyKey,
     ...input.attribution,

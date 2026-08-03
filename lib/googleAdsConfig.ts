@@ -16,6 +16,14 @@ export type OutboxMilestone =
   | 'seller_valuation'
   | 'guide_download'
   /**
+   * A lead ACQUIRED through the appointment-request form — i.e. the form was
+   * the first touch, so a new lead was created from it (D4 continuation). This
+   * is the acquisition counterpart to `seller_valuation` / `guide_download`,
+   * distinct from `appointment_requested` (which fires for every appointment
+   * submission, including on leads that already converted).
+   */
+  | 'appointment_lead'
+  /**
    * The public appointment-request FORM. A lead SIGNAL, not a verified
    * appointment — the visitor asked, nobody has confirmed anything (D4).
    * Configure this action as SECONDARY (observation only) in Google Ads so
@@ -36,6 +44,7 @@ export type OutboxMilestone =
 export const OUTBOX_MILESTONES: readonly OutboxMilestone[] = [
   'seller_valuation',
   'guide_download',
+  'appointment_lead',
   'appointment_requested',
   'appointment_set',
   'valid_seller_lead',
@@ -62,6 +71,8 @@ export function conversionActionId(milestone: OutboxMilestone): string {
       return process.env.GOOGLE_ADS_ACTION_ID_SELLER_VALUATION || '';
     case 'guide_download':
       return process.env.GOOGLE_ADS_ACTION_ID_GUIDE_DOWNLOAD || '';
+    case 'appointment_lead':
+      return process.env.GOOGLE_ADS_ACTION_ID_APPOINTMENT_LEAD || '';
     case 'appointment_requested':
       return process.env.GOOGLE_ADS_ACTION_ID_APPOINTMENT || '';
     case 'appointment_set':
