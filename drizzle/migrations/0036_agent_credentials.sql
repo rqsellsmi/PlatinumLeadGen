@@ -54,14 +54,22 @@ ALTER TABLE "notification_settings"
 -- agent received yesterday still resolves after this deploys. The raw column is
 -- cleared in the same statement — the hash is now the lookup key, and keeping
 -- the plaintext would defeat the point of hashing it.
+--
+-- Uses the BUILT-IN sha256() (core since PostgreSQL 11), NOT pgcrypto's
+-- digest(). An earlier version guarded a digest() call with an EXISTS check on
+-- pg_extension, but Postgres resolves the function during parse analysis — before
+-- any WHERE runs — so on a database without pgcrypto the statement failed to
+-- parse and rolled the whole migration back instead of no-op'ing. This chain
+-- never installs pgcrypto, so that was every fresh setup (CI, a new Neon branch,
+-- local, full-setup.sql). sha256(convert_to(token,'UTF8')) hex-encoded equals
+-- lib/agentPortalAuth.hashToken() exactly, so the stored hashes match what the
+-- login path looks up.
 UPDATE "agents"
-   SET "magic_link_token_hash" = encode(digest("magic_link_token", 'sha256'), 'hex'),
+   SET "magic_link_token_hash" = encode(sha256(convert_to("magic_link_token", 'UTF8')), 'hex'),
        "magic_link_token" = NULL
  WHERE "magic_link_token" IS NOT NULL
-   AND "magic_link_token_hash" IS NULL
-   AND EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pgcrypto');
+   AND "magic_link_token_hash" IS NULL;
 
--- If pgcrypto is not installed the UPDATE above is a no-op and the raw tokens
--- stay put; they are then re-hashed lazily on next use (lib/agentMagicLink.ts
--- re-issues when it cannot resolve a hash). Agents are never locked out either
--- way — an unresolvable link lands on the "request a new link" page (D6).
+-- Agents are never locked out regardless: an unresolvable link lands on the
+-- "request a new link" page, and lib/agentMagicLink.ts re-issues a hashed token
+-- on next use (D6).
