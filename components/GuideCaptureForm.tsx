@@ -5,6 +5,7 @@ import { Button, Input, Label } from '@/components/ui';
 import { fireSellerGuideConversion } from '@/lib/googleAdsConversions';
 import { getLeadAttribution } from '@/lib/attribution';
 import { buildGuideLeadBody } from '@/lib/leadRequests';
+import PrivacyNote from '@/components/PrivacyNote';
 import HoneypotField, { useFormLoadedAt, readHoneypot } from '@/components/HoneypotField';
 
 /**
@@ -166,6 +167,9 @@ export default function GuideCaptureForm({
       <Button type="submit" size="lg" className="w-full" disabled={loading}>
         {loading ? loadingLabel : ctaLabel}
       </Button>
+      {/* The shared privacy disclosure is part of the capture form itself (P0.6),
+          so every guide surface carries it and a new caller can't omit it. */}
+      <PrivacyNote />
       {footer}
     </form>
   );

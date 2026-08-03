@@ -3,7 +3,6 @@
 import Image from 'next/image';
 import Logo from '@/components/Logo';
 import type { Guide } from '@/drizzle/schema';
-import PrivacyNote from '@/components/PrivacyNote';
 import GuideCaptureForm from '@/components/GuideCaptureForm';
 
 function parseBullets(json: string | null): string[] {
@@ -88,12 +87,7 @@ export default function GuideDownloadBlock({ guide }: { guide: Guide }) {
             inputLayout="row"
             className="mt-6 max-w-md space-y-2.5"
             doneClassName="mt-6 flex items-center gap-2 font-bold text-success"
-            footer={
-              <>
-                <p className="text-xs text-mute-light">Free.</p>
-                <PrivacyNote />
-              </>
-            }
+            footer={<p className="text-xs text-mute-light">Free.</p>}
           />
         </div>
       </div>

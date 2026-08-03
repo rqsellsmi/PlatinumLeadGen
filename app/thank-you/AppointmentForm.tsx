@@ -8,6 +8,7 @@ import { fireAppointmentRequestConversion } from '@/lib/googleAdsConversions';
 import { getLeadAttribution } from '@/lib/attribution';
 import { buildAppointmentBody } from '@/lib/leadRequests';
 import { parsePlaceComponents } from '@/lib/placeComponents';
+import PrivacyNote from '@/components/PrivacyNote';
 import HoneypotField, { useFormLoadedAt, readHoneypot } from '@/components/HoneypotField';
 
 interface PlaceData {
@@ -240,6 +241,7 @@ export default function AppointmentForm({
             <Button type="submit" size="lg" className="w-full" disabled={loading}>
               {loading ? 'Submitting…' : 'Request appointment'}
             </Button>
+            <PrivacyNote className="text-center" />
           </form>
         )}
       </CardBody>

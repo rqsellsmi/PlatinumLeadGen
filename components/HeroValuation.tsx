@@ -416,6 +416,11 @@ export default function HeroValuation({
         >
           {buttonLabel}
         </button>
+        {/* Pre-submission collection notice (D8): entering an address here posts
+            a partial, so the retention disclosure belongs at this step. `w-full`
+            wraps it onto its own line inside the white box, where contrast holds
+            regardless of the hero backdrop behind it. */}
+        <PrivacyNote variant="address" className="w-full px-1 pt-0.5" />
       </form>
       )}
 
@@ -476,6 +481,8 @@ export default function HeroValuation({
                 <Button type="submit" size="lg" className="w-full">
                   Get my estimate →
                 </Button>
+                {/* This step also posts a partial (D8) — disclose retention here. */}
+                <PrivacyNote variant="address" className="text-center" />
               </form>
             ) : loading && !valuation && !valuationFailed ? (
               <div className="py-10 text-center">
