@@ -180,6 +180,33 @@ export function isStrongContactMatch(
   return email === normalizeEmail(onFile.email) && phone === normalizePhone(onFile.phone);
 }
 
+/** Which field(s) a contact match was made on. */
+export type ContactMatchBasis = 'email+phone' | 'email' | 'phone' | 'unknown';
+
+/**
+ * Which field(s) actually matched between a submission and the record on file.
+ *
+ * Dedup attaches a new valuation to an existing lead on EITHER an exact email
+ * or an exact phone match (the deliberate D3 tradeoff: simpler dedup and better
+ * continuity for returning sellers, at the accepted risk of shared/recycled
+ * numbers). This records HOW the match was made so a phone-only merge — the one
+ * that can wrongly fuse two people behind a recycled number — can be found and
+ * corrected later. Comparison is exact on the normalized value, never fuzzy.
+ */
+export function contactMatchBasis(
+  submitted: { email: string | null; phone: string | null },
+  onFile: { email: string | null; phone: string | null },
+): ContactMatchBasis {
+  const subEmail = normalizeEmail(submitted.email);
+  const subPhone = normalizePhone(submitted.phone);
+  const emailMatch = subEmail != null && subEmail === normalizeEmail(onFile.email);
+  const phoneMatch = subPhone != null && subPhone === normalizePhone(onFile.phone);
+  if (emailMatch && phoneMatch) return 'email+phone';
+  if (emailMatch) return 'email';
+  if (phoneMatch) return 'phone';
+  return 'unknown';
+}
+
 function normalizeEmail(v: string | null): string | null {
   const s = (v ?? '').trim().toLowerCase();
   return s || null;

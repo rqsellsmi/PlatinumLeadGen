@@ -16,6 +16,7 @@ import {
   buildSubmitResponse,
   reportLinkRecipient,
   isStrongContactMatch,
+  contactMatchBasis,
   type LeadIdentityDecision,
 } from '../lib/leadIdentity';
 
@@ -200,5 +201,53 @@ describe('isStrongContactMatch — auto-merge stays conservative (D3)', () => {
 
   it('rejects an unusably short phone rather than matching on noise', () => {
     expect(isStrongContactMatch({ email: 'a@b.com', phone: '123' }, { email: 'a@b.com', phone: '123' })).toBe(false);
+  });
+});
+
+describe('contactMatchBasis — records HOW a dedup match was made (D3)', () => {
+  it('reports email+phone when both agree (normalization is exact, not fuzzy)', () => {
+    expect(
+      contactMatchBasis(
+        { email: 'a@b.com', phone: '810-555-0134' },
+        { email: 'A@B.com', phone: '(810) 555-0134' },
+      ),
+    ).toBe('email+phone');
+  });
+
+  it('reports email when only the email agrees', () => {
+    expect(
+      contactMatchBasis(
+        { email: 'a@b.com', phone: '810-555-0001' },
+        { email: 'a@b.com', phone: '810-555-0134' },
+      ),
+    ).toBe('email');
+  });
+
+  it('reports phone for the shared/recycled-number case worth flagging', () => {
+    expect(
+      contactMatchBasis(
+        { email: 'newowner@example.com', phone: '810-555-0134' },
+        { email: 'prevowner@example.com', phone: '810-555-0134' },
+      ),
+    ).toBe('phone');
+  });
+
+  it('ignores an unusably short phone when deciding the basis', () => {
+    // '123' is below the 7-digit floor, so a shared short string is not a match.
+    expect(
+      contactMatchBasis(
+        { email: 'a@b.com', phone: '123' },
+        { email: 'a@b.com', phone: '123' },
+      ),
+    ).toBe('email');
+  });
+
+  it('returns unknown when nothing actually agrees', () => {
+    expect(
+      contactMatchBasis(
+        { email: 'x@y.com', phone: '2225550000' },
+        { email: 'a@b.com', phone: '8105550134' },
+      ),
+    ).toBe('unknown');
   });
 });

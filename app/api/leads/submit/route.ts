@@ -27,7 +27,7 @@ import {
   decideLeadIdentity,
   buildSubmitResponse,
   reportLinkRecipient,
-  isStrongContactMatch,
+  contactMatchBasis,
   type LeadIdentityDecision,
 } from '@/lib/leadIdentity';
 import { isTestContact, configuredTestDomains } from '@/lib/testLeads';
@@ -120,8 +120,16 @@ async function emailExistingReportLink(
  * address — one lead may value several homes over time, so each run lands on
  * the activity timeline instead of changing whose lead it is.
  */
-async function recordValuationRun(leadId: number, address: string | null | undefined) {
-  await logLeadEvent(leadId, 'valuation_run', address ?? null);
+async function recordValuationRun(
+  leadId: number,
+  address: string | null | undefined,
+  matchBasis?: string,
+) {
+  // The note keeps the address on the timeline and, for a run attached to an
+  // existing lead, HOW the contact matched (D3) — so a phone-only merge behind
+  // a shared/recycled number can be found and corrected later.
+  const note = matchBasis ? `${address ?? '(no address)'} — matched on ${matchBasis}` : (address ?? null);
+  await logLeadEvent(leadId, 'valuation_run', note);
 }
 
 /**
@@ -321,23 +329,28 @@ export async function POST(req: NextRequest) {
       }
 
       // The valuation the visitor just ran belongs on this lead's timeline —
-      // one lead, many runs (D3) — BUT only when we're confident it is the same
-      // person. A contact match on email OR phone is not proof (D3 REVISED): a
-      // phone-only match carrying an attacker's typed address would otherwise
-      // pollute the matched lead with an unrelated property. So the run and the
-      // valuation are attached only on a STRONG match (email AND phone both
-      // match the record on file). A weak match still resolves as a duplicate
-      // and notifies the agent above — it just records nothing attacker-owned.
-      const strongMatch = isStrongContactMatch(
+      // one lead, many runs (D3). Attach it on EITHER an exact email or an
+      // exact phone match: the deliberate tradeoff (D3, code-team direction) is
+      // simpler dedup and better continuity for returning sellers, accepting the
+      // limited risk of a shared/recycled phone number. The safeguards that make
+      // that risk tolerable live around this block, not in a stricter gate:
+      //   - the match is exact on the normalized value, never fuzzy;
+      //   - nothing about the existing lead — id, report token, PII — is ever
+      //     returned to the browser (buildSubmitResponse, D3);
+      //   - a report link goes only to the email already ON FILE
+      //     (reportLinkRecipient → emailExistingReportLink);
+      //   - the existing lead's contact fields are NOT overwritten from this
+      //     submission (neither this block nor reopenLostLead touches them);
+      //   - and the run records WHICH field matched, so a phone-only merge can
+      //     be found and corrected later.
+      const matchBasis = contactMatchBasis(
         { email, phone },
         { email: existing.email, phone: existing.phone },
       );
       await discardSessionPartial(input.sessionId, existing.id);
       await discardAddressPartials(normalizedAddressKey(input.propertyAddress), existing.id);
-      if (strongMatch) {
-        await recordValuationRun(existing.id, input.propertyAddress);
-        if (input.valuationToken) await linkValuationToLead(input.valuationToken, existing.id);
-      }
+      await recordValuationRun(existing.id, input.propertyAddress, matchBasis);
+      if (input.valuationToken) await linkValuationToLead(input.valuationToken, existing.id);
 
       // No acquisition conversion is enqueued here: this contact already
       // converted, and re-firing would double-count in Smart Bidding. The
