@@ -419,11 +419,11 @@ export default function HeroValuation({
         </button>
       </form>
       {/* Pre-submission collection notice (D8): entering an address posts a
-          partial, so the retention disclosure sits just under the box at the
-          point of entry. The inline box only ever renders on the dark hero
-          backdrop, so `onDark` gives it the same muted-white tone as the
-          surrounding hero copy — present but unobtrusive. */}
-      <PrivacyNote variant="address" onDark className="mt-2 max-w-xl px-1 sm:max-w-2xl lg:max-w-3xl" />
+          partial, so the retention disclosure sits at the point of entry — but
+          collapsed to a small "How we use your address" link under the box so it
+          stays unobtrusive, expanding on tap. Only ever on the dark hero
+          backdrop, so `onDark` matches the surrounding hero copy. */}
+      <PrivacyNote variant="address" onDark collapsible className="mt-2 max-w-xl px-1 sm:max-w-2xl lg:max-w-3xl" />
       </>
       )}
 
