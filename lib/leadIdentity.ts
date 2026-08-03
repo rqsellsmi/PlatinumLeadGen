@@ -160,32 +160,3 @@ export function reportLinkRecipient(decision: LeadIdentityDecision): string | nu
   }
   return null;
 }
-
-/**
- * Should a lead be flagged as a duplicate CANDIDATE for reconciliation rather
- * than auto-merged?
- *
- * Auto-merge must be conservative (D3): merge only on a strong match — the same
- * email AND the same phone. A single shared, recycled or mistyped contact field
- * is not enough to fuse two people's records, and an incorrect merge is far
- * harder to undo than a duplicate row.
- */
-export function isStrongContactMatch(
-  submitted: { email: string | null; phone: string | null },
-  onFile: { email: string | null; phone: string | null },
-): boolean {
-  const email = normalizeEmail(submitted.email);
-  const phone = normalizePhone(submitted.phone);
-  if (!email || !phone) return false;
-  return email === normalizeEmail(onFile.email) && phone === normalizePhone(onFile.phone);
-}
-
-function normalizeEmail(v: string | null): string | null {
-  const s = (v ?? '').trim().toLowerCase();
-  return s || null;
-}
-
-function normalizePhone(v: string | null): string | null {
-  const digits = (v ?? '').replace(/\D/g, '');
-  return digits.length >= 7 ? digits : null;
-}

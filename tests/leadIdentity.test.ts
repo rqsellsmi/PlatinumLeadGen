@@ -15,7 +15,6 @@ import {
   decideLeadIdentity,
   buildSubmitResponse,
   reportLinkRecipient,
-  isStrongContactMatch,
   type LeadIdentityDecision,
 } from '../lib/leadIdentity';
 
@@ -162,43 +161,5 @@ describe('reportLinkRecipient — possession proof goes to the address ON FILE',
   it('returns null for a lead the browser created itself (nothing to verify)', () => {
     expect(reportLinkRecipient({ kind: 'create' })).toBeNull();
     expect(reportLinkRecipient({ kind: 'update_partial', leadId: 3 })).toBeNull();
-  });
-});
-
-describe('isStrongContactMatch — auto-merge stays conservative (D3)', () => {
-  it('requires BOTH email and phone to agree', () => {
-    expect(
-      isStrongContactMatch(
-        { email: 'a@b.com', phone: '810-555-0134' },
-        { email: 'A@B.com', phone: '(810) 555-0134' },
-      ),
-    ).toBe(true);
-  });
-
-  it('rejects a shared or recycled phone with a different email', () => {
-    expect(
-      isStrongContactMatch(
-        { email: 'newowner@example.com', phone: '810-555-0134' },
-        { email: 'prevowner@example.com', phone: '810-555-0134' },
-      ),
-    ).toBe(false);
-  });
-
-  it('rejects a matching email with a different phone', () => {
-    expect(
-      isStrongContactMatch(
-        { email: 'a@b.com', phone: '810-555-0001' },
-        { email: 'a@b.com', phone: '810-555-0134' },
-      ),
-    ).toBe(false);
-  });
-
-  it('rejects when either side is missing a field', () => {
-    expect(isStrongContactMatch({ email: 'a@b.com', phone: null }, { email: 'a@b.com', phone: '8105550134' })).toBe(false);
-    expect(isStrongContactMatch({ email: null, phone: '8105550134' }, { email: 'a@b.com', phone: '8105550134' })).toBe(false);
-  });
-
-  it('rejects an unusably short phone rather than matching on noise', () => {
-    expect(isStrongContactMatch({ email: 'a@b.com', phone: '123' }, { email: 'a@b.com', phone: '123' })).toBe(false);
   });
 });
