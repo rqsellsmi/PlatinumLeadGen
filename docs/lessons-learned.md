@@ -1116,3 +1116,84 @@ Closing the eight P0 items from the external project review. Durable lessons:
 - **Backticks in a `git commit -m` heredoc-less shell string will silently
   truncate the message** via command substitution. Write long commit messages
   to a file and use `-F`.
+
+---
+
+## 23. P0 review round-2 + launch-prep session
+
+A second reviewer pass on the §22/§10 remediation, worked item-by-item ("confirm
+it's true, then check in before coding" — §0), plus the last content change
+before ads. Branch `claude/p0-repairs-ci-setup-dwhq25`. Tests 307 → 322.
+
+- **Postgres resolves function names at PARSE time, before any WHERE runs.** A
+  migration guarded `digest()` (pgcrypto) with `WHERE EXISTS (… pg_extension)`,
+  thinking it would no-op when the extension is absent. It doesn't — the whole
+  statement fails to parse (`function digest does not exist`) and rolls the
+  migration back. A WHERE clause can't save a statement that references a missing
+  function. Fix: the built-in `sha256(convert_to(x,'UTF8'))` (core since PG 11),
+  no extension. Same class as §16b (a "valid" thing that fails at a phase you
+  didn't picture) — reason about *when* the DB evaluates each part.
+- **A "dead" file can be load-bearing for TYPES.** Deleting the orphaned
+  `city/ValuationForm.tsx` broke `HeroValuation` and the exit-intent overlay —
+  the file was the only home of the `declare global { interface Window { google } }`
+  augmentation. Before deleting an unused file, grep it for `declare global`,
+  ambient types, side-effect imports, and re-exports — not just component usage.
+- **neon-http has NO interactive transactions** — `db.transaction()` throws
+  "No transactions support in neon-http driver". `db.batch()` is a *non-interactive*
+  atomic batch (no branching on results). So a claim-then-work flow that must
+  branch (find-or-create a lead) can't be a real transaction on the http driver.
+  Options: a WebSocket `Pool` (against the deliberate no-WebSocket choice), or a
+  **compensating release** — claim, and on failure delete the claim so a retry
+  completes. The compensating path is only safe because two *other* invariants
+  hold: `idempotency_key` is UNIQUE (the claim is atomic) and dedup is
+  email-primary with email required (a retry re-attaches to any lead the failed
+  attempt created instead of duplicating). Atomicity often comes from composing
+  constraints, not one transaction.
+- **Consume a single-use token with a GUARDED `UPDATE … RETURNING`, not
+  read-then-write-by-id.** set-password / password-reset both read the token then
+  updated by agent id, so two concurrent requests both passed. The fix is one
+  statement whose WHERE re-asserts every consumption precondition (token still
+  present, password still null, active, unexpired); zero rows returned = the race
+  was lost. The pre-SELECT stays only for nice error messages. Same shape as the
+  atomic idempotency claim.
+- **Store every emailed token as a HASH; the column name can lie.** The
+  password-reset token was plaintext at rest while invite/magic-link were hashed —
+  an easy inconsistency to miss because the column is just `password_reset_token`.
+  Hash at rest (store `hashToken(x)`, look up by `hashToken(submitted)`); the
+  128-char column already fit the 64-char hash, so no migration.
+- **A required field gated on an UNVERIFIABLE client signal isn't required.**
+  The appointment email was `required={!reportToken}` — but the browser can't tell
+  a valid token from an expired one, so an expired token made email look optional
+  while the server rejected it. Make it unconditionally required; the happy-path
+  visitor has it prefilled anyway.
+- **A dormant control is worse than no control because it reads as done.** The
+  P0.3 honeypot + timing signals existed server-side but the main forms never
+  *sent* them, so the gate was a no-op on the exact PPC funnel it was meant to
+  protect. Server unit tests proved the evaluator; they can't see what the client
+  transmits. Centralizing each form's request body in pure builders
+  (`lib/leadRequests.ts`) made "did we send the signals?" a unit-testable
+  property, and unblocked deleting a duplicated form (two guide forms → one).
+- **`ON CONFLICT` targets a unique index that must already exist.** The atomic
+  appointment claim (`.onConflictDoNothing({ target: idempotencyKey })`) errors at
+  runtime until migration 0040 creates the unique index — so it's a hard
+  migrate-before-deploy ordering, and a plain unique index (not partial) already
+  allows multiple NULL keys via default NULLS DISTINCT.
+- **`ALTER TYPE … ADD VALUE` is fine inside a transaction on PG 12+** *as long as
+  the new value isn't USED in the same transaction* (it isn't — the first insert
+  is a later request), so drizzle's transactional migration runner handles the new
+  `appointment` `lead_type` without special casing. Use `IF NOT EXISTS` to stay
+  idempotent.
+- **Homepage city tiles and `/sell/[slug]` are pure data (active `locations`).**
+  Growing from 4 to 12 tiles needed no component change — the grid already scales.
+  But tile *numbers* come from `market_stats`, populated by the IDX metrics job
+  matching sold listings where `city` **exactly** equals the location's name (or
+  its `matchCities`); a zero-match city is skipped (never zeroed), so a new tile
+  shows city+photo but no valuation until the next sync populates it — and a
+  township/lake whose feed string differs needs `matchCities` set. Adding a city
+  is a data migration, not code.
+- **When the ground truth is in production data you can't reach, hand the owner
+  the exact query.** "The 12 cities where we have the most of OUR active listings"
+  is a `GROUP BY city` over `idx_listings WHERE is_office_listing AND standard_status='Active'`
+  — I can't run it here, so I gave the query and a geographic placeholder set the
+  owner could accept and refine in the admin, rather than guessing into a
+  production migration.
