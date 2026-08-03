@@ -288,6 +288,13 @@
       "when": 1786700000000,
       "tag": "0040_appointment_idempotency_unique",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1786800000000,
+      "tag": "0041_launch_city_locations",
+      "breakpoints": true
     }
   ]
 }
