@@ -63,10 +63,11 @@ export default function AppointmentForm({
   const [phone, setPhone] = React.useState(initialPhone);
   const [email, setEmail] = React.useState(initialEmail);
   const [preferredTime, setPreferredTime] = React.useState('');
-  // Email is the identity key AND the fallback contact channel, so it is
-  // required whenever this request would CREATE a lead (no report token). With a
-  // token the existing lead already carries contact info.
-  const emailRequired = !reportToken;
+  // Email is ALWAYS required. The browser can't tell a valid report token from
+  // an expired/invalid one, so gating on "has token" would let a submit through
+  // with no email only for the server to reject it. It is also the identity key
+  // and the fallback contact channel. Valuation visitors have it prefilled.
+  const emailRequired = true;
   const [address, setAddress] = React.useState(initialAddress);
   const [place, setPlace] = React.useState<PlaceData>({
     propertyAddress: initialAddress,

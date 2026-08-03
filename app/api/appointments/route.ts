@@ -93,6 +93,14 @@ export async function POST(req: NextRequest) {
     const email = input.email ?? null;
     const phone = input.phone ?? null;
 
+    // Email is ALWAYS required — it is the identity key and the fallback contact
+    // channel, and a report token's mere presence is not proof it is valid, so we
+    // cannot make email conditional on it. Without an email we'd route a lead an
+    // agent can't reach. Phone stays optional (owner decision).
+    if (!email) {
+      return NextResponse.json({ error: 'email_required' }, { status: 400 });
+    }
+
     let leadId: number | null = null;
     if (input.reportToken) {
       if (!(await checkCapabilityLimit(input.reportToken, 'appointment'))) {
@@ -100,14 +108,6 @@ export async function POST(req: NextRequest) {
       }
       const resolved = await resolveReportToken(input.reportToken);
       leadId = resolved?.leadId ?? null;
-    }
-
-    // A request not tied to a lead by a token needs an email — to match an
-    // existing lead or to CREATE a contactable one. Without it we'd route a
-    // name-only lead to an agent who can't reach the seller. Phone stays
-    // optional (owner decision).
-    if (leadId == null && !email) {
-      return NextResponse.json({ error: 'email_required' }, { status: 400 });
     }
 
     // ----- Idempotency (D5), enforced ATOMICALLY ---------------------------
