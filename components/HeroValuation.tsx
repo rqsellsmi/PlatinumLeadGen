@@ -388,6 +388,7 @@ export default function HeroValuation({
           renders just the modal. Wider on desktop so the full address stays
           visible (the button is wide, so a narrow form clipped long addresses). */}
       {modalOnly ? null : (
+      <>
       <form
         onSubmit={startFromAddress}
         className="flex w-full max-w-xl flex-wrap gap-2.5 rounded-2xl bg-white p-2.5 shadow-[0_18px_48px_rgba(20,20,24,0.3)] sm:max-w-2xl lg:max-w-3xl"
@@ -416,12 +417,14 @@ export default function HeroValuation({
         >
           {buttonLabel}
         </button>
-        {/* Pre-submission collection notice (D8): entering an address here posts
-            a partial, so the retention disclosure belongs at this step. `w-full`
-            wraps it onto its own line inside the white box, where contrast holds
-            regardless of the hero backdrop behind it. */}
-        <PrivacyNote variant="address" className="w-full px-1 pt-0.5" />
       </form>
+      {/* Pre-submission collection notice (D8): entering an address posts a
+          partial, so the retention disclosure sits just under the box at the
+          point of entry. The inline box only ever renders on the dark hero
+          backdrop, so `onDark` gives it the same muted-white tone as the
+          surrounding hero copy — present but unobtrusive. */}
+      <PrivacyNote variant="address" onDark className="mt-2 max-w-xl px-1 sm:max-w-2xl lg:max-w-3xl" />
+      </>
       )}
 
       {/* Modal — portaled to <body> so it escapes the hero's `isolate`
