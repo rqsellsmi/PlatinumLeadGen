@@ -139,8 +139,16 @@ export async function POST(req: NextRequest) {
     }
     const appointmentId = claimed[0].id;
 
-    // Now that this request owns the claim, resolve/create the lead.
+    // Now that this request owns the claim, resolve/create the lead. The HTTP
+    // DB driver has no interactive transactions, so if this essential work
+    // fails we RELEASE the claim (delete the appointment row) in the catch —
+    // otherwise the key would stay claimed and a retry would return a premature
+    // "deduped success" with no lead, turning a transient DB blip into a lost
+    // paid lead (P0.8). A retry re-runs cleanly: email is required and dedup is
+    // email-primary, so if a lead was already created before the failure the
+    // retry attaches to it rather than duplicating.
     let newLeadCreated = false;
+    try {
     if (leadId == null) {
       const match = await findLeadByEmail(email);
       if (match) {
@@ -184,16 +192,34 @@ export async function POST(req: NextRequest) {
         .set({ leadId })
         .where(eq(appointmentRequests.id, appointmentId));
     }
+    } catch (err) {
+      // Release the claim so a retry can complete (see the note above the try).
+      await db
+        .delete(appointmentRequests)
+        .where(eq(appointmentRequests.id, appointmentId))
+        .catch((delErr) =>
+          console.error('[api/appointments] failed to release idempotency claim:', delErr),
+        );
+      throw err;
+    }
 
-    // Suppress everything downstream for a prod smoke test (D20/D23).
+    // Everything below is best-effort and must NOT throw the handler once the
+    // lead is captured — a throw here would 500 a request whose lead already
+    // exists, and the retry would (correctly) dedup, skipping routing/email. So
+    // the test lookup fails soft, and the event/conversion/routing/email calls
+    // are each already non-throwing.
     let isTest = false;
     if (leadId != null) {
-      const rows = await db
-        .select({ isTest: leads.isTest })
-        .from(leads)
-        .where(eq(leads.id, leadId))
-        .limit(1);
-      isTest = rows[0]?.isTest ?? false;
+      try {
+        const rows = await db
+          .select({ isTest: leads.isTest })
+          .from(leads)
+          .where(eq(leads.id, leadId))
+          .limit(1);
+        isTest = rows[0]?.isTest ?? false;
+      } catch (err) {
+        console.error('[api/appointments] isTest lookup failed; treating as non-test:', err);
+      }
     }
 
     let apptEventId: number | null = null;
