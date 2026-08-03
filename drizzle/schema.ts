@@ -180,6 +180,9 @@ export const agents = pgTable(
     sessionVersion: integer('session_version').notNull().default(0),
     // Password auth — Section 3.3 additions.
     passwordHash: varchar('password_hash', { length: 200 }),
+    // Stores the SHA-256 HASH of the emailed reset token, never the plaintext
+    // (P0.8 — same at-rest posture as invite/magic-link tokens). The column
+    // keeps its historical name; 128 chars comfortably holds the 64-char hash.
     passwordResetToken: varchar('password_reset_token', { length: 128 }),
     passwordResetExpiresAt: timestamp('password_reset_expires_at'), // emailed reset-link expiry (0030)
     /**

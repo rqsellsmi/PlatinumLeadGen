@@ -18,7 +18,7 @@
  * Still does NOT sign the agent in — they use the login page afterwards.
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { eq } from 'drizzle-orm';
+import { and, eq, gt, isNull } from 'drizzle-orm';
 import bcrypt from 'bcryptjs';
 import { db } from '@/lib/db';
 import { agents } from '@/drizzle/schema';
@@ -50,10 +50,11 @@ export async function POST(req: NextRequest) {
     }
 
     // Look the invite up by hash — the plaintext is only ever in the email.
+    const tokenHash = hashToken(token);
     const rows = await db
       .select()
       .from(agents)
-      .where(eq(agents.inviteTokenHash, hashToken(token)))
+      .where(eq(agents.inviteTokenHash, tokenHash))
       .limit(1);
     const agent = rows[0];
     if (!agent || isTokenExpired(agent.inviteExpiresAt)) {
@@ -72,23 +73,44 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'already_set' }, { status: 409 });
     }
 
+    const now = new Date();
     const passwordHash = await bcrypt.hash(password, 12);
-    await db
+
+    // Consume the invite ATOMICALLY (P0.8): the UPDATE only matches while the
+    // invite is still unconsumed — hashed token present, no password yet, agent
+    // active and unexpired. Of two concurrent set-password requests exactly one
+    // affects a row; the first sets the password (and nulls the token), so the
+    // second matches nothing. Single-use by construction, not by convention.
+    const consumed = await db
       .update(agents)
       .set({
         passwordHash,
-        // Consume the invite: single-use by construction, not by convention.
         inviteTokenHash: null,
         inviteExpiresAt: null,
-        inviteAcceptedAt: new Date(),
+        inviteAcceptedAt: now,
         passwordResetToken: null,
         passwordResetExpiresAt: null,
-        updatedAt: new Date(),
+        updatedAt: now,
       })
-      .where(eq(agents.id, agent.id));
+      .where(
+        and(
+          eq(agents.id, agent.id),
+          eq(agents.inviteTokenHash, tokenHash),
+          isNull(agents.passwordHash),
+          eq(agents.isActive, true),
+          gt(agents.inviteExpiresAt, now),
+        ),
+      )
+      .returning({ id: agents.id });
 
-    // Tell the broker an account was set up (#70). Best-effort — a failed
-    // notification must not fail the agent's setup.
+    if (consumed.length === 0) {
+      // Lost the race: another request already set this password.
+      return NextResponse.json({ error: 'already_set' }, { status: 409 });
+    }
+
+    // Tell the broker an account was set up (#70) — only for the request that
+    // actually did it, so a race-loser can't send a duplicate. Best-effort: a
+    // failed notification must not fail the agent's setup.
     try {
       await sendEmail(
         adminAlertEmail(
