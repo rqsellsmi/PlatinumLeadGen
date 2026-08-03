@@ -105,27 +105,49 @@ export function decideCoverage(input: {
   return { kind: 'out_of_state', state: derived };
 }
 
+/** The 50 states + DC — used to validate a parsed token is really a state. */
+const US_STATE_CODES = new Set([
+  'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA',
+  'KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ',
+  'NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT',
+  'VA','WA','WV','WI','WY','DC',
+]);
+
 /**
- * Best-effort state extraction from a Google-formatted address.
+ * Best-effort state extraction from an address string.
  *
- * Places returns "123 Main St, Brighton, MI 48116, USA", so the state code sits
- * before the ZIP. This is a stopgap that costs nothing and works on the
- * overwhelming majority of real submissions; a reverse-geocode from the stored
- * coordinates is the durable fix (D22) and belongs on the server where the key
- * is unrestricted.
+ * Handles the Google-formatted case ("123 Main St, Brighton, MI 48116, USA")
+ * AND looser manually-typed forms ("500 Oak, Cleveland OH 44101") — the comma
+ * before the state is not required. Every candidate is validated against the
+ * real US state-code set, so a stray two-letter token (a street abbreviation,
+ * a unit) is never mistaken for a state. A reverse-geocode from the stored
+ * coordinates remains the durable fix (D22) for coords-only leads that carry no
+ * parseable address.
  *
- * Returns null on anything it cannot parse confidently — a wrong guess here
- * either strands a Michigan lead with the admin or lets an out-of-state one
- * through, so silence is better than a guess.
+ * Returns null on anything it cannot parse confidently — a wrong guess either
+ * strands a Michigan lead with the admin or lets an out-of-state one through,
+ * so silence is better than a guess.
  */
 export function deriveStateFromAddress(address: string | null | undefined): string | null {
   const s = (address ?? '').trim();
   if (!s) return null;
-  // ", XX 12345" or ", XX 12345-6789", optionally followed by ", USA".
-  const m = s.match(/,\s*([A-Za-z]{2})\s+\d{5}(?:-\d{4})?\b/);
-  if (m) return m[1].toUpperCase();
-  // ", XX, USA" — no ZIP present.
-  const m2 = s.match(/,\s*([A-Za-z]{2}),\s*USA\s*$/i);
-  if (m2) return m2[1].toUpperCase();
+  // "<STATE> <ZIP>" anywhere, comma optional. Take the LAST valid match (the
+  // state sits near the end, after any "N Main St" that could contain letters).
+  let last: string | null = null;
+  const zipRe = /\b([A-Za-z]{2})\s+\d{5}(?:-\d{4})?\b/g;
+  for (let m = zipRe.exec(s); m; m = zipRe.exec(s)) {
+    const code = m[1].toUpperCase();
+    if (US_STATE_CODES.has(code)) last = code;
+  }
+  if (last) return last;
+  // "<STATE>, USA" or "<STATE> USA" at the end — no ZIP present.
+  const usa = s.match(/\b([A-Za-z]{2}),?\s*USA\s*$/i);
+  if (usa && US_STATE_CODES.has(usa[1].toUpperCase())) return usa[1].toUpperCase();
+  // A full state name via the named map ("…, Ohio").
+  const namedTail = s.match(/,\s*([A-Za-z]+)\s*$/);
+  if (namedTail) {
+    const code = normalizeStateCode(namedTail[1]);
+    if (code) return code;
+  }
   return null;
 }

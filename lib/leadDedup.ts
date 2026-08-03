@@ -1,7 +1,11 @@
 /**
- * Lead deduplication (v1.6 §D).
- *  - Layer 1: contact dedup by email (case-insensitive) or phone (digits only).
- *  - Layer 2: cross-session address dedup via normalizedAddress.
+ * Lead deduplication.
+ *
+ * Contact dedup only, by email (case-insensitive) or phone (digits only). The
+ * old cross-session ADDRESS dedup was removed in P0.1/D3 — a shared address
+ * proves nothing about identity and handed back the prior lead's report token.
+ * `normalizedAddressKey` remains: the address is still normalized to clean up
+ * a lead's own partials and to record valuation runs, never to match people.
  */
 import { and, desc, eq, or, ilike, sql } from 'drizzle-orm';
 // (ilike is used for case-insensitive email matching)
@@ -39,19 +43,6 @@ export async function findExistingLeadByContact(
     .select()
     .from(leads)
     .where(where)
-    .orderBy(desc(leads.createdAt))
-    .limit(1);
-  return rows[0] ?? null;
-}
-
-/** Layer 2: find a non-deleted lead with the same normalized address. */
-export async function findLeadByAddress(address: string): Promise<Lead | null> {
-  const normalized = normalizedAddressKey(address);
-  if (!normalized) return null;
-  const rows = await db
-    .select()
-    .from(leads)
-    .where(and(eq(leads.isDeleted, false), eq(leads.normalizedAddress, normalized)))
     .orderBy(desc(leads.createdAt))
     .limit(1);
   return rows[0] ?? null;

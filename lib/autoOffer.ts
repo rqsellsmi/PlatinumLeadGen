@@ -20,7 +20,7 @@ import { sendEmail, agentLeadOfferEmail, agentAcceptanceEmail, adminAlertEmail, 
 import { sendAgentSms } from './agentSms';
 import { sendClientInfoSms } from './clientInfoSms';
 import { offerText } from './smsTemplates';
-import { generateMagicLinkToken, magicLinkExpiry, isTokenExpired } from './agentPortalAuth';
+import { issueMagicLinkToken } from './agentMagicLink';
 import { logLeadEvent } from './leadEvents';
 import { decideCoverage } from './coverage';
 
@@ -290,18 +290,13 @@ export async function dispatchOfferEmail(offerId: number): Promise<boolean> {
   const sentAt = now;
   const deadline = new Date(sentAt.getTime() + ACCEPTANCE_WINDOW_MS);
 
-  // Reuse the agent's current magic-link token when it's still valid, so
-  // previously-emailed portal links keep working; only mint a new one when the
-  // token is missing or expired. (Previously every email clobbered the token,
-  // which silently broke every earlier link — Section 13.2.)
-  let token = agent.magicLinkToken;
-  if (!token || isTokenExpired(agent.magicLinkExpiresAt, now)) {
-    token = generateMagicLinkToken();
-    await db
-      .update(agents)
-      .set({ magicLinkToken: token, magicLinkExpiresAt: magicLinkExpiry(now), updatedAt: now })
-      .where(eq(agents.id, agent.id));
-  }
+  // P0.8a / D6: mint a fresh magic-link token stored only as a SHA-256 hash and
+  // email the raw value. We no longer read or persist a plaintext token here —
+  // the offer email is the primary login channel, so writing cleartext to
+  // `magic_link_token` (as this did) re-introduced the exact exposure hashing
+  // was meant to close. Each outbound message supersedes the previous link; an
+  // expired/superseded link lands on the request-a-new-link page (D6).
+  const token = await issueMagicLinkToken(agent.id);
 
   const base = siteUrl();
   const email = agentLeadOfferEmail({

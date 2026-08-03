@@ -27,6 +27,7 @@ import {
   decideLeadIdentity,
   buildSubmitResponse,
   reportLinkRecipient,
+  isStrongContactMatch,
   type LeadIdentityDecision,
 } from '@/lib/leadIdentity';
 import { isTestContact, configuredTestDomains } from '@/lib/testLeads';
@@ -320,12 +321,23 @@ export async function POST(req: NextRequest) {
       }
 
       // The valuation the visitor just ran belongs on this lead's timeline —
-      // one lead, many runs (D3). The address is recorded as activity, never as
-      // the lead's identity.
-      await recordValuationRun(existing.id, input.propertyAddress);
+      // one lead, many runs (D3) — BUT only when we're confident it is the same
+      // person. A contact match on email OR phone is not proof (D3 REVISED): a
+      // phone-only match carrying an attacker's typed address would otherwise
+      // pollute the matched lead with an unrelated property. So the run and the
+      // valuation are attached only on a STRONG match (email AND phone both
+      // match the record on file). A weak match still resolves as a duplicate
+      // and notifies the agent above — it just records nothing attacker-owned.
+      const strongMatch = isStrongContactMatch(
+        { email, phone },
+        { email: existing.email, phone: existing.phone },
+      );
       await discardSessionPartial(input.sessionId, existing.id);
       await discardAddressPartials(normalizedAddressKey(input.propertyAddress), existing.id);
-      if (input.valuationToken) await linkValuationToLead(input.valuationToken, existing.id);
+      if (strongMatch) {
+        await recordValuationRun(existing.id, input.propertyAddress);
+        if (input.valuationToken) await linkValuationToLead(input.valuationToken, existing.id);
+      }
 
       // No acquisition conversion is enqueued here: this contact already
       // converted, and re-firing would double-count in Smart Bidding. The

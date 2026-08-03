@@ -83,6 +83,23 @@ describe('deriveStateFromAddress', () => {
     expect(deriveStateFromAddress('123 Main St, Brighton, MI, USA')).toBe('MI');
   });
 
+  it('reads a looser, manually-typed address with no comma before the state', () => {
+    // The manual/LSA entry path (D22) — a human types "500 Oak, Cleveland OH
+    // 44101" with no comma separating city and state. Issue #2b.
+    expect(deriveStateFromAddress('500 Oak, Cleveland OH 44101')).toBe('OH');
+    expect(deriveStateFromAddress('42 Birch Ln Ann Arbor MI 48104')).toBe('MI');
+  });
+
+  it('reads a full state name at the tail', () => {
+    expect(deriveStateFromAddress('123 Main St, Brighton, Michigan')).toBe('MI');
+  });
+
+  it('does not mistake a street abbreviation for a state', () => {
+    // "St" precedes a ZIP-shaped token nowhere here, but a bare two-letter run
+    // must never win: only real state codes count.
+    expect(deriveStateFromAddress('12 St Clair Ave, Somewhere ZZ 00000')).toBeNull();
+  });
+
   it('returns null when it cannot parse confidently', () => {
     expect(deriveStateFromAddress('123 Main St')).toBeNull();
     expect(deriveStateFromAddress('')).toBeNull();
