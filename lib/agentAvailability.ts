@@ -4,6 +4,9 @@
  * IDENTICAL thing — set `isAvailable`, record queue membership on the first
  * opt-in, and grant the one-time first-activation head start.
  *
+ * ONE deliberate difference: only the agent's own toggle records referral-terms
+ * acceptance (`recordOptIn`). See SetAvailabilityOptions.
+ *
  * Availability = the soft "take new leads / pause new leads" switch. It does NOT
  * block login or roster membership (that's `isActive`, the admin lockout), and
  * since D7 it no longer controls QUEUE membership either — see the note on
@@ -14,13 +17,42 @@ import { db } from './db';
 import { agents } from '../drizzle/schema';
 import { grantStartingCreditIfFirstActivation } from './scoring';
 
-export async function setAgentAvailability(agentId: number, available: boolean): Promise<void> {
+export interface SetAvailabilityOptions {
+  /**
+   * True only when the AGENT flipped their own switch, which is the act that
+   * accepts the 30% referral terms. Defaults to false so the admin toggle can
+   * never manufacture a consent the agent never gave — a fabricated acceptance
+   * record is worse than none at all.
+   */
+  recordOptIn?: boolean;
+}
+
+export async function setAgentAvailability(
+  agentId: number,
+  available: boolean,
+  opts: SetAvailabilityOptions = {},
+): Promise<void> {
   await db
     .update(agents)
     .set({ isAvailable: available, updatedAt: new Date() })
     .where(eq(agents.id, agentId));
 
   if (available) {
+    // Referral-terms acceptance, recorded once and never overwritten. Same
+    // atomic conditional-WHERE claim as the queue join below: later pauses and
+    // resumes leave the original date alone, because the agreement was given
+    // once and does not lapse.
+    if (opts.recordOptIn) {
+      try {
+        await db
+          .update(agents)
+          .set({ availabilityOptedInAt: new Date() })
+          .where(and(eq(agents.id, agentId), isNull(agents.availabilityOptedInAt)));
+      } catch (err) {
+        console.error('[agentAvailability] opt-in stamp failed', { agentId, err });
+      }
+    }
+
     // Record queue membership on the FIRST opt-in only (D7). This is what puts
     // the agent in the rotation and fixes their place in line; later pauses and
     // resumes leave it alone, which is precisely why toggling availability can

@@ -102,7 +102,10 @@ export async function launchAgentInvites(formData: FormData) {
 
 /**
  * Flip an agent's availability from the admin — identical to the agent doing it
- * in their own portal (`setAgentAvailability`, incl. the first-activation credit).
+ * in their own portal (`setAgentAvailability`, incl. the first-activation credit)
+ * with ONE exception: it does not pass `recordOptIn`, so an admin switching an
+ * agent on never stamps referral-terms acceptance. Only the agent's own click
+ * can do that, because only the agent saw the terms.
  */
 export async function toggleAgentAvailable(formData: FormData) {
   await requireAdmin();

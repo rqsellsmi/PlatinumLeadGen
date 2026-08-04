@@ -18,7 +18,9 @@ export async function POST(req: NextRequest) {
   if (typeof body?.available !== 'boolean') {
     return NextResponse.json({ error: 'invalid_request' }, { status: 400 });
   }
-  // Same shared path the admin toggle uses.
-  await setAgentAvailability(agent.id, body.available);
+  // Same shared path the admin toggle uses — but this is the AGENT acting on
+  // their own account, so it also records their acceptance of the referral
+  // terms shown beside the toggle (first time only).
+  await setAgentAvailability(agent.id, body.available, { recordOptIn: true });
   return NextResponse.json({ success: true, isAvailable: body.available });
 }

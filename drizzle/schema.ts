@@ -211,6 +211,19 @@ export const agents = pgTable(
      * append behind the existing line rather than weaving into it.
      */
     queueJoinedAt: timestamp('queue_joined_at'),
+    /**
+     * Referral-terms acceptance (migration 0043): when this agent FIRST turned
+     * on their own lead routing availability, which is the act by which they
+     * accept the 30% referral back to RE/MAX Platinum (stated in the invite
+     * email and beside the toggle itself).
+     *
+     * Written once and never overwritten — later pauses and resumes leave it
+     * alone, because the agreement was given once and does not lapse. Set ONLY
+     * when the agent flips their own switch: an admin toggling availability on
+     * an agent's behalf must never manufacture a consent the agent didn't give,
+     * so lib/agentAvailability takes an explicit flag rather than assuming.
+     */
+    availabilityOptedInAt: timestamp('availability_opted_in_at'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
