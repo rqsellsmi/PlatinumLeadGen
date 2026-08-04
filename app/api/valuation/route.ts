@@ -1,7 +1,11 @@
 /**
  * POST /api/valuation — valuation-provider proxy (RentCast or ATTOM, chosen by
- * the VALUATION_PROVIDER runtime flag) with per-IP rate limiting, usage
- * logging, and a monthly free-tier quota alert (RentCast only).
+ * the VALUATION_PROVIDER runtime flag) with per-IP rate limiting and a monthly
+ * free-tier quota alert (RentCast only).
+ *
+ * The provider call goes through lib/valuationCache, which serves a stored
+ * valuation for the same address for 30 days before re-billing. Usage logging
+ * lives there too, so api_usage_logs counts provider calls, not requests.
  *
  * Two-tier gating: the full result is stored server-side (lib/valuationStore)
  * and only the widened ±8% teaser range + property basics + an opaque token are
@@ -14,7 +18,8 @@ import { and, eq, gte, isNull, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { apiUsageLogs, leads } from '@/drizzle/schema';
 import { valuationSchema } from '@/lib/validation';
-import { getValuation, activeProvider, type ValuationResult } from '@/lib/valuation';
+import { activeProvider, type ValuationResult } from '@/lib/valuation';
+import { getValuationForAddress } from '@/lib/valuationCache';
 import { storeValuation } from '@/lib/valuationStore';
 import { normalizeAddress } from '@/lib/addressNormalization';
 import { checkPreset, clientIp } from '@/lib/rateLimit';
@@ -40,37 +45,27 @@ export async function POST(req: NextRequest) {
     }
 
     const address = parsed.data.address;
-    const provider = activeProvider();
-    const start = Date.now();
+    // Cache hit (same address within 30 days) → no provider call, no usage log.
     let result: ValuationResult | null = null;
+    let valuedAt = new Date();
+    let cached = false;
     let success = true;
-    let errorMessage: string | null = null;
     try {
-      result = await getValuation(address);
-    } catch (err) {
+      const got = await getValuationForAddress(address, { ip });
+      result = got.result;
+      valuedAt = got.valuedAt;
+      cached = got.cached;
+    } catch {
+      // getValuationForAddress already logged the failed call.
       success = false;
-      errorMessage = err instanceof Error ? err.message : 'valuation error';
     }
-    const responseTimeMs = Date.now() - start;
 
-    // Log against whichever provider actually answered (falls back to flag).
-    const service = result?.provider ?? provider;
-    await db.insert(apiUsageLogs).values({
-      service,
-      endpoint: '/avm/value',
-      ip,
-      statusCode: success ? 200 : 502,
-      propertyAddress: address,
-      estimatedValue: result?.estimatedValue ?? null,
-      priceRangeLow: result?.priceRangeLow ?? null,
-      priceRangeHigh: result?.priceRangeHigh ?? null,
-      success,
-      errorMessage,
-      responseTimeMs,
-    });
+    // Whichever provider actually answered (falls back to the flag).
+    const service = result?.provider ?? activeProvider();
 
-    // Monthly quota alert — RentCast free tier only (§H.3).
-    if (success && service === 'rentcast') {
+    // Monthly quota alert — RentCast free tier only (§H.3). Counts live calls,
+    // so a month served from cache never trips it.
+    if (success && !cached && service === 'rentcast') {
       try {
         const monthStart = new Date();
         monthStart.setDate(1);
@@ -92,9 +87,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ token: null, rangeLow: null, rangeHigh: null, basics: null });
     }
 
-    // Store the full result server-side; return only the gated teaser.
+    // Store the full result server-side; return only the gated teaser. On a
+    // cache hit the original fetch time carries over, so copying a stored
+    // valuation doesn't restart its 30-day clock.
     const token = randomUUID();
-    const teaser = await storeValuation(token, address, result);
+    const teaser = await storeValuation(token, address, result, valuedAt);
 
     // Backfill the estimate onto the matching UNNAMED partial lead (address-only,
     // no contact yet) so "Unnamed lead" rows carry a price in the admin even when

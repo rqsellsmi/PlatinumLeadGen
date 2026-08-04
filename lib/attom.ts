@@ -2,64 +2,28 @@
  * ATTOM Data valuation client — one of the interchangeable providers behind
  * lib/valuation.ts. Selected when VALUATION_PROVIDER=attom.
  *
- * Uses a single `attomavm/detail` call, which returns the AVM (value + high/low
- * range + confidence score) alongside property characteristics and the most
- * recent sale — enough for both the pre-contact teaser and the post-contact
- * detailed report without a second billable call. (Multi-sale history would be
- * a separate saleshistory/detail call — deferred to keep cost at one call per
- * address.)
+ * ONE endpoint, deliberately: `attomavm/detail`. It returns the AVM (value +
+ * high/low range + confidence score) alongside the property characteristics and
+ * the most recent sale, which is everything the report shows. Sales Trend,
+ * Sales Comparables and Expanded Profile are separate billable ATTOM products
+ * and are not called — if you add one, add it here and nowhere else, so the
+ * per-lead cost of a valuation stays exactly one call.
+ *
+ * Results are cached for 30 days by normalized address (lib/valuationCache), so
+ * a repeat visit to the same address doesn't re-bill.
  *
  * ATTOM's JSON is loosely typed and varies by plan; every field is parsed
  * defensively and missing data degrades to null rather than throwing.
  */
 
 import type {
-  MarketTrends,
   PropertyBasics,
   PropertyRecord,
   SaleHistoryEntry,
   ValuationResult,
 } from './valuation';
-import type { HomeRecentSale } from './queries';
 
 const ATTOM_BASE = 'https://api.gateway.attomdata.com/propertyapi/v1.0.0';
-// Sales Comparables is a separate ATTOM product served under property/v2.0.0.
-const ATTOM_COMPS_BASE = 'https://api.gateway.attomdata.com/property/v2.0.0';
-
-/** Raw GET for diagnostics — returns status + a truncated response body. */
-async function rawGet(url: string): Promise<{ url: string; status: number | null; body: string }> {
-  try {
-    const res = await fetch(url, {
-      headers: { apikey: apiKey(), Accept: 'application/json' },
-      cache: 'no-store',
-    });
-    const body = await res.text().catch(() => '');
-    return { url, status: res.status, body: body.slice(0, 3000) };
-  } catch (e) {
-    return { url, status: null, body: e instanceof Error ? e.message : 'error' };
-  }
-}
-
-/** Build the sales-trend request URL for a geoid (single source of truth). */
-function salesTrendUrl(geoid: string): string {
-  const url = new URL(`${ATTOM_BASE}/salestrend/snapshot`);
-  url.searchParams.set('geoid', geoid);
-  url.searchParams.set('interval', 'yearly');
-  const endYear = new Date().getFullYear();
-  url.searchParams.set('startyear', String(endYear - 4));
-  url.searchParams.set('endyear', String(endYear));
-  return url.toString();
-}
-
-/** Build the sales-comparables request URL for an ATTOM property id. */
-function salesCompsUrl(attomId: string, limit: number): string {
-  const url = new URL(`${ATTOM_COMPS_BASE}/salescomparables/propid/${encodeURIComponent(attomId)}`);
-  url.searchParams.set('searchType', 'Radius');
-  url.searchParams.set('minComps', '1');
-  url.searchParams.set('maxComps', String(limit));
-  url.searchParams.set('miles', '5');
-  return url.toString();
-}
 
 function apiKey(): string {
   const k = process.env.ATTOM_API_KEY;
@@ -95,19 +59,61 @@ function splitAddress(address: string): { address1: string; address2: string } {
   };
 }
 
+/** Build the AVM request URL (single source of truth — used live and by the probe). */
+function avmUrl(address: string): string {
+  const { address1, address2 } = splitAddress(address);
+  const url = new URL(`${ATTOM_BASE}/attomavm/detail`);
+  url.searchParams.set('address1', address1);
+  if (address2) url.searchParams.set('address2', address2);
+  return url.toString();
+}
+
+/**
+ * The AVM detail response shape, as far as we read it. Sections vary by plan,
+ * so everything is optional and every leaf is `unknown` — see num()/str().
+ */
 interface AttomProperty {
-  identifier?: { attomId?: unknown; Id?: unknown; id?: unknown };
-  area?: { geoIdV4?: unknown; geoid?: unknown };
+  identifier?: { attomId?: unknown; Id?: unknown; id?: unknown; apn?: unknown };
+  area?: { geoIdV4?: unknown; geoid?: unknown; subdname?: unknown; munname?: unknown };
+  address?: { oneLine?: unknown; countrySubd?: unknown };
   location?: { latitude?: unknown; longitude?: unknown; geoIdV4?: unknown; geoid?: unknown };
-  summary?: { yearbuilt?: unknown; proptype?: unknown; propclass?: unknown; propsubtype?: unknown };
-  building?: {
-    rooms?: { beds?: unknown; bathstotal?: unknown; bathsfull?: unknown };
-    size?: { livingsize?: unknown; universalsize?: unknown; bldgsize?: unknown };
+  summary?: {
+    yearbuilt?: unknown;
+    proptype?: unknown;
+    propclass?: unknown;
+    propsubtype?: unknown;
+    propLandUse?: unknown;
+    levels?: unknown;
+    unitsCount?: unknown;
   };
-  lot?: { lotsize1?: unknown; lotsize2?: unknown };
+  building?: {
+    rooms?: {
+      beds?: unknown;
+      bathstotal?: unknown;
+      bathsfull?: unknown;
+      bathshalf?: unknown;
+      roomsTotal?: unknown;
+      roomstotal?: unknown;
+    };
+    size?: { livingsize?: unknown; universalsize?: unknown; bldgsize?: unknown };
+    construction?: {
+      wallType?: unknown;
+      frameType?: unknown;
+      roofcover?: unknown;
+      roofShape?: unknown;
+      condition?: unknown;
+      constructiontype?: unknown;
+    };
+    interior?: { fplccount?: unknown; bsmtsize?: unknown };
+    parking?: { prkgType?: unknown; garagetype?: unknown; prkgSpaces?: unknown };
+    summary?: { levels?: unknown; storyDesc?: unknown; unitsCount?: unknown };
+  };
+  lot?: { lotsize1?: unknown; lotsize2?: unknown; pooltype?: unknown; zoningType?: unknown; zoning?: unknown };
+  utilities?: { heatingtype?: unknown; coolingtype?: unknown };
   sale?: { saleTransDate?: unknown; salesearchdate?: unknown; amount?: { saleamt?: unknown } };
   avm?: {
     amount?: { value?: unknown; high?: unknown; low?: unknown; scr?: unknown };
+    eventDate?: unknown;
   };
 }
 
@@ -128,6 +134,80 @@ function parseBasics(p: AttomProperty): PropertyBasics {
     (typeof p.summary?.propclass === 'string' && p.summary.propclass) ||
     null;
   return { beds, baths, sqft, yearBuilt: num(p.summary?.yearbuilt), lotSizeSqft, propertyType };
+}
+
+/**
+ * Everything else the AVM response carries about the home, in the shared
+ * PropertyRecord shape so the report can reuse components/PropertyDetails.
+ *
+ * The AVM endpoint returns no owner and no assessment block, so those fields are
+ * fixed at null here — that is a property of the endpoint, not missing data.
+ */
+function parseDetail(p: AttomProperty): PropertyRecord {
+  const b = parseBasics(p);
+  const rooms = p.building?.rooms;
+  const construction = p.building?.construction;
+  const parking = p.building?.parking;
+  const bSummary = p.building?.summary;
+  const lotAcres = num(p.lot?.lotsize1);
+
+  // Provider-specific long tail — anything without a first-class field.
+  const extra: { label: string; value: string }[] = [];
+  const addExtra = (label: string, v: unknown) => {
+    const s = str(v);
+    if (s) extra.push({ label, value: s });
+  };
+  addExtra('Fireplaces', p.building?.interior?.fplccount);
+  addExtra('Basement', p.building?.interior?.bsmtsize);
+  addExtra('Frame', construction?.frameType);
+  addExtra('Valuation date', typeof p.avm?.eventDate === 'string' ? p.avm.eventDate.slice(0, 10) : null);
+
+  return {
+    provider: 'attom',
+    formattedAddress: str(p.address?.oneLine),
+    latitude: num(p.location?.latitude),
+    longitude: num(p.location?.longitude),
+    propertyType: b.propertyType,
+    propertyUse: str(p.summary?.propLandUse) ?? str(p.summary?.propclass),
+    yearBuilt: b.yearBuilt,
+    beds: b.beds,
+    bathsFull: num(rooms?.bathsfull),
+    bathsHalf: num(rooms?.bathshalf),
+    bathsTotal: num(rooms?.bathstotal),
+    sqft: b.sqft,
+    lotSizeSqft: b.lotSizeSqft,
+    lotSizeAcres: lotAcres,
+    stories: num(bSummary?.levels) ?? num(p.summary?.levels) ?? num(bSummary?.storyDesc),
+    rooms: num(rooms?.roomsTotal) ?? num(rooms?.roomstotal),
+    units: num(bSummary?.unitsCount) ?? num(p.summary?.unitsCount),
+    garageType: str(parking?.prkgType) ?? str(parking?.garagetype),
+    garageSpaces: num(parking?.prkgSpaces),
+    pool: str(p.lot?.pooltype) ? true : null,
+    heating: str(p.utilities?.heatingtype),
+    cooling: str(p.utilities?.coolingtype),
+    construction: str(construction?.wallType) ?? str(construction?.constructiontype),
+    roof: str(construction?.roofcover) ?? str(construction?.roofShape),
+    condition: str(construction?.condition),
+    county: str(p.area?.munname) ?? str(p.address?.countrySubd),
+    subdivision: str(p.area?.subdname),
+    zoning: str(p.lot?.zoningType) ?? str(p.lot?.zoning),
+    apn: str(p.identifier?.apn),
+    lastSaleDate: (() => {
+      const d = str(p.sale?.saleTransDate) ?? str(p.sale?.salesearchdate);
+      return d ? d.slice(0, 10) : null;
+    })(),
+    lastSalePrice: num(p.sale?.amount?.saleamt),
+    // Not returned by the AVM endpoint — see the doc comment above.
+    assessedValue: null,
+    marketValue: null,
+    assessedLand: null,
+    assessedImprovements: null,
+    taxAmount: null,
+    taxYear: null,
+    owner: null,
+    attomId: parseAttomId(p),
+    extra,
+  };
 }
 
 function parseAttomId(p: AttomProperty): string | null {
@@ -160,10 +240,8 @@ function pickGeoCode(raw: unknown): string | null {
 }
 
 /**
- * ATTOM puts the geo ids in the `location` block. There are two systems:
- * `geoid` (readable, e.g. "…, ZI48116") which the v1 sales-trend endpoint
- * expects, and `geoIdV4` (opaque hashes) used by v4 APIs. Prefer the readable
- * `geoid` ZIP code so salestrend/snapshot works.
+ * The ZIP-level geo id the AVM response carries. Stored alongside attomId as
+ * the property's area key; no endpoint is called with it today.
  */
 function parseAreaGeoId(p: AttomProperty): string | null {
   return (
@@ -187,11 +265,6 @@ function parseSaleHistory(p: AttomProperty): SaleHistoryEntry[] {
  * no match for the address, so lib/valuation can fall back to RentCast.
  */
 export async function getAttomValuation(address: string): Promise<ValuationResult> {
-  const { address1, address2 } = splitAddress(address);
-  const url = new URL(`${ATTOM_BASE}/attomavm/detail`);
-  url.searchParams.set('address1', address1);
-  if (address2) url.searchParams.set('address2', address2);
-
   const empty: ValuationResult = {
     estimatedValue: null,
     priceRangeLow: null,
@@ -200,13 +273,14 @@ export async function getAttomValuation(address: string): Promise<ValuationResul
     longitude: null,
     confidenceScore: null,
     basics: null,
+    detail: null,
     saleHistory: [],
     attomId: null,
     areaGeoId: null,
     provider: 'attom',
   };
 
-  const res = await fetch(url.toString(), {
+  const res = await fetch(avmUrl(address), {
     headers: { apikey: apiKey(), Accept: 'application/json' },
     cache: 'no-store',
   });
@@ -226,16 +300,16 @@ export async function getAttomValuation(address: string): Promise<ValuationResul
   if (!p) return empty;
 
   const avm = p.avm?.amount;
-  const estimatedValue = num(avm?.value);
 
   return {
-    estimatedValue,
+    estimatedValue: num(avm?.value),
     priceRangeLow: num(avm?.low),
     priceRangeHigh: num(avm?.high),
     latitude: num(p.location?.latitude),
     longitude: num(p.location?.longitude),
     confidenceScore: num(avm?.scr),
     basics: parseBasics(p),
+    detail: parseDetail(p),
     saleHistory: parseSaleHistory(p),
     attomId: parseAttomId(p),
     areaGeoId: parseAreaGeoId(p),
@@ -244,104 +318,34 @@ export async function getAttomValuation(address: string): Promise<ValuationResul
 }
 
 /**
- * Area sales trends from ATTOM's sales-trend endpoint (report "Local market"
- * section). Needs a ZIP-level geo id (captured on the AVM call). Returns null
- * on any failure so the section simply hides.
- *
- * NOTE: ATTOM's trend endpoint path/params vary by plan/version — verify these
- * against your account when you validate ATTOM on a preview deploy.
- */
-export async function getAttomAreaTrends(geoIdV4: string): Promise<MarketTrends | null> {
-  if (!geoIdV4) return null;
-  try {
-    const res = await fetch(salesTrendUrl(geoIdV4), {
-      headers: { apikey: apiKey(), Accept: 'application/json' },
-      cache: 'no-store',
-    });
-    if (!res.ok) return null;
-    const data = (await res.json()) as {
-      salestrend?: Array<{
-        daterange?: { start?: unknown; end?: unknown };
-        yearlyintervalname?: unknown;
-        SalesTrend?: { avgsaleprice?: unknown; medsaleprice?: unknown; homesalecount?: unknown };
-        avgsaleprice?: unknown;
-        medsaleprice?: unknown;
-        homesalecount?: unknown;
-      }>;
-    };
-    const trend = data.salestrend;
-    if (!Array.isArray(trend) || trend.length === 0) return null;
-    // Newest period is typically last; guard either way by sorting on label.
-    const rows = trend.map((t) => ({
-      label:
-        (typeof t.yearlyintervalname === 'string' && t.yearlyintervalname) ||
-        (typeof t.daterange?.end === 'string' ? t.daterange.end.slice(0, 4) : null),
-      median: num(t.SalesTrend?.medsaleprice) ?? num(t.medsaleprice),
-      count: num(t.SalesTrend?.homesalecount) ?? num(t.homesalecount),
-    }));
-    const latest = rows[rows.length - 1];
-    const prior = rows.length > 1 ? rows[rows.length - 2] : null;
-    const yoy =
-      latest.median != null && prior?.median != null && prior.median > 0
-        ? Math.round(((latest.median - prior.median) / prior.median) * 1000) / 10
-        : null;
-    if (latest.median == null && latest.count == null) return null;
-    return {
-      medianSalePrice: latest.median,
-      yoyChangePct: yoy,
-      homeSales: latest.count,
-      periodLabel: latest.label,
-    };
-  } catch (err) {
-    console.error('[attom] getAttomAreaTrends failed:', err);
-    return null;
-  }
-}
-
-/**
  * Admin diagnostic — hit the live ATTOM AVM endpoint for an address and report
- * exactly what came back (raw keys, identifier, area, avm) plus what our
- * normalized result + trends/comps resolve to. Lets us see why an enrichment
- * isn't populating (e.g. the AVM response has no `area.geoIdV4`).
+ * exactly what came back (raw section keys, identifier, location, avm) plus what
+ * our normalized result resolves to. Lets us see why a report isn't populating
+ * without guessing at the provider's response shape.
  */
 export async function probeAttom(address: string): Promise<{
+  url: string;
   status: number | null;
   error: string | null;
   rawKeys: string[];
   identifier: unknown;
-  area: unknown;
   location: unknown;
   avm: unknown;
   normalized: ValuationResult | null;
-  trends: MarketTrends | null;
-  compsCount: number;
-  trendDebug: { url: string; status: number | null; body: string } | null;
-  compsDebug: { url: string; status: number | null; body: string } | null;
-  trendVariants: Array<{ label: string; url: string; status: number | null; body: string }>;
-  compsVariants: Array<{ label: string; url: string; status: number | null; body: string }>;
 }> {
+  const url = avmUrl(address);
   const base = {
+    url,
     status: null as number | null,
     error: null as string | null,
     rawKeys: [] as string[],
     identifier: null as unknown,
-    area: null as unknown,
     location: null as unknown,
     avm: null as unknown,
     normalized: null as ValuationResult | null,
-    trends: null as MarketTrends | null,
-    compsCount: 0,
-    trendDebug: null as { url: string; status: number | null; body: string } | null,
-    compsDebug: null as { url: string; status: number | null; body: string } | null,
-    trendVariants: [] as Array<{ label: string; url: string; status: number | null; body: string }>,
-    compsVariants: [] as Array<{ label: string; url: string; status: number | null; body: string }>,
   };
   try {
-    const { address1, address2 } = splitAddress(address);
-    const url = new URL(`${ATTOM_BASE}/attomavm/detail`);
-    url.searchParams.set('address1', address1);
-    if (address2) url.searchParams.set('address2', address2);
-    const res = await fetch(url.toString(), {
+    const res = await fetch(url, {
       headers: { apikey: apiKey(), Accept: 'application/json' },
       cache: 'no-store',
     });
@@ -355,267 +359,27 @@ export async function probeAttom(address: string): Promise<{
     if (p) {
       base.rawKeys = Object.keys(p);
       base.identifier = p.identifier ?? null;
-      base.area = p.area ?? null;
       base.location = p.location ?? null;
       base.avm = p.avm ?? null;
+      // Parse the response we already have — no second billable call.
+      base.normalized = {
+        estimatedValue: num(p.avm?.amount?.value),
+        priceRangeLow: num(p.avm?.amount?.low),
+        priceRangeHigh: num(p.avm?.amount?.high),
+        latitude: num(p.location?.latitude),
+        longitude: num(p.location?.longitude),
+        confidenceScore: num(p.avm?.amount?.scr),
+        basics: parseBasics(p),
+        detail: parseDetail(p),
+        saleHistory: parseSaleHistory(p),
+        attomId: parseAttomId(p),
+        areaGeoId: parseAreaGeoId(p),
+        provider: 'attom',
+      };
     }
-    base.normalized = await getAttomValuation(address).catch(() => null);
-    if (base.normalized?.areaGeoId) {
-      base.trends = await getAttomAreaTrends(base.normalized.areaGeoId).catch(() => null);
-      base.trendDebug = await rawGet(salesTrendUrl(base.normalized.areaGeoId));
-    }
-    if (base.normalized?.attomId) {
-      base.compsCount = (await getAttomComps(base.normalized.attomId, 6).catch(() => [])).length;
-      base.compsDebug = await rawGet(salesCompsUrl(base.normalized.attomId, 6));
-    }
-
-    // ---- Variant matrix: find the geoid/param/path combo ATTOM actually serves.
-    const HOST = 'https://api.gateway.attomdata.com';
-    const geoidStr =
-      typeof (p?.location as { geoid?: unknown } | undefined)?.geoid === 'string'
-        ? ((p!.location as { geoid?: string }).geoid as string)
-        : '';
-    const codes = geoidStr.split(',').map((c) => c.trim());
-    const zi = codes.find((c) => c.toUpperCase().startsWith('ZI')) ?? null;
-    const co = codes.find((c) => c.toUpperCase().startsWith('CO')) ?? null;
-    const st = (g: string, qs: string) => `${ATTOM_BASE}/salestrend/snapshot?geoid=${g}&${qs}`;
-    const trendTries: Array<[string, string | null]> = [
-      ['ZI yearly 2019-2023', zi ? st(zi, 'interval=yearly&startyear=2019&endyear=2023') : null],
-      ['ZI monthly', zi ? st(zi, 'interval=monthly') : null],
-      ['CO yearly 2019-2023', co ? st(co, 'interval=yearly&startyear=2019&endyear=2023') : null],
-      ['CO monthly', co ? st(co, 'interval=monthly') : null],
-    ];
-    for (const [label, url] of trendTries) {
-      if (url) base.trendVariants.push({ label, ...(await rawGet(url)) });
-    }
-
-    if (base.normalized?.attomId) {
-      const id = base.normalized.attomId;
-      const cq = 'searchType=Radius&minComps=1&maxComps=6&miles=5';
-      const compTries: Array<[string, string]> = [
-        ['propertyapi/v1.0.0/salescomparables/propid', `${HOST}/propertyapi/v1.0.0/salescomparables/propid/${id}?${cq}`],
-        ['property/v3/salescomparables/propid', `${HOST}/property/v3/salescomparables/propid/${id}?${cq}`],
-        ['propertyapi/v4/salescomparables/propid', `${HOST}/propertyapi/v4/salescomparables/propid/${id}?${cq}`],
-        ['property/v2.0.0/salescomparables/address', `${HOST}/property/v2.0.0/salescomparables/address/${encodeURIComponent(address)}?${cq}`],
-      ];
-      for (const [label, url] of compTries) {
-        base.compsVariants.push({ label, ...(await rawGet(url)) });
-      }
-    }
-
     return base;
   } catch (err) {
     base.error = err instanceof Error ? err.message : 'probe error';
     return base;
-  }
-}
-
-/**
- * Full property record from ATTOM's `property/expandedprofile` endpoint — the
- * most comprehensive single call (characteristics, lot, tax/assessment, last
- * sale, and OWNER of record). Powers the agent/admin lead-detail "About this
- * home" section and the admin property-lookup tool. Returns null (not throwing)
- * when ATTOM has no match, so callers degrade gracefully.
- *
- * ATTOM's JSON is loosely typed and section names vary by plan; every field is
- * parsed defensively across the likely locations.
- */
-export async function getAttomPropertyRecord(
-  address: string,
-): Promise<{ raw: unknown; record: PropertyRecord } | null> {
-  const { address1, address2 } = splitAddress(address);
-  const url = new URL(`${ATTOM_BASE}/property/expandedprofile`);
-  url.searchParams.set('address1', address1);
-  if (address2) url.searchParams.set('address2', address2);
-
-  const res = await fetch(url.toString(), {
-    headers: { apikey: apiKey(), Accept: 'application/json' },
-    cache: 'no-store',
-  });
-  if (!res.ok) {
-    if (res.status === 400 || res.status === 404) return null;
-    throw new Error(`ATTOM error ${res.status}`);
-  }
-
-  const data = (await res.json()) as { property?: Array<Record<string, unknown>> };
-  const p = data.property?.[0];
-  if (!p) return null;
-
-  const sec = (k: string): Record<string, unknown> =>
-    (p[k] as Record<string, unknown> | undefined) ?? {};
-  const summary = sec('summary');
-  const building = sec('building');
-  const bRooms = (building.rooms as Record<string, unknown>) ?? {};
-  const bSize = (building.size as Record<string, unknown>) ?? {};
-  const bConstruction = (building.construction as Record<string, unknown>) ?? {};
-  const bParking = (building.parking as Record<string, unknown>) ?? {};
-  const bSummary = (building.summary as Record<string, unknown>) ?? {};
-  const lot = sec('lot');
-  const area = sec('area');
-  const addressSec = sec('address');
-  const location = sec('location');
-  const utilities = sec('utilities');
-  const sale = sec('sale');
-  const saleAmount = (sale.amount as Record<string, unknown>) ?? {};
-  const assessment = sec('assessment');
-  const assessed = (assessment.assessed as Record<string, unknown>) ?? {};
-  const market = (assessment.market as Record<string, unknown>) ?? {};
-  const tax = (assessment.tax as Record<string, unknown>) ?? {};
-  const ownerRaw =
-    (assessment.owner as Record<string, unknown> | undefined) ??
-    (p.owner as Record<string, unknown> | undefined) ??
-    {};
-
-  // Owner names — ATTOM splits into owner1/owner2 { lastname, firstnameandmi }.
-  const ownerName = (o: unknown): string | null => {
-    const oo = (o as Record<string, unknown>) ?? {};
-    const first = str(oo.firstnameandmi) ?? str(oo.firstname);
-    const last = str(oo.lastname);
-    const full = [first, last].filter(Boolean).join(' ').trim();
-    return full || str(oo.fullname) || null;
-  };
-  const ownerNames = [ownerName(ownerRaw.owner1), ownerName(ownerRaw.owner2)].filter(
-    (n): n is string => Boolean(n),
-  );
-  const absentee = str(ownerRaw.absenteeownerstatus) ?? str(summary.absenteeInd);
-  const ownerOccupied = absentee ? absentee.toUpperCase().startsWith('O') : null;
-  const mailing = str(ownerRaw.mailingaddressoneline);
-  const owner =
-    ownerNames.length || mailing || ownerOccupied != null
-      ? { names: ownerNames, ownerOccupied, mailingAddress: mailing }
-      : null;
-
-  const lotAcres = num(lot.lotsize1);
-  const lotSf = num(lot.lotsize2);
-
-  // Extra provider-specific fields for a generic "more detail" list.
-  const extra: { label: string; value: string }[] = [];
-  const addExtra = (label: string, v: unknown) => {
-    const s = str(v);
-    if (s) extra.push({ label, value: s });
-  };
-  addExtra('APN / Parcel', p.identifier && (p.identifier as Record<string, unknown>).apn);
-  addExtra('Fireplaces', (building.interior as Record<string, unknown>)?.fplccount);
-  addExtra('Basement', (building.interior as Record<string, unknown>)?.bsmtsize);
-  addExtra('Exterior wall', bConstruction.wallType);
-  addExtra('Frame', bConstruction.frameType);
-  addExtra('Land use', summary.propLandUse);
-  addExtra('Legal', (sec('lot').legal1 as unknown) ?? (summary.legal1 as unknown));
-
-  const record: PropertyRecord = {
-    provider: 'attom',
-    formattedAddress: str(addressSec.oneLine),
-    latitude: num(location.latitude),
-    longitude: num(location.longitude),
-    propertyType:
-      str(summary.propsubtype) ?? str(summary.proptype) ?? str(summary.propclass),
-    propertyUse: str(summary.propLandUse) ?? str(summary.propclass),
-    yearBuilt: num(summary.yearbuilt),
-    beds: num(bRooms.beds),
-    bathsFull: num(bRooms.bathsfull),
-    bathsHalf: num(bRooms.bathshalf),
-    bathsTotal: num(bRooms.bathstotal),
-    sqft: num(bSize.livingsize) ?? num(bSize.universalsize) ?? num(bSize.bldgsize),
-    lotSizeSqft: lotSf ?? (lotAcres != null ? Math.round(lotAcres * 43560) : null),
-    lotSizeAcres: lotAcres,
-    stories: num(bSummary.levels) ?? num(bSummary.storyDesc),
-    rooms: num(bRooms.roomsTotal) ?? num(bRooms.roomstotal),
-    units: num(bSummary.unitsCount) ?? num(summary.unitsCount),
-    garageType: str(bParking.prkgType) ?? str(bParking.garagetype),
-    garageSpaces: num(bParking.prkgSpaces),
-    pool: str(lot.pooltype) ? true : null,
-    heating: str(utilities.heatingtype),
-    cooling: str(utilities.coolingtype),
-    construction: str(bConstruction.wallType) ?? str(bConstruction.constructiontype),
-    roof: str(bConstruction.roofcover) ?? str(bConstruction.roofShape),
-    condition: str(bConstruction.condition),
-    county: str(area.munname) ?? str(addressSec.countrySubd),
-    subdivision: str(area.subdname),
-    zoning: str(lot.zoningType) ?? str(lot.zoning),
-    apn: str((p.identifier as Record<string, unknown> | undefined)?.apn),
-    lastSaleDate: (() => {
-      const d = str(sale.saleTransDate) ?? str(sale.salesearchdate);
-      return d ? d.slice(0, 10) : null;
-    })(),
-    lastSalePrice: num(saleAmount.saleamt),
-    assessedValue: num(assessed.assdttlvalue),
-    marketValue: num(market.mktttlvalue),
-    assessedLand: num(assessed.assdlandvalue),
-    assessedImprovements: num(assessed.assdimprvalue),
-    taxAmount: num(tax.taxamt),
-    taxYear: num(tax.taxyear),
-    owner,
-    attomId: parseAttomId(p as AttomProperty),
-    extra,
-  };
-
-  return { raw: p, record };
-}
-
-/**
- * Sales comparables for a subject property (by ATTOM id). Used only as a
- * fallback when there are no RE/MAX Platinum closings for the area. Mapped into
- * the HomeRecentSale shape so the existing comps grid renders them. Returns []
- * on any failure.
- *
- * NOTE: ATTOM's salescomparables path/version varies by plan — verify on your
- * account. Comps have no photo, so photoUrl is null.
- */
-export async function getAttomComps(attomId: string, limit = 6): Promise<HomeRecentSale[]> {
-  if (!attomId) return [];
-  try {
-    const res = await fetch(salesCompsUrl(attomId, limit), {
-      headers: { apikey: apiKey(), Accept: 'application/json' },
-      cache: 'no-store',
-    });
-    if (!res.ok) return [];
-    const data = (await res.json()) as Record<string, unknown>;
-
-    // ATTOM salescomparables nests comps under RESPONSE_GROUP → … →
-    // COMPARABLE_PROPERTY_ext; some plans return a flatter `property` list.
-    const nested = (((data.RESPONSE_GROUP as Record<string, unknown> | undefined)?.RESPONSE as
-      | Record<string, unknown>
-      | undefined)?.RESPONSE_DATA as Record<string, unknown> | undefined)
-      ?.PROPERTY_INFORMATION_RESPONSE_ext as Record<string, unknown> | undefined;
-    const nestedComps = nested?.COMPARABLE_PROPERTY_ext;
-    const items: Array<Record<string, unknown>> = Array.isArray(nestedComps)
-      ? (nestedComps as Array<Record<string, unknown>>)
-      : Array.isArray(data.property)
-        ? (data.property as Array<Record<string, unknown>>)
-        : [];
-
-    const out: HomeRecentSale[] = [];
-    items.slice(0, limit).forEach((rec, i) => {
-      // Try both the AVM-style property shape and the comparables ext shape.
-      const sale = rec.sale as { amount?: { saleamt?: unknown }; saleTransDate?: unknown } | undefined;
-      const addressObj = rec.address as { line1?: unknown; oneLine?: unknown } | undefined;
-      const price =
-        num(sale?.amount?.saleamt) ??
-        num(rec['@_SalesPriceAmount']) ??
-        num(rec.LAST_SALE_PRICE_ext) ??
-        num(rec.saleamt);
-      const addr =
-        (typeof addressObj?.oneLine === 'string' && addressObj.oneLine) ||
-        (typeof addressObj?.line1 === 'string' && addressObj.line1) ||
-        (typeof rec['@_StreetAddress'] === 'string' && (rec['@_StreetAddress'] as string)) ||
-        'Comparable sale';
-      const rawDate = (sale?.saleTransDate ?? rec['@_SalesContractDate']) as string | undefined;
-      const close = typeof rawDate === 'string' && rawDate ? new Date(rawDate.slice(0, 10)) : null;
-      if (price == null) return;
-      out.push({
-        id: -1 - i, // negative synthetic ids — never collide with DB rows
-        address: addr,
-        soldPrice: price,
-        daysOnMarket: null,
-        closeDate: close && !Number.isNaN(close.getTime()) ? close : null,
-        photoUrl: null,
-        cityName: null,
-        listingKey: null, // ATTOM comps have no IDX detail page
-      });
-    });
-    return out;
-  } catch (err) {
-    console.error('[attom] getAttomComps failed:', err);
-    return [];
   }
 }

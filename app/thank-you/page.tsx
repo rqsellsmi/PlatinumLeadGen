@@ -13,6 +13,7 @@ import {
   type HomeRecentSale,
 } from '@/lib/queries';
 import { getRevealedValuation, type RevealedValuation } from '@/lib/valuationStore';
+import { refreshIfStale } from '@/lib/valuationCache';
 import { getReportContext, logReportView } from '@/lib/reportAccess';
 import {
   getSimilarHomes,
@@ -23,7 +24,7 @@ import {
   type CityMarketReport,
 } from '@/lib/idx';
 import { getMarketNarrative } from '@/lib/marketNarrative';
-import { activeProvider, type MarketTrends } from '@/lib/valuation';
+import { activeProvider } from '@/lib/valuation';
 import type { MarketStat } from '@/drizzle/schema';
 
 export const dynamic = 'force-dynamic';
@@ -118,8 +119,6 @@ export default async function ThankYouPage({
   let cityName = '';
   let snapshot: MarketStat | null = null;
   let comps: HomeRecentSale[] = [];
-  let compsSource: 'platinum' | 'area' = 'platinum';
-  let marketTrends: MarketTrends | null = null;
 
   // Resolve the revealed valuation + subject city. The durable report token
   // (from the confirmation email / post-submit redirect) is preferred; the
@@ -148,25 +147,46 @@ export default async function ThankYouPage({
         email: ctx.email,
         leadId: ctx.leadId,
       };
-      report = {
-        provider: ctx.revealed?.provider ?? 'idx',
-        address: ctx.address,
-        estimatedValue: ctx.estimatedValue,
-        priceRangeLow: ctx.priceRangeLow,
-        priceRangeHigh: ctx.priceRangeHigh,
-        confidenceScore: ctx.revealed?.confidenceScore ?? null,
-        basics: ctx.revealed?.basics ?? null,
-        saleHistory: ctx.revealed?.saleHistory ?? [],
-        attomId: ctx.revealed?.attomId ?? null,
-        areaGeoId: ctx.revealed?.areaGeoId ?? null,
-        latitude: ctx.latitude,
-        longitude: ctx.longitude,
-      };
+      report = ctx.revealed
+        ? {
+            // The lead's own copy of the numbers wins (an agent may have
+            // corrected them); everything else comes off the valuation row.
+            ...ctx.revealed,
+            address: ctx.address ?? ctx.revealed.address,
+            estimatedValue: ctx.estimatedValue,
+            priceRangeLow: ctx.priceRangeLow,
+            priceRangeHigh: ctx.priceRangeHigh,
+            latitude: ctx.latitude,
+            longitude: ctx.longitude,
+          }
+        : {
+            id: 0, // no valuation row — nothing to refresh
+            provider: 'idx',
+            address: ctx.address,
+            estimatedValue: ctx.estimatedValue,
+            priceRangeLow: ctx.priceRangeLow,
+            priceRangeHigh: ctx.priceRangeHigh,
+            confidenceScore: null,
+            isUncertain: false,
+            basics: null,
+            detail: null,
+            saleHistory: [],
+            attomId: null,
+            areaGeoId: null,
+            latitude: ctx.latitude,
+            longitude: ctx.longitude,
+            valuedAt: null,
+          };
       await logReportView(ctx.leadId); // admin access log (§8.3)
     }
   } else if (token) {
     report = await getRevealedValuation(token);
   }
+
+  // Provider data older than 30 days is re-priced on view and written back, so
+  // a report opened months later shows a current number rather than a stale one.
+  // No-ops when the data is fresh; never a second call within the window.
+  if (report?.id) report = await refreshIfStale(report);
 
   if (citySlug) {
     const loc = await getLocationBySlug(citySlug);
@@ -179,28 +199,6 @@ export default async function ThankYouPage({
     }
   }
   if (comps.length === 0) comps = await getFeaturedRecentSales(6);
-
-  // ATTOM enrichments — only for a revealed (converted) ATTOM valuation, so
-  // billable calls are bounded to real leads. Gated behind env flags because
-  // Sales Trend / Sales Comparables are separate ATTOM products; enable them
-  // (ATTOM_ENABLE_TRENDS=1 / ATTOM_ENABLE_COMPS=1) once your plan includes them
-  // so we don't make failing calls in the meantime. Both degrade to nothing.
-  const trendsEnabled = process.env.ATTOM_ENABLE_TRENDS === '1';
-  const compsEnabled = process.env.ATTOM_ENABLE_COMPS === '1';
-  if (report?.provider === 'attom' && (trendsEnabled || compsEnabled)) {
-    const { getAttomAreaTrends, getAttomComps } = await import('@/lib/attom');
-    if (trendsEnabled && report.areaGeoId) {
-      marketTrends = await getAttomAreaTrends(report.areaGeoId).catch(() => null);
-    }
-    // Fallback comps only when we have no RE/MAX Platinum closings to show.
-    if (compsEnabled && comps.length === 0 && report.attomId) {
-      const attomComps = await getAttomComps(report.attomId, 6).catch(() => []);
-      if (attomComps.length) {
-        comps = attomComps;
-        compsSource = 'area';
-      }
-    }
-  }
 
   // IDX Similar Homes / sold comps / market report for the Full Valuation page.
   const idxCity = subjectCity || cityName;
@@ -215,8 +213,6 @@ export default async function ThankYouPage({
             report={report}
             valuationProvider={activeProvider()}
             comps={comps}
-            compsSource={compsSource}
-            marketTrends={marketTrends}
             snapshot={snapshot}
             cityName={cityName}
             idxForSale={idx.forSale}
