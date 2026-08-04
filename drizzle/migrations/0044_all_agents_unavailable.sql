@@ -1,0 +1,25 @@
+-- One-time roster reset: every agent starts unavailable.
+--
+-- Migration 0038 changed the DEFAULT to false but deliberately left existing
+-- rows alone, so agents created before it kept the old `DEFAULT true` and have
+-- been available ever since — which is why a roster could show some agents
+-- available and others not, with nobody having chosen either state.
+--
+-- This is the deliberate, visible reset 0038 deferred, now that the owner is
+-- choosing the moment. It replaces the roster-wide reset that used to run
+-- inside the Launch send (lib/agentInvites.ts): coupling it to Launch meant an
+-- admin could not put an agent on the roster without that also being an
+-- availability decision. The two are now independent — an admin controls
+-- is_active, the agent controls is_available.
+--
+-- After this, availability only ever becomes true when the AGENT turns it on in
+-- their portal, which is also their acceptance of the referral terms shown
+-- there (agents.availability_opted_in_at, migration 0043).
+--
+-- Applies to every agent, not just active ones, so a Departed agent who is
+-- later re-activated does not silently resume receiving leads.
+--
+-- Idempotent: re-running sets nothing new. Hand-authored — never
+-- `drizzle-kit generate` (lessons-learned §1).
+
+UPDATE "agents" SET "is_available" = false, "updated_at" = now() WHERE "is_available" = true;

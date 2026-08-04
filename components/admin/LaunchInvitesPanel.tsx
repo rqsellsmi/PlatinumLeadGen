@@ -55,9 +55,13 @@ export default function LaunchInvitesPanel({
         <strong>
           {pendingCount} active agent{pendingCount === 1 ? '' : 's'}
         </strong>{' '}
-        who {pendingCount === 1 ? 'has' : 'have'} not set a password yet, and sets everyone to
-        opt-in for lead routing. Agents who are already set up are skipped. This runs once — check
-        the roster and mark departed agents inactive first.
+        who {pendingCount === 1 ? 'has' : 'have'} not set a password yet. Agents who are already
+        set up are skipped. This runs once — check the roster and mark departed agents inactive
+        first.
+      </p>
+      <p className="mt-2 text-sm text-mute">
+        This does not change anyone&apos;s lead routing. Agents turn their own availability on in
+        their portal once they&apos;ve set a password and accepted the referral terms.
       </p>
 
       {confirming ? (

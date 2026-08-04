@@ -68,9 +68,9 @@ export interface LaunchResult {
 /**
  * The one-time Launch send (D7).
  *
- * Emails a unique invite to every ACTIVE agent who has no password yet, and
- * sets them unavailable so availability is opt-in from day one. Skips anyone
- * already set up.
+ * Emails a unique invite to every ACTIVE agent who has no password yet. Skips
+ * anyone already set up. Availability is NOT touched — being on the roster and
+ * taking leads are separate decisions, and only the agent makes the second one.
  *
  * Guarded by `notification_settings.launch_invites_sent_at`: without it, a
  * second click would mass-re-email the whole roster — the kind of mistake that
@@ -109,10 +109,13 @@ export async function runLaunchInvites(opts: { force?: boolean } = {}): Promise<
     }
   }
 
-  // Availability becomes opt-in (D7): agents are active but not in the queue
-  // until they choose to be. Applied to the whole active roster, not just the
-  // invited ones, so the lifecycle model is consistent from launch.
-  await db.update(agents).set({ isAvailable: false, updatedAt: new Date() }).where(eq(agents.isActive, true));
+  // NOTE: this deliberately does NOT touch availability. It used to set the
+  // whole active roster unavailable, which coupled two independent decisions —
+  // "who is on the roster" and "who is taking leads" — and meant an admin could
+  // not activate an agent without that also being an availability decision.
+  // Availability is the agent's own switch (and their acceptance of the referral
+  // terms); the roster-wide reset to unavailable was done once, in migration
+  // 0044, and the column has defaulted to false since 0038.
 
   const now = new Date();
   if (settings) {
