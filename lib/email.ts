@@ -9,11 +9,20 @@
  * Uses the OAuth 2.0 client-credentials flow — no user sign-in, no refresh
  * token. Re-authenticate with client credentials when the access token expires.
  *
+ * DELIVERABILITY: every message goes out as a raw MIME `multipart/alternative`
+ * carrying both the HTML and the plain-text body (lib/mime.ts). Graph's JSON
+ * `sendMail` accepts only one `contentType`, so it sent HTML-only and silently
+ * dropped the text alternative each template writes — a spam signal that
+ * contributed to Gmail rejecting our mail. Deliverability also depends on SPF /
+ * DKIM / DMARC being configured on the SENDING domain (MS_GRAPH_FROM_EMAIL),
+ * which is DNS + Microsoft Defender configuration, not code.
+ *
  * SMS (agent texting) is a separate integration — see lib/sms.ts (Telnyx).
  */
 import { siteUrl } from './siteUrl';
 import { eq } from 'drizzle-orm';
 import { db } from './db';
+import { buildMimeMessage, toBase64 } from './mime';
 import { msGraphTokens, emailSendLog } from '../drizzle/schema';
 
 const BRAND_BLUE = '#1E3A5F'; // email header (Section 6.6)
@@ -104,6 +113,12 @@ export interface SendEmailArgs {
   text: string;
   cc?: string;
   replyTo?: string;
+  /**
+   * `List-Unsubscribe` header value. Set ONLY on consumer-facing mail — an
+   * unsubscribe on an agent lead offer or a password reset would be wrong, and
+   * a stray click would cut an agent out of their own notifications.
+   */
+  listUnsubscribe?: string;
   /** Template label for the send log (Section 6.4). */
   templateName?: string;
   relatedLeadId?: number;
@@ -111,29 +126,47 @@ export interface SendEmailArgs {
 }
 
 /**
+ * The unsubscribe contact for consumer mail — replies land in the same mailbox
+ * the message was sent from. A mailto (not one-click) because RFC 8058
+ * one-click also needs an HTTPS endpoint that accepts an unauthenticated POST,
+ * which we don't have yet; advertising it without one would be worse than
+ * offering nothing.
+ */
+export function unsubscribeMailto(): string {
+  return `<mailto:${fromEmail()}?subject=Unsubscribe>`;
+}
+
+/**
  * Low-level send via MS Graph. Logs every attempt to email_send_log and never
  * throws on a send failure — returns { ok:false } so callers can continue.
+ *
+ * Sends a raw MIME message rather than Graph's JSON body: the JSON form takes
+ * one `contentType`, so it cannot carry both the HTML and the plain-text
+ * alternative every template writes (see lib/mime.ts).
  */
 export async function sendEmail(args: SendEmailArgs): Promise<{ ok: boolean; error?: string }> {
   const recipients = Array.isArray(args.to) ? args.to : [args.to];
   const templateName = args.templateName ?? 'generic';
   try {
     const token = await getValidAccessToken();
+    const mime = buildMimeMessage({
+      from: fromEmail(),
+      to: recipients,
+      cc: args.cc ? [args.cc] : undefined,
+      replyTo: args.replyTo,
+      subject: args.subject,
+      text: args.text,
+      html: args.html,
+      listUnsubscribe: args.listUnsubscribe,
+    });
     const res = await fetch(
       `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(fromEmail())}/sendMail`,
       {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: {
-            subject: args.subject,
-            body: { contentType: 'HTML', content: args.html },
-            toRecipients: recipients.map((address) => ({ emailAddress: { address } })),
-            ...(args.cc ? { ccRecipients: [{ emailAddress: { address: args.cc } }] } : {}),
-            ...(args.replyTo ? { replyTo: [{ emailAddress: { address: args.replyTo } }] } : {}),
-          },
-          saveToSentItems: true, // also visible in M365 Sent Items (Section 6.4)
-        }),
+        // MIME sends post base64 text, not JSON. Graph saves these to Sent Items
+        // by default, preserving the Section 6.4 audit trail.
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'text/plain' },
+        body: toBase64(mime),
         cache: 'no-store',
       },
     );
@@ -351,6 +384,7 @@ ${d.reportUrl ? `\nView your personalized market report: ${d.reportUrl}\n` : ''}
     subject: 'We received your home valuation request',
     html,
     text,
+    listUnsubscribe: unsubscribeMailto(), // consumer-facing
     templateName: 'homeowner_confirmation',
     relatedLeadId: d.relatedLeadId,
   };
@@ -581,6 +615,7 @@ This link is personal to you — please don't forward it. If you didn't request 
     subject: 'Your RE/MAX Platinum home valuation report',
     html,
     text,
+    listUnsubscribe: unsubscribeMailto(), // consumer-facing
     templateName: 'existing_report_link',
     relatedLeadId: d.relatedLeadId,
   };
