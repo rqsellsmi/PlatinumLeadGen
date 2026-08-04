@@ -316,6 +316,13 @@
       "when": 1787100000000,
       "tag": "0044_all_agents_unavailable",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1787200000000,
+      "tag": "0045_launch_queue_reset",
+      "breakpoints": true
     }
   ]
 }

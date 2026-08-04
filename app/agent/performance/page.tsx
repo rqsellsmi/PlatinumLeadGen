@@ -73,15 +73,23 @@ export default async function AgentPerformancePage() {
   let queuePos = '—';
   let queueText = 'You are not currently in the routing rotation.';
   try {
-    const available = await getActiveRoutingAgents();
-    const { rotationList, pointer } = await getRoutingQueue(available);
+    const members = await getActiveRoutingAgents();
+    const { rotationList, pointer } = await getRoutingQueue(members);
+    // Paused agents keep their slots in the rotation but are skipped when a lead
+    // actually surfaces, so counting them here would overstate the wait — an
+    // agent would read "#5" when four of the slots ahead can't be served.
+    // Count only the slots that could really take a lead before theirs.
+    const paused = new Set(members.filter((a) => a.isAvailable === false).map((a) => a.id));
     const n = rotationList.length;
     let stepsUntil: number | null = null;
+    let ahead = 0;
     for (let k = 0; k < n; k++) {
-      if (rotationList[(pointer + k) % n] === agent.id) {
-        stepsUntil = k;
+      const id = rotationList[(pointer + k) % n];
+      if (id === agent.id) {
+        stepsUntil = ahead;
         break;
       }
+      if (!paused.has(id)) ahead++;
     }
     if (stepsUntil != null) {
       queuePos = stepsUntil === 0 ? 'Next' : `#${stepsUntil + 1}`;

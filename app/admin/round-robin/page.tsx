@@ -13,16 +13,25 @@ export default async function RoundRobinPage() {
   await requireAdmin();
 
   const available = await getActiveRoutingAgents();
-  const [{ rotationList, pointer }, dist, agentRows] = await Promise.all([
+  const [{ rotationList }, dist, agentRows] = await Promise.all([
     getRoutingQueue(available),
     distributionThisWeek(),
     db
-      .select({ id: agents.id, first: agents.firstName, last: agents.lastName, score: agents.scoreRolling365 })
+      .select({
+        id: agents.id,
+        first: agents.firstName,
+        last: agents.lastName,
+        score: agents.scoreRolling365,
+        isAvailable: agents.isAvailable,
+      })
       .from(agents),
   ]);
 
   const nameById = new Map(agentRows.map((a) => [a.id, `${a.first} ${a.last}`.trim() || `Agent #${a.id}`]));
   const scoreById = new Map(agentRows.map((a) => [a.id, a.score ?? 0]));
+  // Paused agents hold their slots but are skipped at send time, so the admin
+  // needs to see the rotation both ways — see QueueEditor's filter.
+  const pausedById = new Map(agentRows.map((a) => [a.id, a.isAvailable === false]));
 
   // Expand the rotation into draggable slot rows, numbering each agent's slots.
   const totalByAgent = new Map<number, number>();
@@ -38,6 +47,7 @@ export default async function RoundRobinPage() {
       score: scoreById.get(id) ?? 0,
       slotIndex: n,
       slotCount: totalByAgent.get(id) ?? slotCountForScore(scoreById.get(id) ?? 0),
+      isPaused: pausedById.get(id) ?? false,
     };
   });
 
@@ -52,5 +62,5 @@ export default async function RoundRobinPage() {
     };
   });
 
-  return <QueueEditor initialSlots={slots} pointer={pointer} distribution={distribution} />;
+  return <QueueEditor initialSlots={slots} distribution={distribution} />;
 }

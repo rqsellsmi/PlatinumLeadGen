@@ -11,6 +11,8 @@ export interface QueueSlot {
   score: number;
   slotIndex: number; // 1-based within the agent's slots
   slotCount: number;
+  /** Agent is not accepting leads: keeps the slot, skipped when it surfaces. */
+  isPaused: boolean;
 }
 
 export interface DistRow {
@@ -27,11 +29,9 @@ export interface DistRow {
  */
 export default function QueueEditor({
   initialSlots,
-  pointer,
   distribution,
 }: {
   initialSlots: QueueSlot[];
-  pointer: number;
   distribution: DistRow[];
 }) {
   const router = useRouter();
@@ -39,6 +39,28 @@ export default function QueueEditor({
   const [dragIndex, setDragIndex] = React.useState<number | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [msg, setMsg] = React.useState<string | null>(null);
+  // Default to the servable rotation — the order leads will actually follow.
+  // Toggling paused agents back in shows where they sit while skipped.
+  const [showPaused, setShowPaused] = React.useState(false);
+
+  const pausedCount = React.useMemo(() => slots.filter((s) => s.isPaused).length, [slots]);
+  /**
+   * View-only lens. `slots` stays the complete rotation and is what Save posts —
+   * filtering must never drop a hidden agent from the persisted list. Drag is
+   * disabled while filtered, because dropping a row at a visible index says
+   * nothing about where it belongs among the hidden ones.
+   */
+  const visible = React.useMemo(
+    () => (showPaused ? slots : slots.filter((s) => !s.isPaused)),
+    [slots, showPaused],
+  );
+  const filtering = !showPaused && pausedCount > 0;
+  /**
+   * The slot a lead would actually go to: the first one whose agent isn't
+   * paused. The front of the list can be a paused agent, and labelling that row
+   * "next up" would be a lie — it gets skipped and moved to the back.
+   */
+  const nextUpKey = React.useMemo(() => slots.find((s) => !s.isPaused)?.key ?? null, [slots]);
 
   const dirty = React.useMemo(
     () => slots.map((s) => s.key).join(',') !== initialSlots.map((s) => s.key).join(','),
@@ -135,36 +157,71 @@ export default function QueueEditor({
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="rounded-card border border-line bg-white lg:col-span-2">
-          <div className="px-5 py-4">
-            <h2 className="font-bold text-charcoal">Rotation (expanded slots)</h2>
-            <p className="text-xs text-mute-light">
-              The highlighted row is next up. {slots.length} total slots.
-            </p>
+          <div className="flex flex-wrap items-start justify-between gap-3 px-5 py-4">
+            <div>
+              <h2 className="font-bold text-charcoal">Rotation (expanded slots)</h2>
+              <p className="text-xs text-mute-light">
+                The highlighted row is next up. {visible.length} slot
+                {visible.length === 1 ? '' : 's'} shown
+                {pausedCount > 0
+                  ? showPaused
+                    ? ` · ${pausedCount} paused (skipped when reached)`
+                    : ` · ${pausedCount} paused slot${pausedCount === 1 ? '' : 's'} hidden`
+                  : ''}
+                .
+              </p>
+            </div>
+            {pausedCount > 0 ? (
+              <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold text-mute">
+                <input
+                  type="checkbox"
+                  checked={showPaused}
+                  onChange={(e) => setShowPaused(e.target.checked)}
+                  className="h-4 w-4 cursor-pointer accent-platinum-blue"
+                />
+                Show paused agents
+              </label>
+            ) : null}
           </div>
+          {filtering ? (
+            <p className="border-t border-line-hair bg-cream px-5 py-2 text-xs text-mute">
+              Reordering is disabled while paused agents are hidden — dropping a row here
+              wouldn&apos;t say where it belongs among the hidden slots. Show them to drag.
+            </p>
+          ) : null}
           <ul>
-            {slots.map((s, i) => {
-              const isNext = i === pointer && !dirty;
+            {visible.map((s, i) => {
+              const isNext = s.key === nextUpKey && !dirty;
               return (
                 <li
                   key={s.key}
-                  draggable
-                  onDragStart={() => onDragStart(i)}
-                  onDragOver={(e) => onDragOver(e, i)}
+                  draggable={!filtering}
+                  onDragStart={() => !filtering && onDragStart(i)}
+                  onDragOver={(e) => !filtering && onDragOver(e, i)}
                   onDragEnd={onDragEnd}
-                  className={`flex cursor-grab items-center gap-4 border-t border-line-hair px-5 py-3 active:cursor-grabbing ${
-                    isNext ? 'bg-[#EEF3FF]' : 'bg-white'
-                  }`}
+                  className={`flex items-center gap-4 border-t border-line-hair px-5 py-3 ${
+                    filtering ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'
+                  } ${isNext ? 'bg-[#EEF3FF]' : s.isPaused ? 'bg-offwhite' : 'bg-white'}`}
                 >
                   <span className="w-6 text-center font-numeric text-sm font-bold text-mute-lighter">
                     {i + 1}
                   </span>
-                  <span className="select-none text-mute-lighter">⋮⋮</span>
+                  <span className={`select-none ${filtering ? 'opacity-30' : ''} text-mute-lighter`}>
+                    ⋮⋮
+                  </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <p className="truncate font-bold text-charcoal">{s.agentName}</p>
+                      <p className={`truncate font-bold ${s.isPaused ? 'text-mute' : 'text-charcoal'}`}>
+                        {s.agentName}
+                      </p>
                       {isNext ? (
                         <span className="rounded-pill border border-platinum-blue px-2 py-0.5 text-[10px] font-bold uppercase text-platinum-blue">
                           Next up
+                        </span>
+                      ) : null}
+                      {s.isPaused ? (
+                        <span className="rounded-pill border border-line bg-offwhite px-2 py-0.5 text-[10px] font-bold uppercase text-mute-light">
+                          Paused
                         </span>
                       ) : null}
                     </div>
@@ -176,9 +233,11 @@ export default function QueueEditor({
                 </li>
               );
             })}
-            {slots.length === 0 ? (
+            {visible.length === 0 ? (
               <li className="border-t border-line-hair px-5 py-8 text-center text-sm text-mute">
-                No routable agents. Activate agents and ensure they are available.
+                {slots.length === 0
+                  ? 'No agents in the rotation yet. Agents join when they turn on their own lead routing.'
+                  : `No agents are accepting leads — all ${pausedCount} slot${pausedCount === 1 ? ' is' : 's are'} paused.`}
               </li>
             ) : null}
           </ul>
