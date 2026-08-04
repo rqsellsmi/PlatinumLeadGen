@@ -1,17 +1,26 @@
 import Link from 'next/link';
 import { asc, eq, sql, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { agents, offices, leadOffers, leads } from '@/drizzle/schema';
+import { agents, offices, leadOffers, leads, notificationSettings } from '@/drizzle/schema';
 import { Button } from '@/components/ui';
 import { requireAdmin } from '@/components/admin/requireAdmin';
 import AgentDirectory, { type AgentRow } from '@/components/admin/AgentDirectory';
 import { tierFor } from '@/lib/scoreTiers';
 import { loadTierContext } from '@/lib/scoreTiersServer';
+import LaunchInvitesPanel from '@/components/admin/LaunchInvitesPanel';
 
 export const dynamic = 'force-dynamic';
 
 export default async function AgentsPage() {
   await requireAdmin();
+
+  // Launch-button context (D7): who still needs an invite, and whether the
+  // one-time bulk send has already run.
+  const [settingsRow] = await db
+    .select({ launchInvitesSentAt: notificationSettings.launchInvitesSentAt })
+    .from(notificationSettings)
+    .limit(1);
+  const launchSentAt = settingsRow?.launchInvitesSentAt ?? null;
 
   const [rows, activeCounts, acceptedCounts, closedCounts, respRows] = await Promise.all([
     db
@@ -56,6 +65,9 @@ export default async function AgentsPage() {
   const respById = new Map(respRows.map((r) => [r.agentId, r.mins != null ? Number(r.mins) : null]));
   const tierCtx = await loadTierContext();
 
+  // Active agents who have not set a password yet — the Launch send's audience.
+  const pendingInvites = rows.filter((r) => r.agent.isActive && !r.agent.passwordHash).length;
+
   // Build serializable rows (with precomputed metrics) for the client directory.
   const agentRows: AgentRow[] = rows.map(({ agent, officeName, officeCity }) => {
     const accepted = acceptedById.get(agent.id) ?? 0;
@@ -89,6 +101,8 @@ export default async function AgentsPage() {
           <Button>+ Add agent</Button>
         </Link>
       </div>
+
+      <LaunchInvitesPanel pendingCount={pendingInvites} sentAt={launchSentAt} />
 
       {agentRows.length === 0 ? (
         <div className="rounded-card border border-line bg-white px-5 py-12 text-center text-sm text-mute">

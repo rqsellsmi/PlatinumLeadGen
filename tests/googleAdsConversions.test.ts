@@ -8,6 +8,7 @@ import {
   isExportEligible,
   buildIngestRequest,
 } from '../lib/googleAdsOutbox';
+import { eligibleLeadTypes } from '../lib/googleAdsConfig';
 
 describe('googleAdsHash', () => {
   it('lowercases + trims email and strips gmail dots', () => {
@@ -37,13 +38,21 @@ describe('googleAdsHash', () => {
 });
 
 describe('milestoneFor', () => {
-  it('maps only the three trigger statuses', () => {
+  it('maps only the four trigger statuses', () => {
     expect(milestoneFor('nurturing')).toBe('valid_seller_lead');
     expect(milestoneFor('signed')).toBe('listing_signed');
     expect(milestoneFor('closed')).toBe('closed');
-    for (const s of ['new', 'attempted_contact', 'connected', 'appointment_set', 'lost', 'reopened']) {
+    for (const s of ['new', 'attempted_contact', 'connected', 'lost', 'reopened']) {
       expect(milestoneFor(s)).toBeNull();
     }
+  });
+
+  it('maps the AGENT-confirmed appointment, not the public form (D4 MODIFIED)', () => {
+    // The bidding-quality "Appointment" conversion is the one an agent
+    // confirms. The public form still fires 'appointment_requested', but that
+    // action is configured SECONDARY (observation only) in Google Ads, so a
+    // visitor asking for a call cannot inflate bidding on its own.
+    expect(milestoneFor('appointment_set')).toBe('appointment_set');
   });
 });
 
@@ -51,6 +60,7 @@ describe('acquisitionMilestoneFor', () => {
   it('maps lead types to website/acquisition milestones', () => {
     expect(acquisitionMilestoneFor('valuation')).toBe('seller_valuation');
     expect(acquisitionMilestoneFor('seller_guide')).toBe('guide_download');
+    expect(acquisitionMilestoneFor('appointment')).toBe('appointment_lead');
     expect(acquisitionMilestoneFor('webhook')).toBeNull();
     expect(acquisitionMilestoneFor(null)).toBeNull();
     expect(acquisitionMilestoneFor(undefined)).toBeNull();
@@ -79,13 +89,29 @@ describe('eventSourceFor', () => {
 });
 
 describe('isExportEligible', () => {
-  const allow = ['valuation', 'seller_guide'];
+  const allow = ['valuation', 'seller_guide', 'appointment'];
   it('requires a non-deleted lead with an approved type', () => {
     expect(isExportEligible({ isDeleted: false, leadType: 'valuation' }, allow)).toBe(true);
     expect(isExportEligible({ isDeleted: false, leadType: 'seller_guide' }, allow)).toBe(true);
+    expect(isExportEligible({ isDeleted: false, leadType: 'appointment' }, allow)).toBe(true);
     expect(isExportEligible({ isDeleted: true, leadType: 'valuation' }, allow)).toBe(false);
     expect(isExportEligible({ isDeleted: false, leadType: 'webhook' }, allow)).toBe(false);
     expect(isExportEligible({ isDeleted: false, leadType: null }, allow)).toBe(false);
+  });
+
+  it('includes appointment-origin leads by DEFAULT, so their conversions export without an env override', () => {
+    const prev = process.env.GOOGLE_ADS_ELIGIBLE_LEAD_TYPES;
+    delete process.env.GOOGLE_ADS_ELIGIBLE_LEAD_TYPES;
+    try {
+      const types = eligibleLeadTypes();
+      expect(types).toContain('appointment');
+      expect(types).toContain('valuation');
+      expect(types).toContain('seller_guide');
+      expect(isExportEligible({ isDeleted: false, leadType: 'appointment' }, types)).toBe(true);
+    } finally {
+      if (prev === undefined) delete process.env.GOOGLE_ADS_ELIGIBLE_LEAD_TYPES;
+      else process.env.GOOGLE_ADS_ELIGIBLE_LEAD_TYPES = prev;
+    }
   });
 });
 

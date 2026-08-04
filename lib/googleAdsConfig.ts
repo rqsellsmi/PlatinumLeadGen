@@ -15,8 +15,28 @@ export type OutboxMilestone =
   // Website / acquisition (fired when the lead is captured)
   | 'seller_valuation'
   | 'guide_download'
+  /**
+   * A lead ACQUIRED through the appointment-request form — i.e. the form was
+   * the first touch, so a new lead was created from it (D4 continuation). This
+   * is the acquisition counterpart to `seller_valuation` / `guide_download`,
+   * distinct from `appointment_requested` (which fires for every appointment
+   * submission, including on leads that already converted).
+   */
+  | 'appointment_lead'
+  /**
+   * The public appointment-request FORM. A lead SIGNAL, not a verified
+   * appointment — the visitor asked, nobody has confirmed anything (D4).
+   * Configure this action as SECONDARY (observation only) in Google Ads so
+   * scheduler-funnel measurement survives without inflating bidding.
+   */
   | 'appointment_requested'
   // Pipeline / outcome (fired server-side from the CRM status flow)
+  /**
+   * The AGENT confirmed an appointment. This is the bidding-quality
+   * "Appointment" conversion (D4 MODIFIED) — it reflects a real appointment,
+   * so it is the one that may carry a bidding goal.
+   */
+  | 'appointment_set'
   | 'valid_seller_lead'
   | 'listing_signed'
   | 'closed';
@@ -24,7 +44,9 @@ export type OutboxMilestone =
 export const OUTBOX_MILESTONES: readonly OutboxMilestone[] = [
   'seller_valuation',
   'guide_download',
+  'appointment_lead',
   'appointment_requested',
+  'appointment_set',
   'valid_seller_lead',
   'listing_signed',
   'closed',
@@ -49,8 +71,12 @@ export function conversionActionId(milestone: OutboxMilestone): string {
       return process.env.GOOGLE_ADS_ACTION_ID_SELLER_VALUATION || '';
     case 'guide_download':
       return process.env.GOOGLE_ADS_ACTION_ID_GUIDE_DOWNLOAD || '';
+    case 'appointment_lead':
+      return process.env.GOOGLE_ADS_ACTION_ID_APPOINTMENT_LEAD || '';
     case 'appointment_requested':
       return process.env.GOOGLE_ADS_ACTION_ID_APPOINTMENT || '';
+    case 'appointment_set':
+      return process.env.GOOGLE_ADS_ACTION_ID_APPOINTMENT_SET || '';
     case 'valid_seller_lead':
       return process.env.GOOGLE_ADS_ACTION_ID_VALID_SELLER_LEAD || '';
     case 'listing_signed':
@@ -79,13 +105,15 @@ export function validateOnly(): boolean {
 }
 
 /**
- * Approved lead_type values eligible for export (decision D11). Today every
- * capture flow is the seller-valuation workflow, so the default is the two
- * seller lead types; third-party `webhook` leads are excluded until added.
- * Override with a comma list in GOOGLE_ADS_ELIGIBLE_LEAD_TYPES.
+ * Approved lead_type values eligible for export (decision D11). The capture
+ * flows are the two seller lead types plus appointment-origin leads (the
+ * appointment form as a first touch — its `appointment_lead` / `appointment_
+ * requested` conversions must export by default, not only when an env override
+ * is set); third-party `webhook` leads are excluded until added. Override with a
+ * comma list in GOOGLE_ADS_ELIGIBLE_LEAD_TYPES.
  */
 export function eligibleLeadTypes(): string[] {
-  const raw = (process.env.GOOGLE_ADS_ELIGIBLE_LEAD_TYPES || 'valuation,seller_guide').trim();
+  const raw = (process.env.GOOGLE_ADS_ELIGIBLE_LEAD_TYPES || 'valuation,seller_guide,appointment').trim();
   return raw
     .split(',')
     .map((s) => s.trim())

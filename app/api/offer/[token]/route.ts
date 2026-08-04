@@ -17,7 +17,6 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { leadOffers, leads } from '@/drizzle/schema';
 import { applyAccept, applyDecline } from '@/lib/offerActions';
-import { setAgentSessionCookie } from '@/lib/agentSession';
 import { checkPreset, clientIp } from '@/lib/rateLimit';
 
 export const runtime = 'nodejs';
@@ -53,18 +52,19 @@ function messagePage(title: string, message: string, status: number, ctaHref?: s
 }
 
 /**
- * Accept without an extra click: this page auto-submits the POST (which performs
- * the accept + logs the agent in + redirects to the portal). Rendering it has NO
- * side effects — the state change only happens on the POST the browser fires via
- * JS. Email scanners / link-preview bots issue GETs and neither run JS nor submit
- * forms, so they still can't accept a lead by prefetching the URL (the whole
- * reason a bare GET-accept was removed). A <noscript> button covers the rare
- * no-JS human. */
+ * Accept without an extra click: this page auto-submits the POST, which accepts
+ * the offer and nothing else. It does NOT create a portal session (D6 REVISED) —
+ * a forwarded offer email must never hand someone the agent's view of every
+ * seller's contact details. Rendering this page has NO side effects; the state
+ * change only happens on the POST the browser fires via JS. Email scanners and
+ * link-preview bots issue GETs and neither run JS nor submit forms, so they
+ * still can't accept a lead by prefetching the URL (the whole reason a bare
+ * GET-accept was removed). A <noscript> button covers the rare no-JS human. */
 function autoAcceptPage(token: string): NextResponse {
   return page(
     'Opening your lead',
     `<h1 style="margin:0 0 12px;font-size:22px;color:#1E3A5F;">Opening your lead…</h1>
-     <p style="font-size:15px;line-height:1.5;color:#475569;">One moment while we accept this lead and open it in your portal.</p>
+     <p style="font-size:15px;line-height:1.5;color:#475569;">One moment while we accept this lead for you.</p>
      <form id="accept-form" method="POST" action="/api/offer/${token}" style="margin-top:24px;">
        <input type="hidden" name="response" value="accept">
        <noscript>
@@ -84,7 +84,7 @@ function confirmPage(token: string, response: 'accept' | 'decline', where: strin
   const verb = isAccept ? 'Accept' : 'Decline';
   const lead = where ? ` for the lead${where}` : '';
   const note = isAccept
-    ? 'Accepting opens the lead in your portal and shares the contact details.'
+    ? 'Accepting assigns this lead to you. Sign in to the portal to see the seller’s contact details.'
     : 'Declining reassigns this lead to another agent and applies a response penalty.';
   return page(
     `${verb} this lead`,
@@ -206,13 +206,25 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
         );
       }
 
-      try {
-        await setAgentSessionCookie(offer!.agentId);
-      } catch (err) {
-        console.error('[api/offer] setAgentSessionCookie failed:', err);
-      }
-
-      return NextResponse.redirect(new URL('/agent/leads', req.url), { status: 303 });
+      // NO PORTAL SESSION IS GRANTED HERE (D6 REVISED, review #16/#67).
+      //
+      // This used to call setAgentSessionCookie, which made the offer email's
+      // Accept button a login link: a forwarded offer email both accepted the
+      // lead AND signed the recipient into the agent's portal, where every
+      // seller's name, phone, email and address is visible. That was the least
+      // guarded of the three session mint points — it never checked isActive
+      // and never checked an expiry on the agent.
+      //
+      // The offer token now does exactly one thing: accept or decline THAT
+      // offer. A forwarded link can still accept a lead on the agent's behalf,
+      // which is a nuisance the agent can see and undo; it can no longer read
+      // anyone's seller records. To work the lead, the agent signs in normally.
+      return messagePage(
+        'Lead accepted',
+        'This lead is yours. Sign in to the agent portal to see the seller’s details and start working it.',
+        200,
+        `${siteUrl()}/agent/login`,
+      );
     }
 
     return messagePage('Invalid request', 'Please use the Accept or Decline button from your lead offer email.', 400);

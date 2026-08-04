@@ -45,6 +45,15 @@ const CITIES: CitySeed[] = [
   { slug: 'ann-arbor-mi', name: 'Ann Arbor, Michigan', latitude: 42.2808, longitude: -83.743 },
   { slug: 'fenton-mi', name: 'Fenton, Michigan', latitude: 42.7959, longitude: -83.7085 },
   { slug: 'grand-blanc-mi', name: 'Grand Blanc, Michigan', latitude: 42.9267, longitude: -83.6305 },
+  // Additional launch cities near the Brighton & Ann Arbor offices (0041).
+  { slug: 'howell-mi', name: 'Howell, Michigan', latitude: 42.6073, longitude: -83.9294 },
+  { slug: 'hartland-mi', name: 'Hartland, Michigan', latitude: 42.6531, longitude: -83.7477 },
+  { slug: 'pinckney-mi', name: 'Pinckney, Michigan', latitude: 42.457, longitude: -83.9477 },
+  { slug: 'south-lyon-mi', name: 'South Lyon, Michigan', latitude: 42.4606, longitude: -83.6516 },
+  { slug: 'saline-mi', name: 'Saline, Michigan', latitude: 42.1667, longitude: -83.7813 },
+  { slug: 'dexter-mi', name: 'Dexter, Michigan', latitude: 42.3389, longitude: -83.8894 },
+  { slug: 'chelsea-mi', name: 'Chelsea, Michigan', latitude: 42.3184, longitude: -84.0197 },
+  { slug: 'whitmore-lake-mi', name: 'Whitmore Lake, Michigan', latitude: 42.4319, longitude: -83.75 },
 ];
 
 /** "Brighton, Michigan" -> "Brighton" */

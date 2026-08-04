@@ -1036,3 +1036,164 @@ recurring theme: the *guarding* logic is where the value is, not the form.
   city form rather than a fourth surface. A compliance/expectation-setting line
   that's on one of three surfaces still leaves two surfaces making an
   un-disclaimed claim — enumerate the surfaces before deciding you're done.
+
+## 22. P0 launch-blocker remediation session (formal review response)
+
+Closing the eight P0 items from the external project review. Durable lessons:
+
+- **"Knowing an identifier" is never "being the person."** The released defect
+  was address-based dedup handing a stranger an existing lead's report token
+  and PII. The instinctive fix — switch from address to email/phone — is the
+  *same bug wearing a better disguise*, because anyone who knows a victim's
+  email or phone (plus shared numbers, recycled numbers and typos) still walks
+  in. The correct split is INTERNAL use (dedup a conversion, flag a
+  reconciliation candidate — no disclosure) vs DISCLOSURE (requires proving
+  possession, e.g. clicking a link we email to the address already on file).
+  Whenever a lookup key is about to authorize *showing* something, ask what an
+  attacker who knows that key gets.
+- **Put the disclosure decision in a pure function and test it directly.**
+  `buildSubmitResponse(decision, ctx)` is the only place that decides what
+  leaves the server, and the test asserts it returns no id and no token for a
+  contact match *even when a caller wrongly passes one*. That is far stronger
+  than testing a route: the invariant is stated once, in one place, and a
+  future edit that reintroduces the leak fails a named test rather than
+  silently passing.
+- **Fail closed on the ambiguous case, especially for legacy rows.**
+  `isReportTokenUsable` treats a NULL expiry as EXPIRED. Reading it as "never
+  expires" would have quietly kept every pre-migration permanent token alive —
+  the exact defect the migration existed to close. A "safe" default that
+  preserves old behaviour is the wrong default for a security fix.
+- **A biased-toward-false-negative filter belongs on a paid funnel.** The
+  honeypot hard-rejects (a filled hidden field has no innocent explanation);
+  the timing check only FLAGS. Every missing signal — stripped field, cached
+  page, skewed client clock — is accepted. On a form fed by Google Ads spend, a
+  false positive silently discards a lead you paid for, which costs more than
+  storing a spam row. Say which controls are which: "abuse mitigation" and "bot
+  detection" are not synonyms, and same-origin + idempotency are neither.
+- **A test that fails after a deliberate decision reversal is information, not
+  an obstacle.** `reconcileRotation` had a test asserting a newcomer *weaves
+  into the middle*; D7 requires them to *append behind*. The right move was to
+  rewrite the test with the reason in the test name, not to work around it. The
+  failing test proved the change actually took effect.
+- **Invariants over sequences catch what step assertions can't.** The
+  availability-toggle gaming vector is invisible in any single call — it only
+  appears across pause → serve → resume. Simulating N leads and asserting
+  properties ("toggling never improves position", "reconcile is idempotent",
+  "slot count is conserved") found the shape of the fix, not just its
+  correctness.
+- **When a gate reads a column nothing populates, the gate is decoration.**
+  The out-of-state routing gate keys on `leads.property_state` — which was NULL
+  on every organically-submitted lead, because the forms only ever posted the
+  formatted address and coordinates. Shipping the gate alone would have been a
+  no-op that *looked* like a control. Asking Places for `address_components`
+  (free, same Place result) is what made it real. Before building logic on a
+  field, grep for who writes it.
+- **Distinguish "outside" from "unknown" — again.** §20 recorded this for the
+  proximity handoff; it recurred verbatim for the state gate. `unknown` must
+  route normally, or a parsing miss sends the entire funnel to the admin.
+- **Hashing a bearer token costs you the ability to re-send it, and that is
+  the correct trade.** Once `magic_link_token` is stored as a hash we cannot
+  reissue the *current* link, so every outbound message mints a fresh one that
+  supersedes the last. Older links die sooner — which is the point. Design the
+  UX for that (an expired link lands on "request a new link", never a dead
+  error) rather than keeping plaintext for convenience.
+- **Hashing protects the database; revocation protects against a leaked URL.**
+  They are different threats and you need both. The owner kept a 14-day magic
+  link, so session-version revocation is what actually bounds the damage — and
+  revoking sessions while leaving a working login link would be theatre, so
+  `revokeAgentSessions` clears both.
+- **Audit every place a session is minted, not just the login route.** The
+  offer-accept handler was a third mint point and the least guarded: no
+  `isActive` check, no expiry check, reachable from a forwarded email. Grepping
+  for the mint function (not the login page) is what surfaced it.
+- **A bulk outbound action needs a persisted one-time guard, not just a
+  confirm dialog.** `launch_invites_sent_at` is checked server-side, so a
+  double-click, a refresh, or a second admin cannot mass-re-email the roster.
+  A client-side confirmation alone would not survive any of those.
+- **`Button` takes `variant`, not `tone`** — §1 warned that the UI primitives
+  accept specific props, and this bit again. Read the component's props before
+  passing one that "obviously" exists.
+- **Backticks in a `git commit -m` heredoc-less shell string will silently
+  truncate the message** via command substitution. Write long commit messages
+  to a file and use `-F`.
+
+---
+
+## 23. P0 review round-2 + launch-prep session
+
+A second reviewer pass on the §22/§10 remediation, worked item-by-item ("confirm
+it's true, then check in before coding" — §0), plus the last content change
+before ads. Branch `claude/p0-repairs-ci-setup-dwhq25`. Tests 307 → 322.
+
+- **Postgres resolves function names at PARSE time, before any WHERE runs.** A
+  migration guarded `digest()` (pgcrypto) with `WHERE EXISTS (… pg_extension)`,
+  thinking it would no-op when the extension is absent. It doesn't — the whole
+  statement fails to parse (`function digest does not exist`) and rolls the
+  migration back. A WHERE clause can't save a statement that references a missing
+  function. Fix: the built-in `sha256(convert_to(x,'UTF8'))` (core since PG 11),
+  no extension. Same class as §16b (a "valid" thing that fails at a phase you
+  didn't picture) — reason about *when* the DB evaluates each part.
+- **A "dead" file can be load-bearing for TYPES.** Deleting the orphaned
+  `city/ValuationForm.tsx` broke `HeroValuation` and the exit-intent overlay —
+  the file was the only home of the `declare global { interface Window { google } }`
+  augmentation. Before deleting an unused file, grep it for `declare global`,
+  ambient types, side-effect imports, and re-exports — not just component usage.
+- **neon-http has NO interactive transactions** — `db.transaction()` throws
+  "No transactions support in neon-http driver". `db.batch()` is a *non-interactive*
+  atomic batch (no branching on results). So a claim-then-work flow that must
+  branch (find-or-create a lead) can't be a real transaction on the http driver.
+  Options: a WebSocket `Pool` (against the deliberate no-WebSocket choice), or a
+  **compensating release** — claim, and on failure delete the claim so a retry
+  completes. The compensating path is only safe because two *other* invariants
+  hold: `idempotency_key` is UNIQUE (the claim is atomic) and dedup is
+  email-primary with email required (a retry re-attaches to any lead the failed
+  attempt created instead of duplicating). Atomicity often comes from composing
+  constraints, not one transaction.
+- **Consume a single-use token with a GUARDED `UPDATE … RETURNING`, not
+  read-then-write-by-id.** set-password / password-reset both read the token then
+  updated by agent id, so two concurrent requests both passed. The fix is one
+  statement whose WHERE re-asserts every consumption precondition (token still
+  present, password still null, active, unexpired); zero rows returned = the race
+  was lost. The pre-SELECT stays only for nice error messages. Same shape as the
+  atomic idempotency claim.
+- **Store every emailed token as a HASH; the column name can lie.** The
+  password-reset token was plaintext at rest while invite/magic-link were hashed —
+  an easy inconsistency to miss because the column is just `password_reset_token`.
+  Hash at rest (store `hashToken(x)`, look up by `hashToken(submitted)`); the
+  128-char column already fit the 64-char hash, so no migration.
+- **A required field gated on an UNVERIFIABLE client signal isn't required.**
+  The appointment email was `required={!reportToken}` — but the browser can't tell
+  a valid token from an expired one, so an expired token made email look optional
+  while the server rejected it. Make it unconditionally required; the happy-path
+  visitor has it prefilled anyway.
+- **A dormant control is worse than no control because it reads as done.** The
+  P0.3 honeypot + timing signals existed server-side but the main forms never
+  *sent* them, so the gate was a no-op on the exact PPC funnel it was meant to
+  protect. Server unit tests proved the evaluator; they can't see what the client
+  transmits. Centralizing each form's request body in pure builders
+  (`lib/leadRequests.ts`) made "did we send the signals?" a unit-testable
+  property, and unblocked deleting a duplicated form (two guide forms → one).
+- **`ON CONFLICT` targets a unique index that must already exist.** The atomic
+  appointment claim (`.onConflictDoNothing({ target: idempotencyKey })`) errors at
+  runtime until migration 0040 creates the unique index — so it's a hard
+  migrate-before-deploy ordering, and a plain unique index (not partial) already
+  allows multiple NULL keys via default NULLS DISTINCT.
+- **`ALTER TYPE … ADD VALUE` is fine inside a transaction on PG 12+** *as long as
+  the new value isn't USED in the same transaction* (it isn't — the first insert
+  is a later request), so drizzle's transactional migration runner handles the new
+  `appointment` `lead_type` without special casing. Use `IF NOT EXISTS` to stay
+  idempotent.
+- **Homepage city tiles and `/sell/[slug]` are pure data (active `locations`).**
+  Growing from 4 to 12 tiles needed no component change — the grid already scales.
+  But tile *numbers* come from `market_stats`, populated by the IDX metrics job
+  matching sold listings where `city` **exactly** equals the location's name (or
+  its `matchCities`); a zero-match city is skipped (never zeroed), so a new tile
+  shows city+photo but no valuation until the next sync populates it — and a
+  township/lake whose feed string differs needs `matchCities` set. Adding a city
+  is a data migration, not code.
+- **When the ground truth is in production data you can't reach, hand the owner
+  the exact query.** "The 12 cities where we have the most of OUR active listings"
+  is a `GROUP BY city` over `idx_listings WHERE is_office_listing AND standard_status='Active'`
+  — I can't run it here, so I gave the query and a geographic placeholder set the
+  owner could accept and refine in the admin, rather than guessing into a
+  production migration.

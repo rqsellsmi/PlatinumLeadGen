@@ -6,6 +6,7 @@ import { db } from '@/lib/db';
 import { agents } from '@/drizzle/schema';
 import { getCurrentAgent } from '@/lib/agentSession';
 import { geocodeAddress } from '@/lib/geocode';
+import { clampProximityRadius } from '@/lib/coverage';
 
 /**
  * Save an agent's lead-routing proximity preferences: the anchor their
@@ -19,9 +20,11 @@ export async function updateRoutingPreferences(formData: FormData) {
   const anchor = String(formData.get('proximityAnchor') ?? 'office') === 'custom' ? 'custom' : 'office';
   const city = String(formData.get('locationCity') ?? '').trim() || null;
 
+  // Clamped to 250 miles (D22 / #76). The live account was set to 1,000 —
+  // a circle covering most of the eastern US, silently participating in a
+  // Michigan seller queue. null still means "use the brokerage default".
   const radiusRaw = String(formData.get('radiusMiles') ?? '').trim();
-  const radiusNum = radiusRaw === '' ? null : Number(radiusRaw);
-  const radiusMiles = radiusNum != null && Number.isFinite(radiusNum) && radiusNum > 0 ? radiusNum : null;
+  const radiusMiles = radiusRaw === '' ? null : clampProximityRadius(radiusRaw);
 
   // Geocode the custom city so proximity has coordinates to work from. If it
   // doesn't resolve (or no city given), coordinates stay null and routing falls

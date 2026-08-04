@@ -797,3 +797,75 @@ typecheck clean, build compiles, **161 tests across 18 files**.
 - **Departed-agent leads handling** — undecided.
 - **`www.` / apex DNS** for `remax-platinumonline.com` — a DNS/registrar step,
   not code (the bare Vercel link works; `www` needs a CNAME/redirect).
+
+---
+
+# Session Summary — P0 Review Round 2 + Launch Prep (2026-08-03)
+
+Branch: `claude/p0-repairs-ci-setup-dwhq25`. Migrations added: **0039, 0040,
+0041**; **0036 corrected in place**. A second reviewer pass on the §22 P0
+remediation, each item confirmed-then-fixed with an owner check-in, plus the last
+content change before ads. Typecheck clean, **322 tests** at the stop point.
+Full write-ups: `docs/current-state.md` §11, `docs/lessons-learned.md` §23.
+
+## What shipped
+- **Email-primary lead identity (final D3 model).** Email is the identity key; a
+  different email is always a new lead, a matching phone never merges.
+  `lib/leadDedup.ts` (`findLeadByEmail` / `findLeadByPhone`),
+  `lib/contactNormalization.ts` (one pure definition of the rules),
+  `lib/leadDuplicateAlert.ts` (a phone matching a *different-email* lead emails the
+  **admin** a heads-up — an agent can't see other leads; no auto-merge). Removed
+  the now-unused `isStrongContactMatch`. Dissolves the "report link to on-file
+  email" dilemma (an email match = same address).
+- **Appointment form as a first touch (extends D4).** New `appointment`
+  `lead_type` (0039). Tokenless / no-email-match appointments now **create and
+  route** a lead instead of orphaning the request; `appointment_lead` acquisition
+  conversion (export-eligible by default). Form gained an optional
+  **Places-autocomplete address** (for routing) and an **always-required email**
+  (a token's presence isn't proof it's valid); phone optional.
+- **Atomic appointment idempotency (0040).** Non-unique index → UNIQUE; route
+  **claims** via `INSERT … ON CONFLICT DO NOTHING RETURNING` before any
+  lead/email/routing. neon-http has no interactive transactions, so a failure
+  **releases the claim** (compensating delete) — a retry completes, re-attaching by
+  email rather than duplicating.
+- **Credential atomicity + reset-token hashing (P0.8 follow-ups).**
+  set-password / password-reset now consume the token in one guarded
+  `UPDATE … RETURNING` (closes the two-concurrent-request race); the reset token is
+  hashed at rest like the invite/magic link (no schema change).
+- **Migration 0036 fixed in place** — pgcrypto `digest()` (fails at parse time
+  without the extension, which nothing installs) → built-in `sha256(convert_to(…))`.
+- **Privacy-disclosure coverage completed (P0.6).** `<PrivacyNote>` beside the
+  appointment submit and inside the shared `GuideCaptureForm`; the D8 retention
+  notice on both HeroValuation address-first steps, as a collapsible
+  "How we use your address" link. Wording still awaits counsel.
+- **Funnel plumbing consolidated.** Dormant honeypot/timing signals now sent by
+  every public form via pure `lib/leadRequests.ts` builders (unit-tested per form);
+  two guide forms → one `GuideCaptureForm`; orphaned `city/ValuationForm.tsx`
+  deleted (its `window.google` types moved to `types/googleMaps.d.ts`).
+- **12 homepage city tiles (0041).** 8 mailing cities near Brighton/Ann Arbor
+  (Howell, Hartland, Pinckney, South Lyon, Saline, Dexter, Chelsea, Whitmore Lake)
+  added as idempotent `locations` rows — tiles and `/sell` pages are data-driven,
+  no code change.
+
+## What still needs to be done (owner)
+- **Apply migrations 0039, 0040, 0041** in order on every Neon branch; **0040 must
+  land before the appointment route deploys** (the `ON CONFLICT` needs the index).
+- **Set `GOOGLE_ADS_ACTION_ID_APPOINTMENT_LEAD`** in Vercel **and** GitHub Actions
+  after creating the Ads conversion action (no-op until then).
+- **Counsel sign-off** on the privacy-disclosure wording.
+- **City tiles:** trigger/await an IDX sync to populate the 8 new cities'
+  `market_stats` (tiles show city+photo but no numbers until then); set
+  `matchCities` in the admin for any that stay blank; swap the placeholder 8 for
+  the real our-active-listing ranking when ready (query in §11 / the chat).
+
+## Deferred (discussed, not built)
+- **True transactional appointment idempotency** — declined the WebSocket-pool
+  driver to keep the http-only architecture; compensating-delete closes the common
+  case, a sustained outage / mid-request process kill is the residual.
+- **Footer city list** still hardcodes 4 (`SiteFooter.tsx`) — tiles are
+  data-driven, footer isn't; left as-is.
+- **`full-setup.sql` / `seed.sql`** manual-bootstrap files are stale (predate the
+  `appointment` lead type) — regenerate someday; migrations + `scripts/seed.ts` are
+  authoritative.
+- **Fenton / Grand Blanc tiles** kept for now (owner still sells there); owner may
+  remove later.

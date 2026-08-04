@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ilike, eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { agents } from '@/drizzle/schema';
-import { generatePasswordResetToken, passwordResetExpiry } from '@/lib/agentPortalAuth';
+import { generatePasswordResetToken, passwordResetExpiry, hashToken } from '@/lib/agentPortalAuth';
 import { sendEmail, agentPasswordResetEmail } from '@/lib/email';
 import { siteUrl } from '@/lib/siteUrl';
 import { checkPreset, clientIp } from '@/lib/rateLimit';
@@ -29,11 +29,13 @@ export async function POST(req: NextRequest) {
       const agent = rows[0];
       if (agent) {
         const now = new Date();
+        // Email the plaintext token; store only its hash (P0.8). The reset
+        // route looks the agent up by hashToken(submitted).
         const token = generatePasswordResetToken();
         await db
           .update(agents)
           .set({
-            passwordResetToken: token,
+            passwordResetToken: hashToken(token),
             passwordResetExpiresAt: passwordResetExpiry(now),
             updatedAt: now,
           })

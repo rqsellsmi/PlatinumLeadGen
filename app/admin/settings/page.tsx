@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { db } from '@/lib/db';
 import { notificationSettings } from '@/drizzle/schema';
 import { Card, CardHeader, CardBody, Button, Input, Label } from '@/components/ui';
@@ -29,19 +30,22 @@ export default async function SettingsPage() {
         </CardHeader>
         <CardBody>
           <form action={saveSettings} className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {/* The shared setup code is retired (D7 / review #17). One code,
+                distributed out of band, was the only thing standing between
+                anyone who learned it and any agent account without a password —
+                and it proved nothing about who was using it. Account setup now
+                goes through a per-agent, single-use, expiring invite emailed to
+                the address on the roster. */}
             <div className="md:col-span-2 rounded-lg border border-line bg-offwhite p-3">
-              <Label htmlFor="agentSetupCode">Agent setup code (first-time password setup)</Label>
-              <Input
-                id="agentSetupCode"
-                name="agentSetupCode"
-                defaultValue={settings.agentSetupCode ?? ''}
-                placeholder="e.g. PLATINUM2026"
-              />
+              <p className="text-sm font-semibold text-charcoal">Agent account setup</p>
               <p className="mt-1 text-xs text-mute-light">
-                Share this code with your agents along with the link{' '}
-                <span className="font-semibold">/agent/set-password</span> so each can set their{' '}
-                <em>first</em> password (their email must be on the roster). Leave blank to close the
-                setup page. Forgot-password uses an emailed reset link, not this code.
+                Agents set up their accounts from a personal invitation email, not a shared code.
+                Use <span className="font-semibold">Launch</span> on the{' '}
+                <Link href="/admin/agents" className="font-semibold text-platinum-blue hover:underline">
+                  Agents
+                </Link>{' '}
+                page to invite everyone at once, or invite a new agent individually from their
+                agent page.
               </p>
             </div>
             <div className="md:col-span-2">

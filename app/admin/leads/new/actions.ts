@@ -45,6 +45,10 @@ export async function createManualLead(formData: FormData): Promise<void> {
       phone: str(formData.get('phone')),
       propertyAddress: str(formData.get('propertyAddress')),
       propertyCity: str(formData.get('propertyCity')),
+      // Captured so the out-of-state coverage gate (D22) has a real value for
+      // manual/LSA leads — these never pass through Places, so without this the
+      // gate can only string-parse the free-text address.
+      propertyState: str(formData.get('propertyState')),
       timeframe: str(formData.get('timeframe')),
       locationId,
       updatedAt: now,

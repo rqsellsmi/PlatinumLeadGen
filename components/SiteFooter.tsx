@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import Logo from '@/components/Logo';
-import { getFooterOffice, type FooterOffice } from '@/lib/queries';
+import { getFooterOffice } from '@/lib/queries';
+import { BROKER_OFFICE_OF_RECORD, telHref as buildTelHref } from '@/lib/officeFallback';
 
 // Launch communities shown in the footer. Update if the active-city set changes.
 const COMMUNITIES = [
@@ -10,15 +11,10 @@ const COMMUNITIES = [
   { name: 'Grand Blanc', slug: 'grand-blanc-mi' },
 ];
 
-// Ultimate fallback when there are no offices in the DB — the Brighton office.
-const BRIGHTON_FALLBACK: FooterOffice = {
-  name: 'RE/MAX Platinum',
-  address: '123 W Grand River Ave',
-  city: 'Brighton',
-  state: 'MI',
-  zip: '48116',
-  phone: '(810) 555-0199',
-};
+// Fallback when the offices table is empty or unreachable. This used to be a
+// FABRICATED address and a 555 phone number, rendered as a live tel: link on
+// any DB error — see lib/officeFallback.ts. It is now the real office of
+// record, so a degraded render is still truthful and still dialable.
 
 /**
  * Shared public site footer — dark, multi-column (Section 15). The Contact
@@ -37,8 +33,9 @@ export default async function SiteFooter({
   longitude?: number | null;
 } = {}) {
   const year = new Date().getFullYear();
-  const office = (await getFooterOffice({ locationId, latitude, longitude })) ?? BRIGHTON_FALLBACK;
-  const telHref = office.phone ? `tel:+1${office.phone.replace(/\D/g, '')}` : null;
+  const office =
+    (await getFooterOffice({ locationId, latitude, longitude })) ?? BROKER_OFFICE_OF_RECORD;
+  const telHref = buildTelHref(office.phone);
   const cityStateZip = [office.city ? `${office.city},` : null, office.state, office.zip]
     .filter(Boolean)
     .join(' ');

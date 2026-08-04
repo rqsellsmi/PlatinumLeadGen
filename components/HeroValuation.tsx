@@ -6,12 +6,14 @@ import Script from 'next/script';
 import { Button, Input, Label, Select } from '@/components/ui';
 import { formatCurrency } from '@/lib/utils';
 import { dataLayerPush, LEAD_SUBMITTED_FLAG } from '@/lib/clientAnalytics';
-import {
-  fireSellerValuationConversion,
-  fireHeroSellerLeadConversion,
-} from '@/lib/googleAdsConversions';
+import { fireSellerValuationConversion } from '@/lib/googleAdsConversions';
 import { getLeadAttribution } from '@/lib/attribution';
 import { isValidPersonName, INVALID_NAME_MESSAGE } from '@/lib/validation';
+import PrivacyNote from '@/components/PrivacyNote';
+import ExistingRecordNotice from '@/components/ExistingRecordNotice';
+import { parsePlaceComponents, type PlaceAddressComponent } from '@/lib/placeComponents';
+import { buildValuationPartialBody, buildValuationSubmitBody } from '@/lib/leadRequests';
+import HoneypotField, { useFormLoadedAt, readHoneypot } from '@/components/HoneypotField';
 
 /** Fired by the sticky CTA / exit-intent overlay to open this flow. */
 export const OPEN_VALUATION_EVENT = 'open-valuation';
@@ -24,6 +26,11 @@ interface PlaceData {
   propertyAddress: string;
   propertyLat: number | null;
   propertyLng: number | null;
+  // From Places address_components (D22). Previously never captured, which left
+  // leads.property_city / property_state NULL on every organic lead.
+  propertyCity?: string | null;
+  propertyState?: string | null;
+  propertyZip?: string | null;
 }
 /** Pre-contact teaser returned by /api/valuation — no precise estimate. */
 interface Teaser {
@@ -93,6 +100,10 @@ export default function HeroValuation({
 
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  // Set when the submit matched an existing lead by contact (D3). The report
+  // link is emailed to the address on file; nothing about the record reaches
+  // this browser.
+  const [existingRecord, setExistingRecord] = React.useState<{ emailed: boolean } | null>(null);
   const [mapsReady, setMapsReady] = React.useState(false);
   const [mounted, setMounted] = React.useState(false);
 
@@ -111,6 +122,10 @@ export default function HeroValuation({
 
   const heroInputRef = React.useRef<HTMLInputElement>(null);
   const modalInputRef = React.useRef<HTMLInputElement>(null);
+  // Abuse signals (P0.3). formLoadedAt is stamped on mount; the honeypot lives
+  // in the contact step's form, read via contactFormRef at submit time.
+  const formLoadedAt = useFormLoadedAt();
+  const contactFormRef = React.useRef<HTMLFormElement>(null);
   const mapsKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
 
   const attach = React.useCallback((el: HTMLInputElement | null) => {
@@ -119,18 +134,26 @@ export default function HeroValuation({
     const ac = new places.Autocomplete(el, {
       types: ['address'],
       componentRestrictions: { country: 'us' },
-      fields: ['formatted_address', 'geometry'],
+      // address_components rides along in the same Place result at no extra
+      // cost, and gives the real city/state instead of a parsed guess. Without
+      // it leads.property_state stayed NULL on every organic lead, which made
+      // the out-of-state routing gate a no-op (D22).
+      fields: ['formatted_address', 'geometry', 'address_components'],
     });
     ac.addListener('place_changed', () => {
       const sel = ac.getPlace();
       const formatted = sel.formatted_address;
       const loc = sel.geometry?.location;
       if (!formatted) return;
+      const parts = parsePlaceComponents(sel.address_components);
       setAddress(formatted);
       setPlace({
         propertyAddress: formatted,
         propertyLat: loc ? loc.lat() : null,
         propertyLng: loc ? loc.lng() : null,
+        propertyCity: parts.city,
+        propertyState: parts.state,
+        propertyZip: parts.zip,
       });
     });
   }, []);
@@ -160,15 +183,22 @@ export default function HeroValuation({
           await fetch('/api/leads/partial', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              sessionId,
-              propertyAddress: data.propertyAddress,
-              propertyLat: data.propertyLat,
-              propertyLng: data.propertyLng,
-              locationSlug: locationSlug || undefined,
-              pageVariant,
-              ...getLeadAttribution(),
-            }),
+            body: JSON.stringify(
+              buildValuationPartialBody({
+                sessionId,
+                propertyAddress: data.propertyAddress,
+                propertyLat: data.propertyLat,
+                propertyLng: data.propertyLng,
+                propertyCity: data.propertyCity ?? undefined,
+                propertyState: data.propertyState ?? undefined,
+                propertyZip: data.propertyZip ?? undefined,
+                locationSlug: locationSlug || undefined,
+                pageVariant,
+                honeypot: readHoneypot(contactFormRef.current),
+                formLoadedAt: formLoadedAt.current,
+                attribution: getLeadAttribution(),
+              }),
+            ),
           });
         } catch {
           /* non-critical */
@@ -268,30 +298,53 @@ export default function HeroValuation({
       const res = await fetch('/api/leads/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId,
-          firstName,
-          lastName,
-          email,
-          phone,
-          timeframe: timeframe || undefined,
-          propertyAddress: place.propertyAddress,
-          propertyLat: place.propertyLat,
-          propertyLng: place.propertyLng,
-          valuationToken: valuation?.token ?? undefined,
-          leadType: 'valuation',
-          locationSlug: locationSlug || '',
-          pageVariant,
-          ...getLeadAttribution(),
-        }),
+        body: JSON.stringify(
+          buildValuationSubmitBody({
+            sessionId,
+            firstName,
+            lastName,
+            email,
+            phone,
+            timeframe: timeframe || undefined,
+            propertyAddress: place.propertyAddress,
+            propertyLat: place.propertyLat,
+            propertyLng: place.propertyLng,
+            propertyCity: place.propertyCity ?? undefined,
+            propertyState: place.propertyState ?? undefined,
+            propertyZip: place.propertyZip ?? undefined,
+            valuationToken: valuation?.token ?? undefined,
+            locationSlug: locationSlug || '',
+            pageVariant,
+            honeypot: readHoneypot(contactFormRef.current),
+            formLoadedAt: formLoadedAt.current,
+            attribution: getLeadAttribution(),
+          }),
+        ),
       });
       if (!res.ok) throw new Error('We could not submit your request. Please try again.');
-      const data = (await res.json().catch(() => ({}))) as { leadId?: number; reportToken?: string | null };
+      const data = (await res.json().catch(() => ({}))) as {
+        leadId?: number;
+        reportToken?: string | null;
+        existingRecord?: boolean;
+        reportLinkEmailed?: boolean;
+      };
+
+      // This contact already has a lead. The server discloses nothing about it
+      // (D3) and has emailed the report link to the address on file, so there
+      // is no token to redirect with and no conversion to fire — re-firing
+      // would double-count a visitor who already converted.
+      if (data.existingRecord) {
+        setExistingRecord({ emailed: data.reportLinkEmailed === true });
+        setLoading(false);
+        return;
+      }
+
       const fullName = `${firstName} ${lastName}`.trim();
       if (data.leadId != null) {
-        const ud = { email, phone, name: fullName };
-        if (pageVariant === 'ads') fireHeroSellerLeadConversion(data.leadId, ud);
-        else fireSellerValuationConversion(data.leadId, ud);
+        // One Seller Valuation conversion covers every placement — the old $75
+        // "hero"/ads split was a placement distinction, not a different form
+        // (D1 / conversion-taxonomy T1).
+        fireSellerValuationConversion(data.leadId, { email, phone, name: fullName });
         sessionStorage.setItem('lead_id', String(data.leadId));
       }
       sessionStorage.setItem('lead_email', email);
@@ -335,6 +388,7 @@ export default function HeroValuation({
           renders just the modal. Wider on desktop so the full address stays
           visible (the button is wide, so a narrow form clipped long addresses). */}
       {modalOnly ? null : (
+      <>
       <form
         onSubmit={startFromAddress}
         className="flex w-full max-w-xl flex-wrap gap-2.5 rounded-2xl bg-white p-2.5 shadow-[0_18px_48px_rgba(20,20,24,0.3)] sm:max-w-2xl lg:max-w-3xl"
@@ -364,6 +418,13 @@ export default function HeroValuation({
           {buttonLabel}
         </button>
       </form>
+      {/* Pre-submission collection notice (D8): entering an address posts a
+          partial, so the retention disclosure sits at the point of entry — but
+          collapsed to a small "How we use your address" link under the box so it
+          stays unobtrusive, expanding on tap. Only ever on the dark hero
+          backdrop, so `onDark` matches the surrounding hero copy. */}
+      <PrivacyNote variant="address" onDark collapsible className="mt-2 max-w-xl px-1 sm:max-w-2xl lg:max-w-3xl" />
+      </>
       )}
 
       {/* Modal — portaled to <body> so it escapes the hero's `isolate`
@@ -385,7 +446,9 @@ export default function HeroValuation({
               ×
             </button>
 
-            {modalStep === 1 ? (
+            {existingRecord ? (
+              <ExistingRecordNotice emailed={existingRecord.emailed} />
+            ) : modalStep === 1 ? (
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
@@ -421,6 +484,8 @@ export default function HeroValuation({
                 <Button type="submit" size="lg" className="w-full">
                   Get my estimate →
                 </Button>
+                {/* This step also posts a partial (D8) — disclose retention here. */}
+                <PrivacyNote variant="address" className="text-center" />
               </form>
             ) : loading && !valuation && !valuationFailed ? (
               <div className="py-10 text-center">
@@ -428,7 +493,8 @@ export default function HeroValuation({
                 <p className="mt-1 text-sm text-mute-light">{place.propertyAddress}</p>
               </div>
             ) : (
-              <form onSubmit={submitDetails} className="space-y-4">
+              <form ref={contactFormRef} onSubmit={submitDetails} className="relative space-y-4">
+                <HoneypotField />
                 {valuation && valuation.rangeLow != null && valuation.rangeHigh != null ? (
                   <div className="rounded-card bg-cream px-5 py-6 text-center">
                     <p className="text-[11px] font-bold uppercase tracking-[0.06em] text-mute-light">
@@ -506,9 +572,8 @@ export default function HeroValuation({
                 <Button type="submit" size="lg" className="w-full" disabled={loading}>
                   {loading ? 'Submitting…' : 'See my full report →'}
                 </Button>
-                <p className="text-center text-xs text-mute-light">
-                  Free · No obligation · We never share your information.
-                </p>
+                <p className="text-center text-xs text-mute-light">Free · No obligation.</p>
+                <PrivacyNote className="text-center" />
               </form>
             )}
           </div>

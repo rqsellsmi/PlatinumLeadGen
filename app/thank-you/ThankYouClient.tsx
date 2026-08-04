@@ -115,13 +115,17 @@ export default function ThankYouClient({
     setLeadId(lid ? Number(lid) : leadPrefill?.leadId ?? null);
     setResponseMsg(withinOfferWindow() ? 'within 3 hours' : 'first thing tomorrow morning');
 
+    // P0.2 (review #37 / #62): NO personal data in the generic GTM dataLayer.
+    // This push used to carry the lead's raw email and phone, which Google
+    // Analytics policy prohibits and which any same-origin script or tag in the
+    // container could read. Enhanced conversions are handled on the approved
+    // paths instead — gtag's dedicated `user_data` channel client-side, and the
+    // SHA-256-hashed server outbox (lib/googleAdsOutbox) for milestones.
     dataLayerPush('lead_conversion', {
       lead_type: type,
       city,
       page_variant: variant,
       value: 50,
-      email: em,
-      phone: ph,
     });
   }, [params, report, leadPrefill]);
 
@@ -408,7 +412,17 @@ export default function ThankYouClient({
       </div>
 
       <div className="mt-12">
-        <AppointmentForm initialName={name} initialPhone={phone} initialEmail={email} leadId={leadId} />
+        <AppointmentForm
+          initialName={name}
+          initialPhone={phone}
+          initialEmail={email}
+          initialAddress={address}
+          leadId={leadId}
+          /* The capability that authorizes attaching the request to this lead
+             (P0.3 / #10). Read from the URL the report link put it in — it is
+             already the thing that unlocked this page. */
+          reportToken={params.get('report')}
+        />
       </div>
     </>
   );

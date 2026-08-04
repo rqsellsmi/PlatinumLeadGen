@@ -718,11 +718,53 @@ export async function getFooterOffice(
     if (brighton) return norm(brighton);
     // 4) Any active office.
     const [anyOffice] = await db.select(COLS).from(offices).where(eq(offices.isActive, true)).limit(1);
-    return anyOffice ? norm(anyOffice) : null;
+    if (anyOffice) return norm(anyOffice);
+    // No active office at all — the caller falls back to the office of record.
+    // Worth an alert: it means the offices table is empty or every row is
+    // inactive, which is a configuration problem, not a transient one.
+    notifyOfficeResolutionFailure('no active office rows');
+    return null;
   } catch (err) {
+    // P0.4 / #32: the footer used to silently render a fabricated placeholder
+    // here. The caller now falls back to the real office of record, and we
+    // alert rather than degrading quietly — a broker-identity block is a LARA
+    // advertising requirement, so a page serving the wrong one matters.
     console.warn('[queries] getFooterOffice failed:', err);
+    notifyOfficeResolutionFailure(err instanceof Error ? err.message : String(err));
     return null;
   }
+}
+
+/**
+ * Alert ops that office resolution fell through to the hardcoded fallback.
+ *
+ * Throttled in-process so a widespread DB outage produces a handful of emails
+ * rather than one per request, and entirely best-effort: this runs inside a
+ * public page render, so it must never throw or block. During an offline build
+ * `[queries] … fetch failed` is expected (lessons-learned §1) and the send
+ * itself no-ops without mail configuration.
+ */
+let lastOfficeAlertAt = 0;
+const OFFICE_ALERT_THROTTLE_MS = 60 * 60 * 1000;
+
+function notifyOfficeResolutionFailure(reason: string): void {
+  const now = Date.now();
+  if (now - lastOfficeAlertAt < OFFICE_ALERT_THROTTLE_MS) return;
+  lastOfficeAlertAt = now;
+  void (async () => {
+    try {
+      const { sendEmail, adminAlertEmail } = await import('./email');
+      await sendEmail(
+        adminAlertEmail(
+          'Office resolution fell back to the hardcoded office of record',
+          `The public site could not resolve an office from the database and is showing the ` +
+            `hardcoded Brighton office of record instead. Reason: ${reason}`,
+        ),
+      );
+    } catch {
+      /* alerting must never break a page render */
+    }
+  })();
 }
 
 export async function getFeaturedTestimonials(limit = 3): Promise<Testimonial[]> {

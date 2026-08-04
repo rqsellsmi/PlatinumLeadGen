@@ -3,7 +3,7 @@
 **Branch:** `refinements-v1`
 **Stack:** Next.js 14 (App Router) · TypeScript · Drizzle ORM · Neon Postgres · NextAuth v5 · Microsoft Graph email · RentCast AVM · **Realcomp IDX feed (RESO/OData)** · Tailwind
 **Deploy target:** Vercel (serverless) + GitHub Actions cron
-**As of:** the v1.6 addendum build + reviews/routing/**Scoring v2** + the **IDX feed integration** session + the **Listing/Valuation Fixes + IDX backfill hardening** session + the **Texting & Refinement** session (exit-intent autocomplete, wider hero field, redesigned sold-listing data-sheet page with a neighborhood-POI map) + the **IDX incremental-sync fix** (hourly delta was silently pulling 0 records — six `$metadata`-valid buyer fields zero the query; dropped them, back-pulled July 10→current, cursor advancing) + the **production domain move** to `remax-platinumonline.com` + the **Telnyx agent-texting** build (two-way SMS between the platform and agents — offer teaser/full client-info/update-due-reminder outbound, `YES`/`NO`/status-command/`STOP`/`START`/`HELP` inbound via a signature-verified webhook — replacing the dormant Twilio stub), its **post-review fixes** (phone-normalization fix for inbound matching, an agent-settings activation notice, a lead deep-link in client-info/reminder texts, and an SMS section in the privacy policy) + the **queue head start & portal score display** session (a one-time +50 rolling-365-only "starting credit" on first activation, and the agent portal now shows all four score tracks with a next-slot progress meter) + the **`refinements-v1` session** (out-of-area leads go to the admin unassigned rather than a far agent; buyer/seller lead intent label; name-format validation on the valuation forms; appointment-form prefill; blank timeframe default; admin Leads completeness/intent filters; **Scoring v4**; admin agent availability toggle + active/available-first default; top-of-page Add-agent/Add-lead buttons; self-service agent passwords; and **agents editing name/email/phone on leads they own** — see §4.8/§5); migrations `0006–0030`
+**As of:** the v1.6 addendum build + reviews/routing/**Scoring v2** + the **IDX feed integration** session + the **Listing/Valuation Fixes + IDX backfill hardening** session + the **Texting & Refinement** session (exit-intent autocomplete, wider hero field, redesigned sold-listing data-sheet page with a neighborhood-POI map) + the **IDX incremental-sync fix** (hourly delta was silently pulling 0 records — six `$metadata`-valid buyer fields zero the query; dropped them, back-pulled July 10→current, cursor advancing) + the **production domain move** to `remax-platinumonline.com` + the **Telnyx agent-texting** build (two-way SMS between the platform and agents — offer teaser/full client-info/update-due-reminder outbound, `YES`/`NO`/status-command/`STOP`/`START`/`HELP` inbound via a signature-verified webhook — replacing the dormant Twilio stub), its **post-review fixes** (phone-normalization fix for inbound matching, an agent-settings activation notice, a lead deep-link in client-info/reminder texts, and an SMS section in the privacy policy) + the **queue head start & portal score display** session (a one-time +50 rolling-365-only "starting credit" on first activation, and the agent portal now shows all four score tracks with a next-slot progress meter) + the **`refinements-v1` session** (out-of-area leads go to the admin unassigned rather than a far agent; buyer/seller lead intent label; name-format validation on the valuation forms; appointment-form prefill; blank timeframe default; admin Leads completeness/intent filters; **Scoring v4**; admin agent availability toggle + active/available-first default; top-of-page Add-agent/Add-lead buttons; self-service agent passwords; and **agents editing name/email/phone on leads they own** — see §4.8/§5) + the **P0 launch-blocker remediation** (§10) and the **P0 review round-2 + launch-prep** session (§11 — email-primary lead identity, appointment-origin lead capture, credential-consumption atomicity + reset-token hashing, full privacy-disclosure coverage, atomic appointment idempotency, and 12 homepage city tiles); migrations `0006–0041`
 
 This document explains what the system is, what it does, and how it works, so anyone (human or AI) can orient quickly before testing or extending it.
 
@@ -252,3 +252,196 @@ Two related follow-ups discussed with the owner while reworking the sold-comps r
 - **Set `TELNYX_API_KEY`/`TELNYX_PUBLIC_KEY` in both Vercel (app) and anywhere the crons run**, and populate `offices.telnyx_number` per office — same "set it in every environment that reads it" trap as `REALCOMP_OFFICE_KEYS` (lessons §15).
 - **Point the Telnyx portal's inbound webhook at `https://<domain>/api/webhooks/telnyx`** and confirm the Messaging Profile's public key matches `TELNYX_PUBLIC_KEY` — a mismatch fails closed (every inbound text silently 401s) rather than accepting an unverified message.
 - **Live send/receive is untested** — no Telnyx credentials exist in the build sandbox. All logic is unit-tested pure functions (parsing, templates, signature verification, number resolution) plus typecheck/build; a live text round-trip is the owner's first-connection step, same pattern as the IDX feed's `idx:verify`.
+
+---
+
+## 10. P0 launch-blocker remediation (2026-07-29)
+
+The formal project review (`PlatinumLeadGen_Project_Review_Final.docx`, graded C
+/ 74) listed eight P0 items as the gate on scaling paid traffic. All eight are
+closed in code. What each one actually was, and what remains owner-side, is
+below. Owner decisions referenced as D1–D23; review items as #N.
+
+**CI first (D18 REVISED).** `.github/workflows/ci.yml` runs `npm ci` →
+typecheck → tests → build on every push and PR. It landed BEFORE the first P0
+patch, because the P0 work (identity, tokens, routing, conversion cutover) is
+the most regression-prone change set in the repo. No secrets required.
+Test count went 189 → 307 across this work.
+
+- **P0.1 — cross-lead identity/report-token exposure** (#6–#9, #58; D3 REVISED).
+  Cross-session ADDRESS dedup deleted: it returned an existing contacted lead's
+  id and report token to whoever submitted the same address, and /thank-you then
+  rendered that lead's name, email and phone. CONTACT match is now internal-only
+  (duplicate-conversion suppression + reconciliation candidate) and never
+  discloses an id, token or PII; revealing an existing record requires verified
+  POSSESSION, via a report link emailed to the address ON FILE. `lib/leadIdentity.ts`
+  is pure so `buildSubmitResponse` can assert the invariant directly.
+- **Report-token capability** (#7/#10/#14; migration 0033). Opaque, expiring,
+  revocable, resolved through one choke point that fails closed — including on a
+  legacy NULL expiry. The reveal, appointments (D4) and qualifiers (D15) all
+  ride this one capability.
+- **P0.2 — PII out of analytics** (#37/#62). The `lead_conversion` dataLayer push
+  carried raw email and phone on every /thank-you view. Removed; enhanced
+  conversions use gtag's `user_data` channel and the hashed server outbox.
+- **P0.3 — appointment + partial abuse** (#10/#11; D4/D5 MODIFIED; migration 0035).
+  Appointments require the capability instead of an arbitrary `leadId`. Rate-limit
+  presets, per-capability limits, idempotency keys, payload limits, honeypot and
+  minimum-completion-time. Interim controls are ABUSE MITIGATION, not bot
+  detection, and are biased toward FLAG over BLOCK — a false positive discards a
+  paid-for lead. `appointment_set` added as the bidding-quality conversion;
+  `appointment_requested` retained as Secondary.
+- **P0.4 — city phone + coverage** (#3/#27/#32/#76; D22). The fabricated
+  fallback address and 555 phone (rendered as a live `tel:` on any DB error) are
+  replaced by the real office of record plus a throttled alert. Radius capped at
+  250mi in both write paths. Out-of-state full leads route to the admin; the
+  forms now capture `property_state` from Places, which is what makes that gate
+  more than a no-op. `/ads` removed with a 301 to `/sell`.
+- **P0.5 — dependencies** (#12). next-auth (critical) and drizzle-orm (high)
+  patched; production audit is 0 critical. The two remaining highs resolve only
+  to `next@16`, a framework major — documented with real exposure analysis in
+  `docs/security-advisories.md`.
+- **P0.6 — privacy disclosure** (#19/#20). Four contradictory form promises
+  replaced by one constant + `<PrivacyNote>` beside every submit. **Needs counsel
+  sign-off on the wording.**
+- **P0.7 — social proof** (#2/#29/#50; D2; migration 0034). `socialProofCount`
+  counted form submissions and rendered as "N+ homes sold". Renamed
+  `valuationRequestsCount`, admin-only; public figures read verified transactions.
+- **P0.8a — agent credentials** (#16/#17/#18/#67/#70; D6 REVISED; migration 0036).
+  Magic link hashed at rest, 14 days, rotates on use. Session-version revocation,
+  bumped on reset/deactivation/sign-out-everywhere. Shared setup code replaced by
+  per-agent single-use invites + the Launch button. Offer-accept no longer grants
+  a portal session.
+- **P0.8b — queue integrity** (D7 MODIFIED; migrations 0037/0038). Membership
+  decoupled from availability, so a pause/resume cycle can no longer act as a
+  queue reset. On-surface skip-to-back; join-order appends. 16 invariant tests
+  over multi-lead simulations, written before enabling, per D7 MODIFIED.
+
+### Migrations added: 0033–0038
+Apply the full chain **in order on every Neon branch** — a skipped middle
+migration breaks whole admin pages that `select` a full row (lessons §11).
+
+### Behaviour changes worth knowing before launch
+- A repeat submit by an existing contact no longer redirects to the report. The
+  form shows "check your email" and the link goes to the address on file. This
+  is intentional (D3) and is the single most visible funnel change.
+- Availability defaults to FALSE for NEW agents. Existing rows are untouched
+  until the Launch button runs.
+- Each outbound agent magic link supersedes the previous one — we no longer hold
+  the plaintext, so we cannot re-send a current link.
+
+---
+
+## 11. P0 review round-2 + launch-prep (2026-08-03)
+
+A second review pass (reviewer follow-ups on the §10 remediation) plus the last
+pre-launch content change. All on branch `claude/p0-repairs-ci-setup-dwhq25`.
+Typecheck clean and **322 tests** at the stop point. Migrations added: **0039,
+0040, 0041**; migration **0036 was corrected in place** (see below). Owner
+decisions still referenced D1–D23; review items as #N.
+
+**Lead identity is now EMAIL-PRIMARY (evolves D3).** Earlier rounds went
+address-dedup → contact-only (email OR phone) → "strong match" gate. The owner's
+final model: **email is the identity key.** A different email is always a
+different lead; a matching phone never merges. `lib/leadDedup.ts` now exposes
+`findLeadByEmail` (identity) and `findLeadByPhone` (hint only);
+`lib/contactNormalization.ts` holds the one definition of the matching rules
+(pure, unit-tested). This dissolved the old "report link only to the on-file
+email" dilemma — an email match means the on-file address *equals* the submitted
+one. When a new lead's phone matches a **different-email** lead, it still routes
+on its own and the **admin** (not an agent, who can't see other leads) is emailed
+a heads-up via `lib/leadDuplicateAlert.ts`; resolution is the agent confirming
+the correct email with the client, no automated merge. `isStrongContactMatch`
+was removed (unused under this model).
+
+**Appointment form can now be a FIRST touch (extends D4).** New `appointment`
+`lead_type` (migration 0039). When the appointment endpoint has no valid report
+token and no email-match, it **creates and routes** an appointment-origin lead
+instead of writing an orphaned `appointment_requests` row. Its acquisition
+conversion is the new `appointment_lead` milestone (distinct from the
+`appointment_requested` observation signal), export-eligible by default
+(`eligibleLeadTypes()` now includes `appointment`; set
+`GOOGLE_ADS_ACTION_ID_APPOINTMENT_LEAD` once the Ads action exists). The form
+gained an optional **Places-autocomplete property address** (so the lead can be
+proximity-routed) and a **required email** field — required always, because the
+browser can't tell a valid token from an expired one; phone stays optional.
+
+**Appointment idempotency is atomic (migration 0040).** The old
+SELECT-then-INSERT against a non-unique index raced. The key column is now a
+UNIQUE index and the route **claims** the request with
+`INSERT … ON CONFLICT DO NOTHING RETURNING` before any lead/email/routing work.
+The neon **http** driver has no interactive transactions (owner kept the http
+driver), so instead of a rollback the essential lead work is wrapped and on
+failure the claim row is **deleted to release the key** — a retry then completes,
+and because email is required + dedup is email-primary it re-attaches to any lead
+the failed attempt created rather than duplicating.
+
+**Credential-consumption is atomic; reset token hashed (P0.8 follow-ups).**
+`set-password` and `password/reset` consumed the token by reading it then
+updating by agent id, so two concurrent requests could both pass. Both now
+consume via a single guarded `UPDATE … RETURNING` (WHERE the token is still
+present / password still null / active / unexpired); zero rows → the race was
+lost. The password-reset token is now **hashed at rest** (stored/looked up via
+`hashToken`, like the invite and magic link) — no schema change; the
+`password_reset_token` column holds the 64-char hash.
+
+**Migration 0036 corrected in place.** Its magic-link backfill called pgcrypto's
+`digest()` guarded by a `WHERE EXISTS (… pgcrypto)`. Postgres resolves functions
+at parse time, so on a DB without pgcrypto the statement failed to parse and
+rolled the whole migration back rather than no-op'ing — and nothing in the chain
+installs pgcrypto. Switched to the built-in `sha256(convert_to(…,'UTF8'))` (core
+since PG 11), which yields the identical hash and needs no extension.
+
+**Privacy-disclosure coverage completed (finishes P0.6).** `<PrivacyNote>` now
+sits beside the appointment submit and inside the shared `GuideCaptureForm` (so
+both guide surfaces carry it). The D8 address-retention notice
+(`variant="address"`) now appears at both HeroValuation address-first steps that
+create a partial (inline hero box + modal step-1), rendered as a collapsible
+"How we use your address" link (`<details>`, `onDark` for the hero backdrop). The
+wording still awaits counsel sign-off.
+
+**Form/dedup plumbing consolidated.** The abuse honeypot + `formLoadedAt` timing
+signals were dormant on the main funnel (forms didn't send them); now every
+public write builds its body through pure `lib/leadRequests.ts` builders that
+always include the signals, unit-tested per form type. The two guide forms
+collapsed into one `GuideCaptureForm`; the orphaned `city/ValuationForm.tsx` was
+deleted (its `window.google` ambient types moved to `types/googleMaps.d.ts`).
+
+**12 homepage city tiles (migration 0041).** The "Explore Your Market" tiles and
+`/sell/[slug]` pages are generated from active `locations`, so this is pure data:
+8 mailing cities near the Brighton/Ann Arbor offices (Howell, Hartland, Pinckney,
+South Lyon, Saline, Dexter, Chelsea, Whitmore Lake) added idempotently alongside
+the existing four. Tile stats fill in from `market_stats`, recomputed by the IDX
+metrics job (`updateMetricsFromIdx`, run by the `idx-sync` cron) — so the new
+tiles show a city + photo but no valuation numbers until the next sync populates
+their stats (a city whose feed `city` string doesn't exactly match its name needs
+`matchCities` set in the admin). The proposed 8 are a geographic placeholder;
+swap for the real our-active-listing ranking when ready.
+
+### Migrations added: 0039–0041 (and 0036 corrected)
+Apply the chain in order on every Neon branch. **0040 must be applied before the
+appointment route deploys** — the `ON CONFLICT (idempotency_key)` clause needs
+the unique index to exist.
+
+### Owner to-do before/at launch
+- **Apply migrations 0039, 0040, 0041** (order matters; 0040 before the deploy).
+- **Set `GOOGLE_ADS_ACTION_ID_APPOINTMENT_LEAD`** in Vercel **and** GitHub Actions
+  once the Google Ads conversion action exists (until then it's a no-op).
+- **Counsel sign-off** on the privacy-disclosure wording (unchanged text, now on
+  every form + the two address-first steps).
+- **City tiles:** trigger/await an IDX sync to populate the 8 new cities'
+  `market_stats`; set `matchCities` in the admin for any that stay blank; swap
+  the proposed 8 for the real ranking.
+- Optional: **`TEST_LEAD_EMAIL_DOMAINS`** for production smoke tests (or just use
+  an `@example.com` address / a `555-01xx` phone, which flag `is_test` built-in).
+
+### Known residuals (accepted / deferred)
+- **Appointment idempotency is not a true transaction** — the neon http driver
+  can't. The compensating-delete closes the common failure; a sustained DB outage
+  that also fails the release, or a process killed between claim and release, can
+  still strand a key. Fully closing it means the WebSocket-pool driver (declined
+  for now to keep the http-only architecture).
+- **Footer still hardcodes 4 cities** (`SiteFooter.tsx`) — the *tiles* are
+  data-driven, the footer list is not; left as-is.
+- **`full-setup.sql` / `seed.sql`** are a stale manual-bootstrap path (they
+  predate the `appointment` lead type and other recent migrations). Regenerate
+  separately someday; the migration chain + `scripts/seed.ts` are authoritative.

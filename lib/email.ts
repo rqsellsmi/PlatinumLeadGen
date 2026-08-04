@@ -9,11 +9,20 @@
  * Uses the OAuth 2.0 client-credentials flow — no user sign-in, no refresh
  * token. Re-authenticate with client credentials when the access token expires.
  *
+ * DELIVERABILITY: every message goes out as a raw MIME `multipart/alternative`
+ * carrying both the HTML and the plain-text body (lib/mime.ts). Graph's JSON
+ * `sendMail` accepts only one `contentType`, so it sent HTML-only and silently
+ * dropped the text alternative each template writes — a spam signal that
+ * contributed to Gmail rejecting our mail. Deliverability also depends on SPF /
+ * DKIM / DMARC being configured on the SENDING domain (MS_GRAPH_FROM_EMAIL),
+ * which is DNS + Microsoft Defender configuration, not code.
+ *
  * SMS (agent texting) is a separate integration — see lib/sms.ts (Telnyx).
  */
 import { siteUrl } from './siteUrl';
 import { eq } from 'drizzle-orm';
 import { db } from './db';
+import { buildMimeMessage, toBase64 } from './mime';
 import { msGraphTokens, emailSendLog } from '../drizzle/schema';
 
 const BRAND_BLUE = '#1E3A5F'; // email header (Section 6.6)
@@ -104,6 +113,12 @@ export interface SendEmailArgs {
   text: string;
   cc?: string;
   replyTo?: string;
+  /**
+   * `List-Unsubscribe` header value. Set ONLY on consumer-facing mail — an
+   * unsubscribe on an agent lead offer or a password reset would be wrong, and
+   * a stray click would cut an agent out of their own notifications.
+   */
+  listUnsubscribe?: string;
   /** Template label for the send log (Section 6.4). */
   templateName?: string;
   relatedLeadId?: number;
@@ -111,29 +126,47 @@ export interface SendEmailArgs {
 }
 
 /**
+ * The unsubscribe contact for consumer mail — replies land in the same mailbox
+ * the message was sent from. A mailto (not one-click) because RFC 8058
+ * one-click also needs an HTTPS endpoint that accepts an unauthenticated POST,
+ * which we don't have yet; advertising it without one would be worse than
+ * offering nothing.
+ */
+export function unsubscribeMailto(): string {
+  return `<mailto:${fromEmail()}?subject=Unsubscribe>`;
+}
+
+/**
  * Low-level send via MS Graph. Logs every attempt to email_send_log and never
  * throws on a send failure — returns { ok:false } so callers can continue.
+ *
+ * Sends a raw MIME message rather than Graph's JSON body: the JSON form takes
+ * one `contentType`, so it cannot carry both the HTML and the plain-text
+ * alternative every template writes (see lib/mime.ts).
  */
 export async function sendEmail(args: SendEmailArgs): Promise<{ ok: boolean; error?: string }> {
   const recipients = Array.isArray(args.to) ? args.to : [args.to];
   const templateName = args.templateName ?? 'generic';
   try {
     const token = await getValidAccessToken();
+    const mime = buildMimeMessage({
+      from: fromEmail(),
+      to: recipients,
+      cc: args.cc ? [args.cc] : undefined,
+      replyTo: args.replyTo,
+      subject: args.subject,
+      text: args.text,
+      html: args.html,
+      listUnsubscribe: args.listUnsubscribe,
+    });
     const res = await fetch(
       `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(fromEmail())}/sendMail`,
       {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: {
-            subject: args.subject,
-            body: { contentType: 'HTML', content: args.html },
-            toRecipients: recipients.map((address) => ({ emailAddress: { address } })),
-            ...(args.cc ? { ccRecipients: [{ emailAddress: { address: args.cc } }] } : {}),
-            ...(args.replyTo ? { replyTo: [{ emailAddress: { address: args.replyTo } }] } : {}),
-          },
-          saveToSentItems: true, // also visible in M365 Sent Items (Section 6.4)
-        }),
+        // MIME sends post base64 text, not JSON. Graph saves these to Sent Items
+        // by default, preserving the Section 6.4 audit trail.
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'text/plain' },
+        body: toBase64(mime),
         cache: 'no-store',
       },
     );
@@ -351,6 +384,7 @@ ${d.reportUrl ? `\nView your personalized market report: ${d.reportUrl}\n` : ''}
     subject: 'We received your home valuation request',
     html,
     text,
+    listUnsubscribe: unsubscribeMailto(), // consumer-facing
     templateName: 'homeowner_confirmation',
     relatedLeadId: d.relatedLeadId,
   };
@@ -542,6 +576,129 @@ If you did not request this, ignore this email.`;
     html,
     text,
     templateName: 'agent_password_reset',
+    relatedAgentId: d.relatedAgentId,
+  };
+}
+
+export interface ExistingReportLinkEmailData {
+  to: string;
+  firstName: string | null;
+  reportUrl: string;
+  relatedLeadId?: number;
+}
+
+/**
+ * "We already have a report for you — here is the link" (decision D3).
+ *
+ * Sent when a submit matches an existing lead by email or phone. A contact
+ * match is NOT proof the person at the keyboard is the person on file, so the
+ * browser is told nothing; the link goes to the address ON FILE instead, and
+ * clicking it is what proves possession. Worst case, the real owner receives a
+ * link to their own report.
+ */
+export function existingReportLinkEmail(d: ExistingReportLinkEmailData): SendEmailArgs {
+  const greeting = d.firstName ? `Hi ${escapeHtml(d.firstName)},` : 'Hi,';
+  const html = shell(
+    'Your home valuation report',
+    `<h1 style="margin:0 0 12px;font-size:22px;color:${BRAND_BLUE};">Your valuation report</h1>
+     <p style="font-size:15px;line-height:1.5;">${greeting} we already have a valuation on file for you, so here is a secure link straight to your report.</p>
+     <p style="margin:24px 0;">${button(d.reportUrl, 'View your report')}</p>
+     <p style="font-size:13px;line-height:1.5;color:#64748b;">This link is personal to you — please don't forward it. If you didn't request a home valuation from RE/MAX Platinum, you can ignore this email and no report will be shared.</p>`,
+  );
+  const text = `${d.firstName ? `Hi ${d.firstName},` : 'Hi,'} we already have a valuation on file for you.
+
+View your report: ${d.reportUrl}
+
+This link is personal to you — please don't forward it. If you didn't request a home valuation from RE/MAX Platinum, you can ignore this email.`;
+  return {
+    to: d.to,
+    subject: 'Your RE/MAX Platinum home valuation report',
+    html,
+    text,
+    listUnsubscribe: unsubscribeMailto(), // consumer-facing
+    templateName: 'existing_report_link',
+    relatedLeadId: d.relatedLeadId,
+  };
+}
+
+export interface AgentMagicLinkEmailData {
+  to: string;
+  agentName: string;
+  loginUrl: string;
+  expiresAt: Date;
+  relatedAgentId?: number;
+}
+
+/**
+ * The "sign in to your portal" link (D6).
+ *
+ * Previously hand-rolled inline in app/api/agent/login/route.ts, which meant it
+ * bypassed this module's send log entirely and recorded as templateName
+ * 'generic' with no agent attribution. Credential emails are exactly the ones
+ * worth being able to audit.
+ */
+export function agentMagicLinkEmail(d: AgentMagicLinkEmailData): SendEmailArgs {
+  const expires = d.expiresAt.toLocaleDateString('en-US', {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+  const html = shell(
+    'Your agent portal link',
+    `<h1 style="margin:0 0 12px;font-size:22px;color:${BRAND_BLUE};">Sign in to your portal</h1>
+     <p style="font-size:15px;line-height:1.5;">Hi ${escapeHtml(d.agentName)}, use the button below to open your RE/MAX Platinum agent portal. This link works until ${escapeHtml(expires)}.</p>
+     <p style="margin:24px 0;">${button(d.loginUrl, 'Open the agent portal')}</p>
+     <p style="font-size:13px;line-height:1.5;color:#64748b;">This link signs in as you and shows your clients' contact details, so please don't forward it. If you did not request it, you can ignore this email.</p>`,
+  );
+  const text = `Hi ${d.agentName},
+
+Sign in to your RE/MAX Platinum agent portal: ${d.loginUrl}
+
+This link works until ${expires}. It signs in as you, so please don't forward it. If you did not request it, ignore this email.`;
+  return {
+    to: d.to,
+    subject: 'Your RE/MAX Platinum agent portal link',
+    html,
+    text,
+    templateName: 'agent_magic_link',
+    relatedAgentId: d.relatedAgentId,
+  };
+}
+
+export interface AgentInviteEmailData {
+  to: string;
+  agentName: string;
+  inviteUrl: string;
+  relatedAgentId?: number;
+}
+
+/**
+ * Per-agent account invite (D7 / review #17/#70).
+ *
+ * Replaces the shared brokerage setup code, which anyone holding could use to
+ * claim any agent who had not yet set a password. This link is unique to one
+ * agent, single-use, expiring, and sent only to the address on the roster — so
+ * setting up an account requires proving control of that inbox.
+ */
+export function agentInviteEmail(d: AgentInviteEmailData): SendEmailArgs {
+  const html = shell(
+    'Set up your agent portal account',
+    `<h1 style="margin:0 0 12px;font-size:22px;color:${BRAND_BLUE};">Set up your account</h1>
+     <p style="font-size:15px;line-height:1.5;">Hi ${escapeHtml(d.agentName)}, your RE/MAX Platinum agent portal account is ready. Choose a password to finish setting it up — this invitation is personal to you and expires in 7 days.</p>
+     <p style="margin:24px 0;">${button(d.inviteUrl, 'Choose your password')}</p>
+     <p style="font-size:13px;line-height:1.5;color:#64748b;">Once you've set a password you'll also be able to turn on lead routing from your portal settings. If you weren't expecting this, let the office know.</p>`,
+  );
+  const text = `Hi ${d.agentName},
+
+Your RE/MAX Platinum agent portal account is ready. Choose a password to finish setting it up: ${d.inviteUrl}
+
+This invitation is personal to you and expires in 7 days. If you weren't expecting it, let the office know.`;
+  return {
+    to: d.to,
+    subject: 'Set up your RE/MAX Platinum agent portal account',
+    html,
+    text,
+    templateName: 'agent_invite',
     relatedAgentId: d.relatedAgentId,
   };
 }

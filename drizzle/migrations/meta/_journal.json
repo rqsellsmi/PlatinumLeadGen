@@ -232,6 +232,69 @@
       "when": 1785900000000,
       "tag": "0032_lead_guide_id",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1786000000000,
+      "tag": "0033_report_token_capability",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1786100000000,
+      "tag": "0034_valuation_requests_count",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1786200000000,
+      "tag": "0035_appointment_abuse_controls",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1786300000000,
+      "tag": "0036_agent_credentials",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1786400000000,
+      "tag": "0037_queue_membership",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1786500000000,
+      "tag": "0038_availability_opt_in",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1786600000000,
+      "tag": "0039_appointment_lead_type",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1786700000000,
+      "tag": "0040_appointment_idempotency_unique",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1786800000000,
+      "tag": "0041_launch_city_locations",
+      "breakpoints": true
     }
   ]
 }

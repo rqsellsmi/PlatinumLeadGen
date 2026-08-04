@@ -18,6 +18,5 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'missing_slug' }, { status: 400 });
   }
   revalidatePath(`/sell/${body.slug}`);
-  revalidatePath(`/ads/${body.slug}`);
   return NextResponse.json({ revalidated: true });
 }

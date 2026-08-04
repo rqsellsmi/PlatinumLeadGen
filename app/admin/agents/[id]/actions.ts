@@ -9,6 +9,7 @@ import { applyScore } from '@/lib/scoring';
 import { geocodeAddress } from '@/lib/geocode';
 import { requireAdmin } from '@/components/admin/requireAdmin';
 import { toE164 } from '@/lib/sms';
+import { clampProximityRadius } from '@/lib/coverage';
 
 function num(v: FormDataEntryValue | null): number | null {
   if (v == null || v === '') return null;
@@ -29,7 +30,10 @@ export async function updateAgent(formData: FormData) {
 
   const anchor = String(formData.get('proximityAnchor') ?? 'office') === 'custom' ? 'custom' : 'office';
   const locationCity = String(formData.get('locationCity') ?? '').trim() || null;
-  const radiusMiles = num(formData.get('radiusMiles'));
+  // Clamped to 250 miles (D22 / #76). This path was weaker than the agent's
+  // own: `num()` only rejects NaN, so `Infinity` (which is > 0 and not NaN)
+  // was being persisted as an unbounded radius.
+  const radiusMiles = clampProximityRadius(formData.get('radiusMiles'));
 
   // Geocode the custom city so proximity has coordinates; on 'office' or a
   // blank/failed city, coordinates clear and routing uses the office anchor.

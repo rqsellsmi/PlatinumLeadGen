@@ -71,21 +71,32 @@ describe('reconcileRotation', () => {
     expect(reconcileRotation(current, available)).toEqual(current);
   });
 
-  it('preserves the live order and weaves a new agent in (not at the end)', () => {
-    // Mid-cycle queue for agent 1 (3 slots) after some move-to-back churn.
+  it('APPENDS a new member behind the existing line (D7)', () => {
+    // This reverses the pre-D7 contract, which wove a newcomer into the middle.
+    // Under D7 a newcomer must never displace someone already waiting: they
+    // join the back of the line and climb it by being served.
     const current = [1, 1, 1];
-    const available = [A(1, 40), A(2, 0)]; // agent 2 is newly activated (1 slot)
-    const next = reconcileRotation(current, available);
-    // Agent 1's three slots stay in order; agent 2 appears once, not appended last.
-    expect(next.filter((id) => id === 1)).toEqual([1, 1, 1]);
-    expect(next.filter((id) => id === 2)).toHaveLength(1);
-    expect(next[next.length - 1]).toBe(1); // woven in, not stuck at the very end
+    const members = [A(1, 40), A(2, 0)]; // agent 2 has just joined (1 slot)
+    const next = reconcileRotation(current, members);
+    expect(next).toEqual([1, 1, 1, 2]);
   });
 
-  it('drops slots for an agent who is no longer available', () => {
+  it('orders multiple additions by join time, then id', () => {
+    const current = [1];
+    const members = [
+      { ...A(1, 0) },
+      { ...A(3, 0), joinedAtMs: 100 }, // joined first
+      { ...A(2, 0), joinedAtMs: 200 }, // joined second
+    ];
+    expect(reconcileRotation(current, members)).toEqual([1, 3, 2]);
+  });
+
+  it('drops slots for an agent who has DEPARTED (left the member set)', () => {
+    // Note: this is departure, not a pause. A paused agent stays a member and
+    // keeps their slots — see the availability tests below.
     const current = [1, 2, 1, 2];
-    const available = [A(1, 15)]; // agent 2 gone; agent 1 keeps 2 slots
-    expect(reconcileRotation(current, available)).toEqual([1, 1]);
+    const members = [A(1, 15)]; // agent 2 departed; agent 1 keeps 2 slots
+    expect(reconcileRotation(current, members)).toEqual([1, 1]);
   });
 
   it('drops extra slots when a score decreases (keeps the earliest)', () => {

@@ -72,6 +72,16 @@ export default async function NewLeadPage() {
                 <Input id="propertyCity" name="propertyCity" />
               </div>
               <div>
+                <Label htmlFor="propertyState">State</Label>
+                <Input
+                  id="propertyState"
+                  name="propertyState"
+                  maxLength={2}
+                  placeholder="MI"
+                  defaultValue="MI"
+                />
+              </div>
+              <div>
                 <Label htmlFor="locationSlug">Location page</Label>
                 <Select id="locationSlug" name="locationSlug" defaultValue="">
                   <option value="">— none —</option>

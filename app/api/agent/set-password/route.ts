@@ -1,32 +1,35 @@
 /**
- * POST /api/agent/set-password — public first-time setup / self-service reset.
+ * POST /api/agent/set-password — first-time account setup via a per-agent invite.
  *
- * Gated by a shared **setup code** (Admin → Settings) plus the requirement that
- * the email is on the agent roster. No emailed token, no active-status
- * requirement (an agent just needs to exist). Serves both the first password
- * and later resets ("Forgot password?" links here). Does NOT sign the agent in
- * — they use the login page afterward.
+ * P0.8a (review #17/#70, decision D7). This route used to be gated by a SHARED
+ * brokerage setup code plus a rostered email address. That meant:
+ *   - one secret, typed into the admin UI and distributed out of band, was the
+ *     only thing standing between anyone who learned it and any agent account
+ *     that had not yet set a password;
+ *   - a shared secret inevitably circulates, and it proves nothing about who is
+ *     using it — it never demonstrated control of the agent's inbox;
+ *   - INACTIVE agents were explicitly eligible, so a departed agent's account
+ *     could be claimed.
+ *
+ * It now requires a single-use, expiring invite token that was emailed to the
+ * address on the roster, so completing setup proves control of that inbox. Same
+ * shape as the existing password-reset flow, which already worked this way.
+ *
+ * Still does NOT sign the agent in — they use the login page afterwards.
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { ilike, eq } from 'drizzle-orm';
+import { and, eq, gt, isNull } from 'drizzle-orm';
 import bcrypt from 'bcryptjs';
-import crypto from 'crypto';
 import { db } from '@/lib/db';
-import { agents, notificationSettings } from '@/drizzle/schema';
+import { agents } from '@/drizzle/schema';
+import { hashToken, isTokenExpired } from '@/lib/agentPortalAuth';
 import { checkPreset, clientIp } from '@/lib/rateLimit';
+import { sendEmail, adminAlertEmail } from '@/lib/email';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const MIN_PASSWORD_LENGTH = 8;
-
-/** Constant-time string compare (guards length leak). */
-function safeEqual(a: string, b: string): boolean {
-  const ab = Buffer.from(a);
-  const bb = Buffer.from(b);
-  if (ab.length !== bb.length) return false;
-  return crypto.timingSafeEqual(ab, bb);
-}
 
 export async function POST(req: NextRequest) {
   try {
@@ -34,50 +37,90 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
     }
     const body = (await req.json().catch(() => null)) as
-      | { code?: string; email?: string; password?: string }
+      | { token?: string; password?: string }
       | null;
-    const code = (body?.code ?? '').trim();
-    const email = (body?.email ?? '').trim();
+    const token = (body?.token ?? '').trim();
     const password = body?.password ?? '';
 
-    if (!code || !email || !password) {
+    if (!token || !password) {
       return NextResponse.json({ error: 'invalid_request' }, { status: 400 });
     }
     if (password.length < MIN_PASSWORD_LENGTH) {
       return NextResponse.json({ error: 'weak_password' }, { status: 400 });
     }
 
-    // The shared setup code must be configured AND match (fail-closed if unset).
-    const settingsRows = await db
-      .select({ code: notificationSettings.agentSetupCode })
-      .from(notificationSettings)
+    // Look the invite up by hash — the plaintext is only ever in the email.
+    const tokenHash = hashToken(token);
+    const rows = await db
+      .select()
+      .from(agents)
+      .where(eq(agents.inviteTokenHash, tokenHash))
       .limit(1);
-    const configured = (settingsRows[0]?.code ?? '').trim();
-    if (!configured) {
-      return NextResponse.json({ error: 'setup_closed' }, { status: 403 });
-    }
-    if (!safeEqual(code, configured)) {
-      return NextResponse.json({ error: 'invalid_code' }, { status: 401 });
+    const agent = rows[0];
+    if (!agent || isTokenExpired(agent.inviteExpiresAt)) {
+      return NextResponse.json({ error: 'invalid_token' }, { status: 401 });
     }
 
-    // The email must be on the roster (active status not required, by design).
-    const agentRows = await db.select().from(agents).where(ilike(agents.email, email)).limit(1);
-    const agent = agentRows[0];
-    if (!agent) {
-      return NextResponse.json({ error: 'email_not_found' }, { status: 404 });
+    // A departed agent's invite must not be redeemable, however it was obtained.
+    if (!agent.isActive) {
+      return NextResponse.json({ error: 'inactive' }, { status: 403 });
     }
-    // First-time setup ONLY. Once a password exists, this code-gated public page
-    // can't overwrite it — the agent must use the email-verified "Forgot
-    // password" flow so only the inbox owner can reset it.
+
+    // First-time setup ONLY. Once a password exists it can only be changed
+    // through the email-verified "forgot password" flow, so a stale invite can
+    // never overwrite a live credential.
     if (agent.passwordHash) {
       return NextResponse.json({ error: 'already_set' }, { status: 409 });
     }
 
+    const now = new Date();
     const passwordHash = await bcrypt.hash(password, 12);
-    await db
+
+    // Consume the invite ATOMICALLY (P0.8): the UPDATE only matches while the
+    // invite is still unconsumed — hashed token present, no password yet, agent
+    // active and unexpired. Of two concurrent set-password requests exactly one
+    // affects a row; the first sets the password (and nulls the token), so the
+    // second matches nothing. Single-use by construction, not by convention.
+    const consumed = await db
       .update(agents)
-      .set({ passwordHash, passwordResetToken: null, updatedAt: new Date() })
-      .where(eq(agents.id, agent.id));
+      .set({
+        passwordHash,
+        inviteTokenHash: null,
+        inviteExpiresAt: null,
+        inviteAcceptedAt: now,
+        passwordResetToken: null,
+        passwordResetExpiresAt: null,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(agents.id, agent.id),
+          eq(agents.inviteTokenHash, tokenHash),
+          isNull(agents.passwordHash),
+          eq(agents.isActive, true),
+          gt(agents.inviteExpiresAt, now),
+        ),
+      )
+      .returning({ id: agents.id });
+
+    if (consumed.length === 0) {
+      // Lost the race: another request already set this password.
+      return NextResponse.json({ error: 'already_set' }, { status: 409 });
+    }
+
+    // Tell the broker an account was set up (#70) — only for the request that
+    // actually did it, so a race-loser can't send a duplicate. Best-effort: a
+    // failed notification must not fail the agent's setup.
+    try {
+      await sendEmail(
+        adminAlertEmail(
+          'Agent portal account set up',
+          `${agent.firstName} ${agent.lastName} (${agent.email}) has completed their agent portal setup.`,
+        ),
+      );
+    } catch (err) {
+      console.error('[api/agent/set-password] broker notification failed:', err);
+    }
 
     return NextResponse.json({ success: true });
   } catch (err) {
