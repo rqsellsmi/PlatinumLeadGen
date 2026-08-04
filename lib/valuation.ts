@@ -37,10 +37,16 @@ export interface PropertyOwner {
 }
 
 /**
- * A full property record from the AVM provider — everything we can surface to an
- * agent/admin about a home (characteristics, lot, tax/assessment, last sale,
+ * A full property record (characteristics, lot, tax/assessment, last sale,
  * owner of record). Provider-agnostic; every field degrades to null. `extra`
  * holds provider-specific label/value pairs for a generic "more detail" section.
+ *
+ * Two producers fill this in, and they carry different subsets:
+ *  - ATTOM's AVM detail response (`ValuationResult.detail`) — characteristics,
+ *    lot, utilities, last sale. No `owner`, no tax/assessment. Lead-facing.
+ *  - RentCast's /properties record (lib/propertyRecords) — internal views only.
+ * Never render `owner` on a public page; it is public record but internal-only
+ * by policy (see components/PropertyDetails).
  */
 export interface PropertyRecord {
   provider: ValuationProvider;
@@ -85,15 +91,20 @@ export interface PropertyRecord {
   extra: { label: string; value: string }[];
 }
 
-/** Area-level market trends (ATTOM sales-trend). Report "Local market" section. */
-export interface MarketTrends {
-  medianSalePrice: number | null;
-  /** % change vs. the prior comparable period. */
-  yoyChangePct: number | null;
-  /** Number of sales in the latest period. */
-  homeSales: number | null;
-  /** Human label for the latest period, e.g. "2025". */
-  periodLabel: string | null;
+/**
+ * Below this AVM confidence score (ATTOM SCR, 0–100) the estimate is shown to
+ * the homeowner as unverified, with an agent review promised. Scores at or
+ * above it render normally.
+ */
+export const LOW_CONFIDENCE_THRESHOLD = 70;
+
+/**
+ * True only when the provider gave us a score AND it is under the threshold.
+ * A missing score (RentCast never returns one) is "unknown", not "low" — we
+ * don't flag an estimate we have no confidence signal for.
+ */
+export function isLowConfidence(score: number | null | undefined): boolean {
+  return score != null && score < LOW_CONFIDENCE_THRESHOLD;
 }
 
 export interface ValuationResult {
@@ -107,11 +118,18 @@ export interface ValuationResult {
   confidenceScore: number | null;
   /** Property characteristics; null for RentCast. */
   basics: PropertyBasics | null;
+  /**
+   * Everything else the AVM response carries about the home (lot, construction,
+   * utilities, parking, area, last sale). Same shape as an internal property
+   * record minus the fields the AVM endpoint doesn't return — `owner` and the
+   * tax/assessment block are always null here. Null for RentCast.
+   */
+  detail: PropertyRecord | null;
   /** Prior sales; empty for RentCast. */
   saleHistory: SaleHistoryEntry[];
-  /** ATTOM property id — used post-conversion to pull sales comparables. */
+  /** ATTOM property id, carried on the AVM response. */
   attomId: string | null;
-  /** ATTOM ZIP-level geo id — used post-conversion to pull area sales trends. */
+  /** ATTOM ZIP-level geo id, carried on the AVM response. */
   areaGeoId: string | null;
   provider: ValuationProvider;
 }

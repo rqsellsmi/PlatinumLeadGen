@@ -154,10 +154,10 @@ report `app/thank-you/page.tsx:50,54` (as "comps"); admin
 - **Admin override:** `app/admin/locations/[id]/stats/page.tsx` + `saveStats`
   action (manual upsert of the 5 `market_stats` fields, independent of recompute).
 
-**Separate trends source to reconcile:** the thank-you "Local market trends"
-block is **not** from `market_stats` — it comes from ATTOM
-(`lib/attom.ts:getAttomAreaTrends`, gated by `ATTOM_ENABLE_TRENDS`, keyed off
-`valuations.areaGeoId`). An IDX-driven trends rework overlaps this ATTOM path.
+**No competing trends source (API-Fix session):** the thank-you "Local market
+trends" block used to come from ATTOM's sales-trend endpoint, not `market_stats`.
+That block and `ATTOM_ENABLE_TRENDS` are gone — ATTOM is called for `attomavm/detail`
+and nothing else. An IDX-driven trends rework now has the page to itself.
 
 ---
 

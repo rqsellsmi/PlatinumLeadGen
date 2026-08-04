@@ -9,7 +9,7 @@ import { db } from '@/lib/db';
 import { leads, locations, leadOffers, agents } from '@/drizzle/schema';
 import { leadSubmitSchema } from '@/lib/validation';
 import { autoOfferLead } from '@/lib/autoOffer';
-import { getValuation } from '@/lib/valuation';
+import { getValuationForAddress } from '@/lib/valuationCache';
 import { getValuationByToken, linkValuationToLead } from '@/lib/valuationStore';
 import {
   sendEmail,
@@ -365,7 +365,9 @@ export async function POST(req: NextRequest) {
     }
     if ((propertyLat == null || propertyLng == null) && input.propertyAddress) {
       try {
-        const v = await getValuation(input.propertyAddress);
+        // Through the cache: this address was almost certainly just valued by
+        // the form a moment ago, so this normally costs nothing.
+        const { result: v } = await getValuationForAddress(input.propertyAddress);
         if (propertyLat == null) propertyLat = v.latitude;
         if (propertyLng == null) propertyLng = v.longitude;
         if (estimatedValue == null) estimatedValue = v.estimatedValue;

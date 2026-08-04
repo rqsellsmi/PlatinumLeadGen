@@ -724,6 +724,13 @@ export const valuations = pgTable(
     token: varchar('token', { length: 64 }).notNull(),
     provider: varchar('provider', { length: 20 }).notNull().default('rentcast'),
     address: varchar('address', { length: 300 }),
+    // Cache key: the same home typed two different ways hits one stored
+    // valuation. Null on rows written before the cache existed.
+    normalizedAddress: varchar('normalized_address', { length: 300 }),
+    // When the PROVIDER data was fetched — not when this row was created. A row
+    // that copied a fresh cache hit carries the original fetch time, which is
+    // what the 30-day staleness check reads (lib/valuationCache).
+    valuedAt: timestamp('valued_at'),
     estimatedValue: integer('estimated_value'),
     priceRangeLow: integer('price_range_low'), // actual (tight) provider range
     priceRangeHigh: integer('price_range_high'),
@@ -737,8 +744,11 @@ export const valuations = pgTable(
     lotSizeSqft: integer('lot_size_sqft'),
     propertyType: varchar('property_type', { length: 80 }),
     saleHistory: text('sale_history'), // JSON array of { date, price }
-    attomId: varchar('attom_id', { length: 40 }), // ATTOM property id (comps)
-    areaGeoId: varchar('area_geo_id', { length: 40 }), // ATTOM ZIP geo id (trends)
+    // Full property detail from the AVM response, JSON PropertyRecord. Holds
+    // everything beyond the columns above (lot, construction, utilities, ...).
+    detail: text('detail'),
+    attomId: varchar('attom_id', { length: 40 }), // ATTOM property id
+    areaGeoId: varchar('area_geo_id', { length: 40 }), // ATTOM ZIP geo id
     latitude: real('latitude'),
     longitude: real('longitude'),
     leadId: integer('lead_id').references(() => leads.id), // set on conversion; reveal gate
@@ -748,6 +758,8 @@ export const valuations = pgTable(
     tokenIdx: uniqueIndex('valuations_token_idx').on(t.token),
     leadIdx: index('valuations_lead_idx').on(t.leadId),
     createdIdx: index('valuations_created_idx').on(t.createdAt),
+    // Cache lookup: newest provider data for an address (lib/valuationCache).
+    addressIdx: index('valuations_normalized_address_idx').on(t.normalizedAddress, t.valuedAt),
   }),
 );
 

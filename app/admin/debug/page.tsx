@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { locations, agents, leads, leadOffers, closings, guides } from '@/drizzle/schema';
 import { requireAdmin } from '@/components/admin/requireAdmin';
 import { resolveDatabaseUrl, DATABASE_URL_CANDIDATES } from '@/lib/dbUrl';
+import { isLowConfidence } from '@/lib/valuation';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const TABLES: { label: string; table: any }[] = [
@@ -169,9 +170,10 @@ export default async function AdminDebugPage({
       <div className="rounded-card border border-line bg-white p-5">
         <p className="mb-1 font-bold text-charcoal">ATTOM probe</p>
         <p className="mb-3 text-sm text-mute-light">
-          Enter an address to call the live ATTOM AVM endpoint and see what it returns —
-          whether it includes a property id (comps) and area geo id (market trends).
-          Requires ATTOM_API_KEY set in this environment.
+          Enter an address to call the live ATTOM AVM endpoint (attomavm/detail — the only
+          ATTOM endpoint this app uses) and see exactly what it returns. Bypasses the 30-day
+          valuation cache, so each probe is a billable call. Requires ATTOM_API_KEY set in
+          this environment.
         </p>
         <form method="get" className="flex flex-wrap gap-2">
           <input
@@ -211,20 +213,37 @@ export default async function AdminDebugPage({
                 </span>
               </li>
               <li>
-                attomId (comps):{' '}
+                low confidence (&lt;70):{' '}
+                <span
+                  className={
+                    attomProbe.normalized && isLowConfidence(attomProbe.normalized.confidenceScore)
+                      ? 'text-platinum-red'
+                      : 'text-charcoal'
+                  }
+                >
+                  {attomProbe.normalized == null
+                    ? '—'
+                    : isLowConfidence(attomProbe.normalized.confidenceScore)
+                      ? 'YES — flagged on the report'
+                      : 'no'}
+                </span>
+              </li>
+              <li>
+                attomId:{' '}
                 <span className={attomProbe.normalized?.attomId ? 'text-success' : 'text-platinum-red'}>
                   {attomProbe.normalized?.attomId ?? 'MISSING'}
                 </span>
               </li>
               <li>
-                areaGeoId (trends):{' '}
-                <span className={attomProbe.normalized?.areaGeoId ? 'text-success' : 'text-platinum-red'}>
-                  {attomProbe.normalized?.areaGeoId ?? 'MISSING'}
+                detail fields:{' '}
+                <span className="text-charcoal">
+                  {attomProbe.normalized?.detail
+                    ? `${Object.values(attomProbe.normalized.detail).filter((v) => v != null).length} populated`
+                    : '—'}
                 </span>
               </li>
-              <li>trends resolved: <span className="text-charcoal">{attomProbe.trends ? 'yes' : 'no'}</span></li>
-              <li>comps found: <span className="text-charcoal">{attomProbe.compsCount}</span></li>
             </ul>
+            <p className="break-all font-mono text-[11px] text-mute-light">{attomProbe.url}</p>
             <div>
               <p className="text-[11px] font-bold uppercase tracking-[0.06em] text-mute-lighter">
                 Raw property keys
@@ -235,13 +254,12 @@ export default async function AdminDebugPage({
             </div>
             <details>
               <summary className="cursor-pointer text-mute">
-                identifier / area / location / avm (raw JSON)
+                identifier / location / avm (raw JSON)
               </summary>
               <pre className="mt-2 max-h-80 overflow-auto rounded-lg bg-offwhite p-3 text-xs">
                 {JSON.stringify(
                   {
                     identifier: attomProbe.identifier,
-                    area: attomProbe.area,
                     location: attomProbe.location,
                     avm: attomProbe.avm,
                   },
@@ -250,68 +268,14 @@ export default async function AdminDebugPage({
                 )}
               </pre>
             </details>
-            {attomProbe.trendDebug ? (
-              <details>
-                <summary className="cursor-pointer text-mute">
-                  sales-trend raw response (status {String(attomProbe.trendDebug.status)})
-                </summary>
-                <p className="mt-1 break-all font-mono text-[11px] text-mute-light">
-                  {attomProbe.trendDebug.url}
-                </p>
-                <pre className="mt-1 max-h-80 overflow-auto rounded-lg bg-offwhite p-3 text-xs">
-                  {attomProbe.trendDebug.body || '(empty)'}
-                </pre>
-              </details>
-            ) : null}
-            {attomProbe.compsDebug ? (
-              <details>
-                <summary className="cursor-pointer text-mute">
-                  sales-comparables raw response (status {String(attomProbe.compsDebug.status)})
-                </summary>
-                <p className="mt-1 break-all font-mono text-[11px] text-mute-light">
-                  {attomProbe.compsDebug.url}
-                </p>
-                <pre className="mt-1 max-h-80 overflow-auto rounded-lg bg-offwhite p-3 text-xs">
-                  {attomProbe.compsDebug.body || '(empty)'}
-                </pre>
-              </details>
-            ) : null}
-
-            {attomProbe.trendVariants.length ? (
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-[0.06em] text-mute-lighter">
-                  Sales-trend variants
-                </p>
-                {attomProbe.trendVariants.map((v) => (
-                  <details key={v.label}>
-                    <summary className="cursor-pointer text-sm text-mute">
-                      {v.label} — status {String(v.status)}
-                    </summary>
-                    <pre className="mt-1 max-h-64 overflow-auto rounded-lg bg-offwhite p-3 text-xs">
-                      {v.body || '(empty)'}
-                    </pre>
-                  </details>
-                ))}
-              </div>
-            ) : null}
-
-            {attomProbe.compsVariants.length ? (
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-[0.06em] text-mute-lighter">
-                  Sales-comparables path variants
-                </p>
-                {attomProbe.compsVariants.map((v) => (
-                  <details key={v.label}>
-                    <summary className="cursor-pointer text-sm text-mute">
-                      {v.label} — status {String(v.status)}
-                    </summary>
-                    <pre className="mt-1 max-h-64 overflow-auto rounded-lg bg-offwhite p-3 text-xs">
-                      {v.body || '(empty)'}
-                    </pre>
-                  </details>
-                ))}
-              </div>
-            ) : null}
+            <details>
+              <summary className="cursor-pointer text-mute">
+                parsed detail — what the report renders
+              </summary>
+              <pre className="mt-2 max-h-80 overflow-auto rounded-lg bg-offwhite p-3 text-xs">
+                {JSON.stringify(attomProbe.normalized?.detail ?? null, null, 2)}
+              </pre>
+            </details>
           </div>
         ) : null}
       </div>

@@ -1,17 +1,20 @@
 /**
- * Property-record orchestration: fetch the full AVM-provider record for an
- * address (owner, characteristics, tax/assessment, last sale), CACHED by
- * normalized address so repeated lead-detail opens and the admin lookup tool
- * don't re-bill the provider on every view.
+ * Property-record orchestration: fetch the full property record for an address
+ * (characteristics, tax/assessment, last sale), CACHED by normalized address so
+ * repeated lead-detail opens and the admin lookup tool don't re-bill on every
+ * view. Internal surfaces only — the agent/admin lead detail and the admin
+ * property-lookup tool.
  *
- * Provider priority follows the active AVM provider (ATTOM today), with a
- * RentCast fallback when ATTOM has no match and a RentCast key is present.
+ * RentCast's /properties is the only source here. ATTOM's expandedprofile used
+ * to serve this and was removed: ATTOM is billed for exactly one endpoint,
+ * attomavm/detail, which the lead-facing valuation uses (see lib/attom). The
+ * practical loss is owner-of-record, which RentCast doesn't return.
  */
 import { eq } from 'drizzle-orm';
 import { db } from './db';
 import { propertyRecords, apiUsageLogs } from '../drizzle/schema';
 import { normalizeAddress } from './addressNormalization';
-import { activeProvider, type PropertyRecord } from './valuation';
+import type { PropertyRecord } from './valuation';
 
 export interface PropertyRecordResult {
   record: PropertyRecord;
@@ -47,25 +50,13 @@ async function logUsage(
   }
 }
 
-async function fetchLive(
-  address: string,
-): Promise<{ result: { raw: unknown; record: PropertyRecord } | null; provider: string; endpoint: string }> {
-  const provider = activeProvider();
-  if (provider === 'attom') {
-    const { getAttomPropertyRecord } = await import('./attom');
-    const attom = await getAttomPropertyRecord(address);
-    if (attom) return { result: attom, provider: 'attom', endpoint: '/property/expandedprofile' };
-    // ATTOM had no match — fall back to RentCast if configured.
-    if (process.env.RENTCAST_API_KEY) {
-      const { getRentcastPropertyRecord } = await import('./rentcast');
-      const rc = await getRentcastPropertyRecord(address);
-      if (rc) return { result: rc, provider: 'rentcast', endpoint: '/properties' };
-    }
-    return { result: null, provider: 'attom', endpoint: '/property/expandedprofile' };
-  }
+const PROVIDER = 'rentcast';
+const ENDPOINT = '/properties';
+
+async function fetchLive(address: string): Promise<{ raw: unknown; record: PropertyRecord } | null> {
+  if (!process.env.RENTCAST_API_KEY) return null;
   const { getRentcastPropertyRecord } = await import('./rentcast');
-  const rc = await getRentcastPropertyRecord(address);
-  return { result: rc, provider: 'rentcast', endpoint: '/properties' };
+  return getRentcastPropertyRecord(address);
 }
 
 /**
@@ -113,20 +104,15 @@ export async function getPropertyRecord(
   // ---- Live fetch ----------------------------------------------------------
   const start = Date.now();
   let fetched: { raw: unknown; record: PropertyRecord } | null = null;
-  let provider = activeProvider() as string;
-  let endpoint = '/property/expandedprofile';
   try {
-    const live = await fetchLive(address);
-    fetched = live.result;
-    provider = live.provider;
-    endpoint = live.endpoint;
+    fetched = await fetchLive(address);
   } catch (err) {
-    await logUsage(provider, endpoint, address, false, err instanceof Error ? err.message : 'error', Date.now() - start);
+    await logUsage(PROVIDER, ENDPOINT, address, false, err instanceof Error ? err.message : 'error', Date.now() - start);
     console.error('[propertyRecords] live fetch failed:', err);
     return null;
   }
-  await logUsage(provider, endpoint, address, fetched != null, null, Date.now() - start);
-  if (!fetched) return null;
+  if (!fetched) return null; // not configured, or no match — nothing billed
+  await logUsage(PROVIDER, ENDPOINT, address, true, null, Date.now() - start);
 
   // ---- Cache write ---------------------------------------------------------
   const fetchedAt = new Date();
@@ -134,14 +120,14 @@ export async function getPropertyRecord(
   try {
     await db
       .insert(propertyRecords)
-      .values({ normalizedAddress: normalized, address, provider, rawJson, fetchedAt })
+      .values({ normalizedAddress: normalized, address, provider: PROVIDER, rawJson, fetchedAt })
       .onConflictDoUpdate({
         target: propertyRecords.normalizedAddress,
-        set: { address, provider, rawJson, fetchedAt },
+        set: { address, provider: PROVIDER, rawJson, fetchedAt },
       });
   } catch (err) {
     console.warn('[propertyRecords] cache write failed:', err);
   }
 
-  return { record: fetched.record, raw: fetched.raw, fetchedAt, provider, cached: false };
+  return { record: fetched.record, raw: fetched.raw, fetchedAt, provider: PROVIDER, cached: false };
 }
