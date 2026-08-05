@@ -205,7 +205,8 @@ Small, mostly non-routing UX/data-quality changes layered on after Scoring v4:
 
 ## 6. Auth & security
 - Admin = NextAuth credentials (env `ADMIN_USERNAME` + bcrypt `ADMIN_PASSWORD_HASH`, no user table).
-- Agent = magic-link (64-hex, 30-day) or email+password, plus a signed HMAC session cookie (edge-verified in middleware). **Two separate self-service password flows:** (1) **first-time setup** at the public **`/agent/set-password`** (migration 0029) — gated by the shared **agent setup code** (Admin → Settings) + the email being on the roster (active status not required); one URL for the whole team, **first-time only** (won't overwrite an existing password). (2) **Forgot password** — the login page emails *that agent* a short-lived (2h) reset link (`/api/agent/password/request` → `agents.password_reset_token`/`_expires_at`, migration 0030) to **`/agent/reset-password?token=…`** (`/api/agent/password/reset`); **email-verified** so only the inbox owner can reset. Admin can still set a password directly on the agent editor. `/agent/login`, `/agent/set-password`, `/agent/reset-password` are exempt from the agent-session middleware guard.
+- Agent = magic-link or email+password, plus a signed HMAC session cookie (**7-day**, carrying `agentId` + `sessionVersion`, edge-verified in middleware; revocation and `isActive` are re-checked server-side in `getCurrentAgent()`). **Magic link:** 64-hex, **14 days** (D6 REVISED, down from 30), **stored only as a SHA-256 hash**, and **rotated on use** — each outbound message supersedes the previous link, so we cannot re-send a current one. **Two separate self-service password flows:** (1) **first-time setup** at **`/agent/set-password?token=…`** — a **per-agent, single-use, 7-day, hashed invite** emailed to the address on the roster (`lib/agentInvites.ts`, P0.8a/D7). *The shared brokerage setup code this section used to describe (migration 0029) was removed by P0.8a §10 — a shared secret circulates and knowing a roster email is not control of it. There is deliberately no way to reach the page without a token.* (2) **Forgot password** — the login page emails *that agent* a short-lived (**2h**) reset link, **hashed at rest** (§11), to **`/agent/reset-password?token=…`**; **email-verified** so only the inbox owner can reset. Both flows consume their token via a single guarded `UPDATE … RETURNING` so two concurrent requests cannot both pass (§11). Admin can still set a password directly on the agent editor. `/agent/login`, `/agent/set-password`, `/agent/reset-password` are exempt from the agent-session middleware guard.
+- **Accepting an offer mints a session** and opens the lead (§12). The offer email already carried a magic link, so withholding it here protected nothing; forwarding is an accepted risk for a small known roster, bounded by link rotation. Decline mints nothing.
 - Webhooks = `rpk_` API keys (bcrypt-hashed) for `/api/webhooks/lead`/`appointment`; `/api/webhooks/telnyx` uses Ed25519 signature verification instead (`telnyx-signature-ed25519`/`telnyx-timestamp` headers against `TELNYX_PUBLIC_KEY`), fail-closed — an invalid signature is rejected `401` before the body is parsed. Cron = `x-cron-secret`. Revalidate = `x-revalidate-secret`.
 - Inbound SMS commands are agent-scoped: the sender is identified by matching their E.164 number against `agents.phone`, and every accept/decline/status action only ever targets that agent's own `lead_offers` rows.
 - Rate limiting = Neon fixed-window per (ip, endpoint, window), fail-open. Strict CSP + security headers in `next.config.js`.
@@ -578,8 +579,20 @@ stays plain `inbound`), and `/admin/sms-log` gained an **Unrecognized wordings**
 panel grouping them by leading phrase with counts, latest example and last-seen.
 A phrase recurring there is one to add to `STATUS_PHRASES` — no migration needed.
 
-**Agent-guide content added** (`app/agent/help/page.tsx`): the **full 30%
-referral terms** — 30% of gross commission, due at closing, up to two deals per
+**Agent-guide content added** (`app/agent/help/page.tsx`). Three sections the
+page never had, all documentation of behaviour that was already correct:
+**Working leads by text** (§7) — the full reply vocabulary built from the real
+`STATUS_PHRASES` table, where the lead number is and isn't required, that notes
+go after the number, that **Lost is the one thing that can't be done by text**
+(it needs a stage-scoped reason), and that `STOP` ends texts but not email.
+**Signing in** (Reference) — the per-agent 7-day single-use invite, the 2h reset
+link, the 7-day session, and a warning that links in lead emails/texts are as
+good as a password and are superseded by each new message. **Out-of-area leads**
+(§1) — a home outside every agent's radius, or outside Michigan, goes to the
+admin to find someone willing to cover it, and is never handed to whoever is
+least far away; so a wide radius is not needed to "catch" distant leads.
+
+Also added: the **full 30% referral terms** — 30% of gross commission, due at closing, up to two deals per
 client with the second only if it closes within one year of the first, no desk
 fee taken from a referred deal and the referral not counting toward the desk-fee
 cap, plus a worked example. The one-line term beside the availability toggle now

@@ -45,7 +45,9 @@ export default async function AgentHelpPage() {
           ['#points', 'Earning points'],
           ['#pipeline', 'The pipeline'],
           ['#clock', 'Update clock'],
+          ['#texting', 'Texting'],
           ['#availability', 'Availability & referral'],
+          ['#signin', 'Signing in'],
         ].map(([href, label]) => (
           <a
             key={href}
@@ -99,6 +101,15 @@ export default async function AgentHelpPage() {
             responsive is what keeps offers coming.
           </FactCard>
         </div>
+
+        <Callout tone="blue" title="Leads nobody covers go to the office" compact>
+          If a home falls outside <em>every</em> agent&apos;s radius, it is{' '}
+          <strong>never</strong> handed to whoever happens to be least far away.
+          It goes to the admin, who will look for an agent willing to cover that
+          area. Same for anything outside Michigan. So a wider radius isn&apos;t
+          needed to &ldquo;catch&rdquo; distant leads — set yours to the area you
+          genuinely want to drive to.
+        </Callout>
 
         <Callout tone="amber" title="You join the line by turning yourself Available">
           Until you flip that switch for the first time you are{' '}
@@ -369,8 +380,74 @@ export default async function AgentHelpPage() {
         </div>
       </Section>
 
-      {/* 7 — Availability */}
-      <Section id="availability" kicker="Step 7" title="Availability & the referral">
+      {/* 6b — Texting */}
+      <Section id="texting" kicker="Step 7" title="Working leads by text">
+        <p className="-mt-1 mb-1 max-w-2xl text-sm text-mute">
+          If you have a mobile number on file, new offers and update reminders
+          also come by text — and you can do almost everything by replying. You
+          never have to open the portal to claim a lead or log an update.
+        </p>
+
+        <div className="overflow-hidden rounded-card border border-line bg-white">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-line-hair bg-line-hair/40 text-left">
+                <th className="px-4 py-2.5 font-semibold text-mute">To do this</th>
+                <th className="px-4 py-2.5 font-semibold text-mute">Reply with</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line-hair">
+              {[
+                ['Take the lead', 'YES', 'also Y, ACCEPT'],
+                ['Pass on it', 'NO', 'also N, PASS, DECLINE'],
+                ['Log an attempt', 'LEFT VM 1234', 'also CALLED, NO ANSWER, ATTEMPTED CONTACT'],
+                ['You spoke with them', 'CONNECTED 1234', 'also SPOKE, CONTACTED, MADE CONTACT'],
+                ['Still working it, no change', 'NURTURE 1234', 'resets your update clock'],
+                ['Appointment booked', 'APPT SET 1234', 'also APPOINTMENT SET'],
+                ['Listing signed', 'SIGNED 1234', 'also LISTING SIGNED'],
+                ['Closed and won', 'CLOSED 1234', 'also CLOSED WON'],
+                ['Stop all texts', 'STOP', 'START to turn them back on'],
+                ['See the command list', 'HELP', ''],
+              ].map(([what, cmd, alt]) => (
+                <tr key={what}>
+                  <td className="px-4 py-2.5 text-charcoal">{what}</td>
+                  <td className="px-4 py-2.5">
+                    <span className="font-mono font-bold text-charcoal">{cmd}</span>
+                    {alt ? <span className="ml-2 text-xs text-mute-light">{alt}</span> : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <FactCard title="Add a note">
+            Anything after the lead number is saved as your note —{' '}
+            <span className="font-mono text-[13px]">CONNECTED 1234 wants to list in spring</span>.
+          </FactCard>
+          <FactCard title="The lead number">
+            <strong>YES</strong> and <strong>NO</strong> don&apos;t need one when
+            you only have one open offer. Status updates need it as soon as
+            you&apos;re working more than one lead — it&apos;s in every text we
+            send you.
+          </FactCard>
+          <FactCard title="Marking one Lost">
+            The only thing you can&apos;t do by text. Lost needs a reason that
+            fits the stage, so we&apos;ll point you to the lead page to pick one.
+          </FactCard>
+        </div>
+
+        <Callout tone="amber" title="STOP only stops texts" compact>
+          Replying <strong>STOP</strong> opts you out of every text from us,
+          including lead offers — but <strong>email keeps coming</strong>, and
+          your leads and queue position are unaffected. Reply{' '}
+          <strong>START</strong> any time to turn texts back on.
+        </Callout>
+      </Section>
+
+      {/* 8 — Availability */}
+      <Section id="availability" kicker="Step 8" title="Availability & the referral">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="rounded-card border border-success/30 bg-success-bg p-5">
             <div className="flex items-center gap-2">
@@ -467,6 +544,41 @@ export default async function AgentHelpPage() {
           <span className="font-semibold">Settings</span>, where you also set your
           coverage area and radius.
         </p>
+      </Section>
+
+      {/* 9 — Signing in */}
+      <Section id="signin" kicker="Reference" title="Signing in">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="rounded-card border border-line bg-white p-4">
+            <p className="font-bold text-charcoal">The first time</p>
+            <p className="mt-1.5 text-sm text-mute">
+              The office emails you a setup link that is{' '}
+              <strong>personal to you</strong> — it works once and expires after{' '}
+              <strong>7 days</strong>. Open it and choose a password. There&apos;s
+              no shared code, so if the link has expired or been used, ask the
+              office to send a new one.
+            </p>
+          </div>
+          <div className="rounded-card border border-line bg-white p-4">
+            <p className="font-bold text-charcoal">After that</p>
+            <p className="mt-1.5 text-sm text-mute">
+              Email and password on the sign-in page. Forgot it? Enter your email
+              there and we&apos;ll send a reset link good for{' '}
+              <strong>2 hours</strong> — it goes to your address on file, so only
+              you can use it.
+            </p>
+          </div>
+        </div>
+
+        <Callout tone="amber" title="Links in your lead emails and texts sign you in" compact>
+          Tapping <strong>Accept</strong>, or a lead link in a text, signs you in
+          and opens the lead — no password needed. That means those links are{' '}
+          <strong>as good as your password</strong>: don&apos;t forward them.
+          Each new message replaces the link in the last one, so always use your
+          most recent email or text — an older link will have stopped working.
+          Once signed in you stay signed in on that device for{' '}
+          <strong>7 days</strong>.
+        </Callout>
       </Section>
 
       <p className="border-t border-line-hair pt-6 text-center text-xs text-mute-light">
