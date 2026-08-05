@@ -36,6 +36,52 @@ export function slotCountForScore(score: number): number {
   return 1 + Math.floor(Math.sqrt(Math.max(score || 0, 0) / 10));
 }
 
+export interface QueueStanding {
+  /** Slots this agent actually holds in the rotation. Zero if not a member. */
+  slots: number;
+  /** Queue Score still needed for one more slot. Zero when not a member. */
+  pointsToNextSlot: number;
+  /** Progress toward the next slot, 0-100. Zero when not a member. */
+  slotProgressPct: number;
+}
+
+/**
+ * What an agent actually holds in the rotation right now.
+ *
+ * `slotCountForScore` has a FLOOR OF ONE — it answers "how many slots does this
+ * score earn", and the answer is never zero. That is correct for a member, and
+ * wrong for everyone else: reporting it directly told an agent who had never
+ * turned on availability that they held "1 slot in the lead queue" while the
+ * admin's rotation page correctly showed an empty queue and the routing engine
+ * had never heard of them.
+ *
+ * Membership is the gate (`isActive` AND opted in at least once), exactly as in
+ * getActiveRoutingAgents. A member with a zero score really does hold one slot;
+ * a non-member holds none, and no amount of score changes that until they
+ * switch availability on.
+ */
+export function queueStandingFor(opts: {
+  /** isActive AND queueJoinedAt != null — the same test the router applies. */
+  inQueue: boolean;
+  queueScore: number;
+}): QueueStanding {
+  if (!opts.inQueue) return { slots: 0, pointsToNextSlot: 0, slotProgressPct: 0 };
+
+  const score = Math.max(opts.queueScore || 0, 0);
+  const slots = slotCountForScore(score);
+  // slots = 1 + floor(sqrt(score/10)) ⇒ the score for `s` slots is 10*(s-1)².
+  const nextThreshold = 10 * slots * slots;
+  const prevThreshold = 10 * (slots - 1) * (slots - 1);
+  return {
+    slots,
+    pointsToNextSlot: Math.max(0, Math.ceil(nextThreshold - score)),
+    slotProgressPct: Math.max(
+      0,
+      Math.min(100, ((score - prevThreshold) / (nextThreshold - prevThreshold)) * 100),
+    ),
+  };
+}
+
 export interface RoutingAgent {
   id: number;
   /** Effective latitude (custom anchor or office) — may be null. */

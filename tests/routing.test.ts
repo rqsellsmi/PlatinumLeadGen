@@ -5,6 +5,7 @@ import {
   buildRotationList,
   reconcileRotation,
   recommendAgents,
+  queueStandingFor,
   type RoutingAgent,
 } from '../lib/routing';
 
@@ -289,5 +290,50 @@ describe('recommendAgents', () => {
     });
     expect(r.agentId).toBeNull();
     expect(r.outcome).toBe('no-agents');
+  });
+});
+
+/**
+ * slotCountForScore has a floor of 1 — it answers "what does this score earn",
+ * never "what do you hold". Reporting it to an agent who had never turned on
+ * availability claimed they had a slot in a queue they were not in.
+ */
+describe('queueStandingFor', () => {
+  it('a non-member holds nothing, whatever their score', () => {
+    for (const queueScore of [0, 50, 250]) {
+      expect(queueStandingFor({ inQueue: false, queueScore })).toEqual({
+        slots: 0,
+        pointsToNextSlot: 0,
+        slotProgressPct: 0,
+      });
+    }
+  });
+
+  it('a member with a zero score really does hold one slot', () => {
+    const s = queueStandingFor({ inQueue: true, queueScore: 0 });
+    expect(s.slots).toBe(1);
+    expect(s.pointsToNextSlot).toBe(10);
+  });
+
+  it('matches the slot table for members', () => {
+    for (const [score, slots] of [[0, 1], [10, 2], [40, 3], [50, 3], [90, 4], [160, 5], [250, 6]]) {
+      expect(queueStandingFor({ inQueue: true, queueScore: score }).slots).toBe(slots);
+    }
+  });
+
+  it('reports progress toward the next slot', () => {
+    // 40 -> 3 slots; next threshold is 90, previous is 40, so this is 0%.
+    const at = queueStandingFor({ inQueue: true, queueScore: 40 });
+    expect(at.pointsToNextSlot).toBe(50);
+    expect(at.slotProgressPct).toBe(0);
+    // Halfway between 40 and 90.
+    const mid = queueStandingFor({ inQueue: true, queueScore: 65 });
+    expect(mid.slotProgressPct).toBe(50);
+  });
+
+  it('never reports a negative score as owed', () => {
+    const s = queueStandingFor({ inQueue: true, queueScore: -20 });
+    expect(s.slots).toBe(1);
+    expect(s.slotProgressPct).toBeGreaterThanOrEqual(0);
   });
 });

@@ -9,7 +9,8 @@ import { agentScoreLog } from '@/drizzle/schema';
 import { getCurrentAgent } from '@/lib/agentSession';
 import { tierFor, scoreReasonLabel } from '@/lib/scoreTiers';
 import { loadTierContext } from '@/lib/scoreTiersServer';
-import { slotCountForScore } from '@/lib/routing';
+import { slotCountForScore, queueStandingFor } from '@/lib/routing';
+import { STARTING_CREDIT } from '@/lib/scoring';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -42,20 +43,25 @@ export async function GET() {
   const ytd = agent.scoreYtd ?? 0;
   const tier = tierFor(lifetime, await loadTierContext());
 
-  // Slot-threshold math: slots = 1 + floor(sqrt(score/10)), so the score needed
-  // for `s` slots is 10*(s-1)^2. Progress is measured between the threshold for
-  // the agent's current slot count and the threshold for the next one.
-  const slots = slotCountForScore(queueScore);
-  const nextThreshold = 10 * slots * slots;
-  const prevThreshold = 10 * (slots - 1) * (slots - 1);
-  const pointsToNextSlot = Math.max(0, Math.ceil(nextThreshold - queueScore));
-  const slotProgressPct = Math.max(
-    0,
-    Math.min(100, ((queueScore - prevThreshold) / (nextThreshold - prevThreshold)) * 100)
-  );
+  // Queue standing is gated on MEMBERSHIP, not on the score. slotCountForScore
+  // never returns less than 1, so applying it directly reported "1 slot in the
+  // lead queue" to agents who had never turned availability on and were not in
+  // the rotation at all — contradicting the admin's (correct) empty-queue view.
+  // Same membership test the router uses in getActiveRoutingAgents.
+  const inQueue = agent.isActive === true && agent.queueJoinedAt != null;
+  const { slots, pointsToNextSlot, slotProgressPct } = queueStandingFor({
+    inQueue,
+    queueScore,
+  });
+  // The one-time head start is granted on first activation, so an agent who has
+  // not joined yet can be told exactly what joining is worth.
+  const headStart = agent.startingCreditGrantedAt == null ? STARTING_CREDIT : 0;
 
   return NextResponse.json({
     queueScore,
+    inQueue,
+    headStart,
+    headStartSlots: headStart > 0 ? slotCountForScore(headStart) : 0,
     slots,
     pointsToNextSlot,
     slotProgressPct,

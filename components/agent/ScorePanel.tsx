@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import LocalTime from '@/components/LocalTime';
 
 interface ScoreEvent {
@@ -14,6 +15,12 @@ interface ScoreEvent {
 
 interface ScoreData {
   queueScore: number;
+  /** False until the agent has turned availability on at least once. */
+  inQueue: boolean;
+  /** Queue Score the one-time head start will grant, or 0 if already used. */
+  headStart: number;
+  /** Slots that head start is worth. */
+  headStartSlots: number;
   slots: number;
   pointsToNextSlot: number;
   slotProgressPct: number;
@@ -75,22 +82,45 @@ export default function ScorePanel() {
           </span>
           <span className="text-sm font-semibold text-mute">Queue Score</span>
         </div>
-        <p className="mt-1 text-sm font-bold text-charcoal">
-          {data.slots} slot{data.slots === 1 ? '' : 's'} in the lead queue
-        </p>
+        {/* An agent who has never switched availability on holds NO slots. The
+            slot formula has a floor of 1, so showing it unconditionally told
+            them they had "1 slot in the lead queue" while the rotation was
+            empty and the router had never heard of them. */}
+        {data.inQueue ? (
+          <>
+            <p className="mt-1 text-sm font-bold text-charcoal">
+              {data.slots} slot{data.slots === 1 ? '' : 's'} in the lead queue
+            </p>
 
-        <div className="relative mt-2 h-2 rounded-pill bg-line">
-          <div
-            className="absolute inset-y-0 left-0 rounded-pill bg-platinum-blue"
-            style={{ width: `${slotProgressPct}%` }}
-          />
-        </div>
-        <p className="mt-1 text-xs text-mute-light">
-          {data.pointsToNextSlot > 0
-            ? `${Math.round(data.pointsToNextSlot)} more points to gain another slot in the queue`
-            : `You just reached ${data.slots} slots`}
-        </p>
-        <p className="mt-1 text-xs text-mute">More Queue Score = more turns at nearby leads.</p>
+            <div className="relative mt-2 h-2 rounded-pill bg-line">
+              <div
+                className="absolute inset-y-0 left-0 rounded-pill bg-platinum-blue"
+                style={{ width: `${slotProgressPct}%` }}
+              />
+            </div>
+            <p className="mt-1 text-xs text-mute-light">
+              {data.pointsToNextSlot > 0
+                ? `${Math.round(data.pointsToNextSlot)} more points to gain another slot in the queue`
+                : `You just reached ${data.slots} slots`}
+            </p>
+            <p className="mt-1 text-xs text-mute">More Queue Score = more turns at nearby leads.</p>
+          </>
+        ) : (
+          <div className="mt-2 rounded-card border border-warning/40 bg-warning-bg px-4 py-3">
+            <p className="text-sm font-bold text-charcoal">You&apos;re not in the lead queue yet</p>
+            <p className="mt-1 text-xs text-mute">
+              No leads are offered to you until you turn on{' '}
+              <span className="font-semibold">lead routing</span> in{' '}
+              <Link href="/agent/settings" className="font-semibold text-platinum-blue underline">
+                Settings
+              </Link>
+              .
+              {data.headStart > 0
+                ? ` Switching on the first time also grants a one-time +${data.headStart} Queue Score — ${data.headStartSlots} slots straight away.`
+                : ''}
+            </p>
+          </div>
+        )}
       </div>
 
       <div className="mt-4 flex items-center gap-2 border-t border-line-hair px-5 py-3">
