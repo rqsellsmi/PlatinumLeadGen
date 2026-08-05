@@ -110,9 +110,10 @@ Migrations are hand-authored idempotent SQL in `drizzle/migrations/` and registe
 RentCast AVM `GET /avm/value`. Returns estimate + range (RentCast's own range, or **±8%** fallback — kept per addendum §K.2) + lat/lng. Every call is logged; a **40/50 monthly free-tier alert** email fires once when the 40th call of the month lands. **Every surface that shows a lead their own AVM value carries a "computer-generated estimate, not a formal appraisal" disclaimer** — the pre-contact ballpark range (both the `HeroValuation` modal and the city `ValuationForm` bar) and the post-contact revealed estimate on the `/thank-you` Full Valuation page.
 
 ### 4.2 Routing (`lib/routing.ts`, `lib/queue.ts`, `lib/autoOffer.ts`)
-- **Slot weight** = `max(1, min(5, 1 + floor(score/15)))` (1–5 slots).
-- **Rotation** = each eligible agent's slots, **interleaved** (each slot placed at fractional position `(k+0.5)/slotCount`, merged and sorted) so an agent's turns are spread through the list — a newly-activated agent weaves in rather than clustering at the end. A persisted custom order (`agent_queue`) is honored.
-- **Reconciled in place, never auto-rebuilt** (`reconcileRotation`): on a roster/score change the live queue is preserved — existing slots keep their order (and move-to-back progress), new agents / score-increase slots are woven in evenly, and removed-agent / score-decrease slots drop out. The only from-scratch rebuild is the admin's explicit "Rebuild" button.
+- **Slot weight** = `1 + floor(sqrt(max(scoreRolling365, 0) / 10))`, **uncapped** (`slotCountForScore`). Thresholds 0→1, 10→2, 40→3, 90→4, 160→5, 250→6. (The old `max(1, min(5, 1 + floor(score/15)))` 1–5 formula documented here was superseded by Scoring v2 — see §4.3.)
+- **Queue membership** (P0.8b / D7) = active **and** `queueJoinedAt IS NOT NULL`, i.e. the agent has turned their own availability on at least once. Membership is deliberately NOT filtered by *current* availability: a paused agent keeps their slots and their place, and the skip happens at send time in `recommendAgents`. Reconciling on availability is exactly what let a pause/resume cycle act as a queue reset. Since migration 0045 the queue starts empty, so **the order of first opt-in is the order of the line**.
+- **Rotation** = each member's slots. A from-scratch build (`buildRotationList`, the admin "Rebuild" button only) interleaves by fractional position `(k+0.5)/slotCount`. In production the live queue is **reconciled in place, never auto-rebuilt** (`reconcileRotation`) so order and move-to-back progress survive roster/score changes. A persisted custom order (`agent_queue`) is honored.
+- **How additions land** (§12): existing slots keep their relative order and score-decrease extras drop out (latest occurrences first). Additions split two ways — a **new entrant** (no slots currently in the line) is **woven in** after every existing member has had one turn, first slot at that point and the rest spread evenly through the remainder; extra slots from a **score increase** are **appended at the back** in join order. The distinction: an entrant has never had a turn, so appending all of them meant waiting the entire queue for a first lead and then receiving several in a row (the +50 head start buys three slots, and all three landed together); an agent whose score just rose is already receiving turns, and score is what agents can influence, so a newly earned slot should start at the back. An admin-deactivated agent who is later reactivated returns as an entrant — `isActive` is admin-controlled, so it is not a gaming vector. A pause/resume produces **no** additions at all (`desired` and `kept` are both unchanged), so the D7 anti-gaming property is untouched.
 - **Move-to-back queue**: the list is self-ordering, **front = next** (`pointer` is vestigial, always persisted as 0). Serving a lead moves the **one served slot to the back**; slots skipped for distance **stay at the front** so those agents are reconsidered first next lead (a distance skip never costs an agent their turn). This intentionally means the order is not stable across leads.
 - **Per-agent proximity** (`agents.proximityAnchor`/`locationCity`/`proximityRadiusMiles`): each agent picks the **anchor** their acceptance distance is measured from — their **office** or a **custom city** (entered by name, geocoded to lat/lng) — and their own **radius** (miles; null → the brokerage default `notification_settings.proximityRadiusMiles`, 20). Set in the agent portal (`/agent/settings`) or the admin agent editor.
 - **Proximity-first**: an agent joins the proximity pool when the lead is within *that agent's own* radius of *their* anchor (haversine). Scan the queue from the front and serve the first pool member. **Outside-area handling:** if the lead has coordinates and at least one agent is geocoded but the lead is within *no* agent's radius, `recommendAgents` returns `outcome: 'outside-area'` (agent `null`) and `autoOfferLead` leaves the lead **unassigned**, emailing the admin the lead details (`leadOutsideAreaEmail`) so they handle it directly — it is deliberately NOT dumped on a far agent. The global-queue fallback (serve the front slot) now applies only when proximity is *unevaluable*: no lead coords, or no agent geocoded.
@@ -204,7 +205,8 @@ Small, mostly non-routing UX/data-quality changes layered on after Scoring v4:
 
 ## 6. Auth & security
 - Admin = NextAuth credentials (env `ADMIN_USERNAME` + bcrypt `ADMIN_PASSWORD_HASH`, no user table).
-- Agent = magic-link (64-hex, 30-day) or email+password, plus a signed HMAC session cookie (edge-verified in middleware). **Two separate self-service password flows:** (1) **first-time setup** at the public **`/agent/set-password`** (migration 0029) — gated by the shared **agent setup code** (Admin → Settings) + the email being on the roster (active status not required); one URL for the whole team, **first-time only** (won't overwrite an existing password). (2) **Forgot password** — the login page emails *that agent* a short-lived (2h) reset link (`/api/agent/password/request` → `agents.password_reset_token`/`_expires_at`, migration 0030) to **`/agent/reset-password?token=…`** (`/api/agent/password/reset`); **email-verified** so only the inbox owner can reset. Admin can still set a password directly on the agent editor. `/agent/login`, `/agent/set-password`, `/agent/reset-password` are exempt from the agent-session middleware guard.
+- Agent = magic-link or email+password, plus a signed HMAC session cookie (**7-day**, carrying `agentId` + `sessionVersion`, edge-verified in middleware; revocation and `isActive` are re-checked server-side in `getCurrentAgent()`). **Magic link:** 64-hex, **14 days** (D6 REVISED, down from 30), **stored only as a SHA-256 hash**, and **rotated on use** — each outbound message supersedes the previous link, so we cannot re-send a current one. **Two separate self-service password flows:** (1) **first-time setup** at **`/agent/set-password?token=…`** — a **per-agent, single-use, 7-day, hashed invite** emailed to the address on the roster (`lib/agentInvites.ts`, P0.8a/D7). *The shared brokerage setup code this section used to describe (migration 0029) was removed by P0.8a §10 — a shared secret circulates and knowing a roster email is not control of it. There is deliberately no way to reach the page without a token.* (2) **Forgot password** — the login page emails *that agent* a short-lived (**2h**) reset link, **hashed at rest** (§11), to **`/agent/reset-password?token=…`**; **email-verified** so only the inbox owner can reset. Both flows consume their token via a single guarded `UPDATE … RETURNING` so two concurrent requests cannot both pass (§11). Admin can still set a password directly on the agent editor. `/agent/login`, `/agent/set-password`, `/agent/reset-password` are exempt from the agent-session middleware guard.
+- **Accepting an offer mints a session** and opens the lead (§12). The offer email already carried a magic link, so withholding it here protected nothing; forwarding is an accepted risk for a small known roster, bounded by link rotation. Decline mints nothing.
 - Webhooks = `rpk_` API keys (bcrypt-hashed) for `/api/webhooks/lead`/`appointment`; `/api/webhooks/telnyx` uses Ed25519 signature verification instead (`telnyx-signature-ed25519`/`telnyx-timestamp` headers against `TELNYX_PUBLIC_KEY`), fail-closed — an invalid signature is rejected `401` before the body is parsed. Cron = `x-cron-secret`. Revalidate = `x-revalidate-secret`.
 - Inbound SMS commands are agent-scoped: the sender is identified by matching their E.164 number against `agents.phone`, and every accept/decline/status action only ever targets that agent's own `lead_offers` rows.
 - Rate limiting = Neon fixed-window per (ip, endpoint, window), fail-open. Strict CSP + security headers in `next.config.js`.
@@ -221,7 +223,7 @@ Small, mostly non-routing UX/data-quality changes layered on after Scoring v4:
 ## 8. Build, test, migrate
 - `npm run typecheck` · `npm test` (vitest; routing, offer window, IDX, and SMS/Telnyx unit suites) · `npm run build`.
 - `npm run db:migrate` applies journalled SQL migrations; `npm run seed` seeds launch cities.
-- Verified at build time (latest refinements-v1 gate): typecheck clean, build compiles, **161 tests pass across 18 files** (Scoring v4 brought it to 155 across 17; the agent lead-edit added `tests/agentLeadContact.test.ts`, 6 cases). Earlier baselines: 141 (refinements-v1 start), pre-v4 132.
+- Verified at build time (current gate): typecheck clean, build compiles, **361 tests pass across 33 files**. Baselines: 322 at the §11 P0 round-2 stop point, 307 after the §10 P0 remediation, 161 across 18 files at the refinements-v1 gate, 155 post-Scoring-v4, 141 refinements-v1 start, 132 pre-v4. The §12 lifecycle/SMS work added 39.
 
 ---
 
@@ -311,7 +313,9 @@ Test count went 189 → 307 across this work.
   Magic link hashed at rest, 14 days, rotates on use. Session-version revocation,
   bumped on reset/deactivation/sign-out-everywhere. Shared setup code replaced by
   per-agent single-use invites + the Launch button. Offer-accept no longer grants
-  a portal session.
+  a portal session. **(Superseded — see §12: the same email carries a magic link,
+  so the split protected nothing and accept now signs the agent in and opens the
+  lead.)**
 - **P0.8b — queue integrity** (D7 MODIFIED; migrations 0037/0038). Membership
   decoupled from availability, so a pause/resume cycle can no longer act as a
   queue reset. On-surface skip-to-back; join-order appends. 16 invariant tests
@@ -434,7 +438,6 @@ the unique index to exist.
   the proposed 8 for the real ranking.
 - Optional: **`TEST_LEAD_EMAIL_DOMAINS`** for production smoke tests (or just use
   an `@example.com` address / a `555-01xx` phone, which flag `is_test` built-in).
-
 ### Known residuals (accepted / deferred)
 - **Appointment idempotency is not a true transaction** — the neon http driver
   can't. The compensating-delete closes the common failure; a sustained DB outage
@@ -446,3 +449,202 @@ the unique index to exist.
 - **`full-setup.sql` / `seed.sql`** are a stale manual-bootstrap path (they
   predate the `appointment` lead type and other recent migrations). Regenerate
   separately someday; the migration chain + `scripts/seed.ts` are authoritative.
+
+---
+
+## 12. Same-stage updates, queue entry, offer accept, SMS grammar (2026-08-05)
+
+Found while auditing the agent-facing surfaces against the code to write the
+launch guide. Three defects with one root cause in the lifecycle, one in queue
+reconciliation, two in the SMS parser, plus one owner decision reversing a P0.8a
+change that turned out to protect nothing. No migration — `sms_messages.kind` is
+a `varchar(30)`, not an enum. Typecheck clean, build clean, **365 tests**
+(was 322).
+
+**Root cause: no self-transitions.** `ALLOWED_TRANSITIONS` had no stage that
+transitioned to itself, and `update_deadline` is only ever written by a status
+write (`recordStatusUpdate` / `applyAccept` / `manualReassignLead` / the reopen
+path). There is no note-only update path — `StatusUpdateForm` always posts a
+`newStatus` and the API rejects a body without one. So the only way to satisfy
+the update clock was to ADVANCE the lead. Consequences, all now fixed by listing
+each working stage first in its own transition list:
+
+- **A long-term Nurturing lead was a −2/week treadmill.** `nurturing` could only
+  go to `appointment_set` or `lost`, so an agent nurturing a seller honestly for
+  six months paid roughly −52 for it. The in-portal help page compounded this by
+  claiming "any status change **or note** counts as an update," which was never
+  true.
+- **Lost reason A2 ("no response after 6 attempts") was unreachable.** It unlocks
+  at ≥6 `attempted_contact` status updates, but the stage could only ever be
+  entered once, from New. A seller who simply never responded had no honest Lost
+  reason available.
+- **The update form's default advanced the lead.** It pre-selects `options[0]`,
+  which was the NEXT stage — so saving a note without touching the dropdown moved
+  the lead. From `signed` that fired Closed Won: **+25 and an outbound Google Ads
+  "Closed Seller Listing" conversion.** The default is now "no change".
+
+Re-logging a stage cannot farm points — milestones sit behind atomic
+`claimLeadMilestone` guards, the fast-engagement bonus behind
+`first_engagement_logged`, Nurturing scores 0, and the Google Ads outbox is
+guarded by `UNIQUE(lead_id, milestone)`. `new`/`reopened` get NO self-transition
+(a lead could otherwise be parked with the clock reset and no contact ever
+attempted); `closed`/`lost` stay terminal, `closed` critically so because Closed
+Won (+25) is the one award with no once-only guard.
+
+**A new agent's slots were dumped at the very back, clustered.**
+`reconcileRotation` ended `[...kept, ...additions]`, so every addition landed
+after the entire existing queue. With Rebecca/Bob/Joe holding 8 slots and Amy
+activating for the first time, the result was
+`R,B,J,R,B,J,R,J,A,A,A` — Amy waited **8 turns** for her first lead and then
+received **three consecutive** leads, because the +50 head start buys 3 slots and
+all 3 landed together. Bad for her and bad for the sellers. (The in-portal help
+page also promised the opposite: "real standing in the rotation instead of at the
+very back.")
+
+Additions now split by kind. A **new entrant** — no slots currently in the line —
+is woven in after every existing member has had one turn, first slot at that
+point and the remaining slots spread evenly through what follows, giving
+`R,B,J,A,R,B,J,A,R,J,A`. Extra slots from a **score increase** still append at
+the back. Rationale and the reactivation case are in §4.2.
+
+This relaxes one P0.8b invariant — additions no longer land strictly at the back,
+so existing agents' absolute indices shift by one when someone joins. Their
+relative order is never changed and the front slot never moves; the test now
+asserts that stronger property instead (`tests/queueInvariants.test.ts`). The
+**anti-gaming invariant is untouched**: a pause/resume yields no additions, so
+reconcile returns the identical list. Idempotency, slot conservation,
+no-invented-ids and membership-unaffected-by-availability all hold unchanged.
+
+**Accepting from the offer email signs the agent in and opens the lead**
+(owner decision, revisiting P0.8a / D6 REVISED / review #16/#67). P0.8a removed
+the session mint from the accept route so a forwarded offer email could not hand
+over the agent's portal. **It did not achieve that.** `dispatchOfferEmail` mints
+a magic link and renders it in the SAME email — "Or manage your leads in the
+agent portal" (`lib/autoOffer.ts:299,313` + `lib/email.ts:283`) — so anyone
+holding the message could already sign in as that agent and read every seller's
+contact details. The split bought no protection; it only dead-ended the
+legitimate agent, who then had to hunt for the magic link further up the same
+email or type a password. The owner has weighed forwarding as an acceptable risk
+for a small known roster.
+
+`POST /api/offer/[token]` with `response=accept` now mints the session and
+**303-redirects to `/agent/leads/<offerId>`** — the lead itself, not the list.
+A repeat click on an offer that is already *this agent's accepted* offer does the
+same rather than dead-ending; declined/expired/admin-reassigned offers still get
+the "already responded" page, since the lead belongs to someone else. **Decline
+deliberately does not sign anyone in** — it needs no portal access, and by the
+time a mistaken decline is noticed the lead has already been reassigned.
+
+Two mitigations still bound forwarding, unchanged: magic links **rotate on use**
+(`app/api/agent/login/route.ts:51`) and each offer email supersedes the last, so
+a forwarded link dies the moment the agent uses their own — whoever clicks second
+gets a dead link, which is itself a signal. The GET remains side-effect-free, so
+email scanners and link-preview bots still cannot accept a lead by prefetching;
+that property matters more now that the POST mints a session.
+`buildAgentSessionCookie` (`lib/agentSession.ts`) was split out of
+`setAgentSessionCookie` so a redirect response can carry the cookie directly
+instead of relying on the `next/headers` store being merged into a response it
+did not create.
+
+**SMS: the lead code now delimits the phrase, not the reverse** (`lib/smsCommands.ts`).
+The parser matched a phrase from a fixed list and assumed the next token was the
+code, so `ATTEMPTED CONTACT 53 left another message` matched only the word
+`attempted`, failed `parseCode('contact')`, and swept the lead id into the notes
+— then `resolveOffer` fell back to the agent's single active lead and updated
+**that** one. The phrasing is exactly how the portal labels the stage, so it was
+the most natural thing an agent could type. Now: an explicit `#53` anywhere is
+definitive; a bare number is a code only when an EXACT known phrase precedes it
+(so `nurture still thinking 3 months` keeps the 3 in the notes); otherwise the
+longest known phrase prefix wins. The table gained the multi-word stage names and
+the aliases people actually say (`contacted`, `made contact`, `no answer`,
+`left voicemail`, `listing signed`).
+
+**SMS: a parsed code is only a candidate.** `resolveOffer` used to push it
+straight into SQL, so a wrong number simply matched nothing and fell through to
+the single-active-lead path. It now loads the agent's own offers first and checks
+the code against them: matches → act; explicit `#N` matching nothing → say so;
+bare number matching nothing → it was never a lead id, so it is folded back into
+the note text. Authorization is unchanged — only the sending agent's rows are
+ever loaded.
+
+**SMS: the disambiguation prompt taught a dead command.** It replied "reply e.g.
+**CONTACTED** &lt;lead#&gt;", but v4 renamed that stage to Connected and
+`contacted` was not in the phrase table, so an agent following the prompt
+verbatim got silence and the owner got an "unrecognized command" email. Fixed to
+`CONNECTED`, and `contacted` is now an accepted alias either way.
+
+**Admin feedback loop.** Unrecognized agent commands log as
+`kind: 'inbound_unknown'` (parse happens before the write; homeowner/LSA inbound
+stays plain `inbound`), and `/admin/sms-log` gained an **Unrecognized wordings**
+panel grouping them by leading phrase with counts, latest example and last-seen.
+A phrase recurring there is one to add to `STATUS_PHRASES` — no migration needed.
+
+**Lost-attempt counting was per-lead; now per-offer AND per-cycle.** The lead
+page counted Attempted-Contact updates by `leadOfferId` while
+`recordStatusUpdate` counted by `leadId`, so the reasons offered and the reasons
+accepted could disagree. Neither was right on its own: per-lead carries attempts
+across a reassignment to a different agent, and per-offer *looks* right but still
+carries them across a reopen — `reopenLostLead` **keeps the existing offer** when
+the prior agent is still active (`app/api/leads/submit/route.ts`), so the old
+attempts stay on the same `leadOfferId`. Owner decision: a reopened lead requires
+six fresh attempts. The window now starts at the later of the offer's
+`accepted_at` and the lead's `reopened_at` (`attemptCycleStart`), and both call
+sites count through the same pure `countAttemptsInCycle`, so they cannot drift
+again. Note this threshold was **unreachable before §12's self-transitions** —
+`attempted_contact` could only ever be entered once — so nothing in production
+has depended on the old behaviour.
+
+Also signposted: **Lost is not reachable from `new`** (deliberate — see
+`docs/agent-rating-system.md`), so an agent closing out a dead contact must log
+Attempted contact first. The update form now says Lost has become available once
+they do, instead of leaving it in a dropdown they already closed.
+
+**Per-agent setup invites had no button.** `resendAgentInvite`
+(`app/admin/agents/actions.ts:79`) existed and was correct, but **nothing in the
+UI called it** — and `LaunchInvitesPanel` told the admin to "invite them
+individually from their agent page", pointing at a control that did not exist.
+The practical failure: the Launch send runs **once** and its links expire in
+**7 days**, so an agent who ignores the email for three weeks is locked out with
+no recovery path short of an admin typing a password for them.
+
+The agent page now has an **Account setup** card — invite status (never sent /
+sent + expiry / expired), a **Send a new setup invite** button, and the
+consequence stated plainly: a new invite supersedes the old one, so their
+previous link stops working. It renders three ways: an agent with a password is
+told to use Forgot-password instead (`sendAgentInvite` refuses to issue a
+redeemable credential for a live account); an inactive agent is told to activate
+first (it refuses those too); otherwise the button. Agents needing setup are
+flagged **Needs setup** in the directory (both tile and list views) so they're
+findable without opening each one, using the same `isActive && !passwordHash`
+rule as the Launch audience. The Launch panel's copy now matches reality.
+
+**Agent-guide content added** (`app/agent/help/page.tsx`). Three sections the
+page never had, all documentation of behaviour that was already correct:
+**Working leads by text** (§7) — the full reply vocabulary built from the real
+`STATUS_PHRASES` table, where the lead number is and isn't required, that notes
+go after the number, that **Lost is the one thing that can't be done by text**
+(it needs a stage-scoped reason), and that `STOP` ends texts but not email.
+**Signing in** (Reference) — the per-agent 7-day single-use invite, the 2h reset
+link, the 7-day session, and a warning that links in lead emails/texts are as
+good as a password and are superseded by each new message. **Out-of-area leads**
+(§1) — a home outside every agent's radius, or outside Michigan, goes to the
+admin to find someone willing to cover it, and is never handed to whoever is
+least far away; so a wide radius is not needed to "catch" distant leads.
+
+Also added: the **full 30% referral terms** — 30% of gross commission, due at closing, up to two deals per
+client with the second only if it closes within one year of the first, no desk
+fee taken from a referred deal and the referral not counting toward the desk-fee
+cap, plus a worked example. The one-line term beside the availability toggle now
+links to it, since that switch IS the acceptance
+(`agents.availability_opted_in_at`). Also: how an agent joins the rotation at all
+(first opt-in order = line order), and what the four score tracks read on day one
+— worth stating because `score_lifetime` DEFAULTs to 50 while the +50 head start
+lands only on rolling-365, two unrelated 50s that invite confusion.
+
+Files: `lib/leadLifecycle.ts`, `lib/routing.ts`, `lib/agentSession.ts`,
+`components/agent/StatusUpdateForm.tsx`, `components/agent/AvailabilityToggle.tsx`,
+`lib/smsCommands.ts`, `app/api/webhooks/telnyx/route.ts`,
+`app/api/offer/[token]/route.ts`, `app/admin/sms-log/page.tsx`,
+`app/agent/help/page.tsx`, plus `tests/leadLifecycle.test.ts`,
+`tests/smsCommands.test.ts`, `tests/routing.test.ts` and
+`tests/queueInvariants.test.ts`.

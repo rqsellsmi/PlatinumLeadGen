@@ -94,18 +94,50 @@ export type AgentSettableStatusV4 = (typeof AGENT_SETTABLE_STATUSES_V4)[number];
  * Allowed forward/backward transitions per current status (v4 §3). `new` and
  * `reopened` share the same options; `reopened` behaves like New. Backward moves
  * to `nurturing` (from appointment_set / signed) are permitted and reason-free.
+ *
+ * SELF-TRANSITIONS. Every working stage lists ITSELF first, which is what makes
+ * "log an update without moving the lead" possible. Before this, the only way to
+ * reset the update clock (§5) was to advance the lead, so an agent genuinely
+ * nurturing a seller for months had no honest move available and took a
+ * recurring −2 for doing their job. Two consequences worth knowing:
+ *
+ *   1. Listing self FIRST makes it the pre-selected option in the portal's
+ *      update form (which defaults to `options[0]`). The default is now "no
+ *      change", so an agent who opens a lead to add a note and saves without
+ *      touching the dropdown no longer advances the lead by accident — which
+ *      previously could fire Closed Won (+25) from a Signed lead.
+ *   2. It also makes repeated Attempted Contact loggable, so the ≥6-attempt
+ *      threshold that unlocks Lost reason A2 ("no response after 6") is finally
+ *      reachable; it was dead before, since the stage could only ever be entered
+ *      once from New.
+ *
+ * Re-logging the same stage cannot farm points: every milestone award is behind
+ * an atomic `claimLeadMilestone` guard, the fast-engagement bonus is behind
+ * `first_engagement_logged`, and Nurturing scores 0. `closed` and `lost` stay
+ * terminal — `closed` deliberately so, because Closed Won (+25) is the one
+ * award with NO once-only guard (lib/statusUpdates.ts).
+ *
+ * `new` and `reopened` deliberately have NO self-transition: from those the only
+ * honest updates are Attempted Contact or Connected, and allowing new→new would
+ * let a lead be parked indefinitely, resetting the clock without any contact
+ * ever being made.
  */
 export const ALLOWED_TRANSITIONS: Record<string, readonly string[]> = {
   new: ['attempted_contact', 'connected'],
   reopened: ['attempted_contact', 'connected'],
-  attempted_contact: ['connected', 'lost'],
-  connected: ['nurturing', 'lost'],
-  nurturing: ['appointment_set', 'lost'],
-  appointment_set: ['signed', 'nurturing', 'lost'],
-  signed: ['closed', 'nurturing', 'lost'],
+  attempted_contact: ['attempted_contact', 'connected', 'lost'],
+  connected: ['connected', 'nurturing', 'lost'],
+  nurturing: ['nurturing', 'appointment_set', 'lost'],
+  appointment_set: ['appointment_set', 'signed', 'nurturing', 'lost'],
+  signed: ['signed', 'closed', 'nurturing', 'lost'],
   closed: [],
   lost: [],
 };
+
+/** Whether a move leaves the lead where it is — a check-in, not a stage change. */
+export function isSameStageUpdate(from: string, to: string): boolean {
+  return from === to;
+}
 
 export function isValidTransition(from: string, to: string): boolean {
   return (ALLOWED_TRANSITIONS[from] ?? []).includes(to);
@@ -131,6 +163,52 @@ export const ALL_V4_LOST_REASONS = [
   ...LOST_D,
 ] as const;
 export type V4LostReason = (typeof ALL_V4_LOST_REASONS)[number];
+
+/**
+ * When the lead's CURRENT working cycle began — the boundary for counting
+ * Attempted-Contact updates toward the ≥6 threshold that unlocks Lost A2.
+ *
+ * Neither "per lead" nor "per offer" is right on its own. Per lead carries
+ * attempts across a reassignment to a different agent. Per offer looks correct
+ * but is not: when a Lost lead is resubmitted and the prior agent is still
+ * active, `reopenLostLead` KEEPS the existing offer rather than creating a new
+ * one, so the attempts from the previous cycle stay attached to the same
+ * leadOfferId and the agent inherits them. A reopened lead should require six
+ * fresh attempts — the seller came back, and whatever was tried last time is
+ * not evidence about this time.
+ *
+ * The cycle therefore starts at the LATER of:
+ *   - the offer being accepted (a new agent, or a manual reassignment), and
+ *   - the lead being reopened (same agent, same offer, new cycle).
+ * Null means no boundary is known, in which case every attempt counts.
+ */
+export function attemptCycleStart(
+  acceptedAt: Date | null | undefined,
+  reopenedAt: Date | null | undefined,
+): Date | null {
+  if (acceptedAt && reopenedAt) {
+    return reopenedAt.getTime() > acceptedAt.getTime() ? reopenedAt : acceptedAt;
+  }
+  return reopenedAt ?? acceptedAt ?? null;
+}
+
+/**
+ * Count Attempted-Contact updates inside the current working cycle. Shared by
+ * the lead page (which filters rows it already loaded) and the server-side
+ * validation in recordStatusUpdate, so the reasons the UI offers and the
+ * reasons the server accepts are computed by the same code.
+ */
+export function countAttemptsInCycle(
+  updates: readonly { newStatus: string; createdAt: Date | string | null }[],
+  cycleStart: Date | null,
+): number {
+  return updates.filter((u) => {
+    if (u.newStatus !== 'attempted_contact') return false;
+    if (!cycleStart) return true;
+    if (!u.createdAt) return false;
+    return new Date(u.createdAt).getTime() >= cycleStart.getTime();
+  }).length;
+}
 
 /**
  * The Lost reasons available from a given origin status. Lost A2 (no response

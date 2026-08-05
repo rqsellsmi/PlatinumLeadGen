@@ -101,6 +101,17 @@ async function handle(raw: string): Promise<NextResponse> {
   const candidates = await db.select().from(agents).where(isNotNull(agents.phone));
   const agent = fromE164 ? (candidates.find((a) => toE164(a.phone) === fromE164) ?? null) : null;
 
+  // Parse BEFORE logging so the stored row records whether we understood the
+  // message. `inbound_unknown` is what makes "which wordings are agents using
+  // that we don't support?" answerable in the admin SMS log — otherwise a failed
+  // command is indistinguishable from a working one. `kind` is a varchar, not an
+  // enum, so this needs no migration.
+  //
+  // Only an AGENT's wording is a command-vocabulary signal. A homeowner or LSA
+  // caller texting in is ordinary inbound mail, not a failed command, so their
+  // messages stay plain `inbound`.
+  const cmd = agent ? parseCommand(text) : null;
+
   await logSmsMessage({
     direction: 'inbound',
     agentId: agent?.id ?? null,
@@ -109,22 +120,21 @@ async function handle(raw: string): Promise<NextResponse> {
     fromNumber: fromE164,
     toNumber: to,
     body: text,
-    kind: 'inbound',
+    kind: cmd?.kind === 'unknown' ? 'inbound_unknown' : 'inbound',
     telnyxMessageId: providerId ?? null,
     status: 'received',
     errorMessage: null,
   });
 
   // 7. Unknown sender (no agent, e.g. homeowner/LSA inbound) — forward to owner.
-  if (!agent) {
+  if (!agent || !cmd) {
     await sendEmail(
       adminAlertEmail('Unrecognized text to RE/MAX Platinum', `From ${from}:\n\n${text}`),
     );
     return NextResponse.json({ ok: true });
   }
 
-  // 8. Parse and dispatch the command.
-  const cmd = parseCommand(text);
+  // 8. Dispatch the parsed command.
 
   if (cmd.kind === 'stop') {
     await db
@@ -167,12 +177,16 @@ async function handle(raw: string): Promise<NextResponse> {
   }
 
   // 9 + 10. accept / decline / status — resolve the target offer, then act.
-  const resolved = await resolveOffer(agent.id, cmd.code, cmd.kind);
+  const resolved = await resolveOffer(agent.id, cmd.code, cmd.codeExplicit, cmd.kind);
   if (!resolved.ok) {
     await sendAgentSms({ agent, body: resolved.message, kind: 'command_ack' });
     return NextResponse.json({ ok: true });
   }
-  const { offerId, leadId } = resolved;
+  const { offerId, leadId, codeIgnored } = resolved;
+
+  // A bare number that named none of this agent's leads was NOT a lead code, so
+  // put it back where it came from rather than dropping it from the note.
+  const notes = codeIgnored && cmd.code != null ? `${cmd.code} ${cmd.notes}`.trim() : cmd.notes;
 
   if (cmd.kind === 'accept') {
     const r = await applyAccept(offerId);
@@ -194,7 +208,7 @@ async function handle(raw: string): Promise<NextResponse> {
       agentId: agent.id,
       leadOfferId: offerId,
       newStatus: cmd.status,
-      note: cmd.notes || null,
+      note: notes || null,
       source: 'phone',
     });
     await reply(agent, statusReply(r, leadId, cmd.status));
@@ -235,45 +249,79 @@ function statusReply(
 }
 
 type ResolveResult =
-  | { ok: true; offerId: number; leadId: number }
+  | { ok: true; offerId: number; leadId: number; codeIgnored: boolean }
   | { ok: false; message: string };
 
 /**
  * Resolve which offer a command targets for this agent.
  * - accept/decline → an outstanding `offered` row (optionally matching lead #code).
  * - status → an `accepted` (active) row (optionally matching lead #code).
- * Exactly one candidate → success; none → not-found message; many (no code) →
- * disambiguation prompt.
+ *
+ * A PARSED CODE IS ONLY A CANDIDATE. This used to push the code straight into
+ * the SQL as `leadOffers.leadId = code`, which meant an unparseable or mistyped
+ * number simply produced a filter that matched nothing — and the caller then
+ * fell back to the agent's single active lead. Combined with the phrase bug that
+ * dropped lead ids ("ATTEMPTED CONTACT 53"), an agent could believe they had
+ * updated #53 while a different lead was actually changed.
+ *
+ * Now the agent's own offers are loaded first and the code is checked against
+ * them, which is the only definition of a valid lead id that matters here:
+ *   - matches one of theirs           → act on it.
+ *   - explicit `#53` matching nothing → say so; they named a specific lead.
+ *   - bare number matching nothing    → it was never a lead id. Ignore it as a
+ *                                       code (the caller folds it back into the
+ *                                       note) and fall through to the normal
+ *                                       one-candidate / disambiguate path.
+ * Authorization is unchanged and unconditional: only this agent's rows are ever
+ * loaded, so no code can reach another agent's lead.
  */
 async function resolveOffer(
   agentId: number,
   code: number | null,
+  codeExplicit: boolean,
   kind: 'accept' | 'decline' | 'status',
 ): Promise<ResolveResult> {
   const targetStatus = kind === 'status' ? 'accepted' : 'offered';
-  const conds = [eq(leadOffers.agentId, agentId), eq(leadOffers.status, targetStatus)];
-  if (code != null) conds.push(eq(leadOffers.leadId, code));
-
   const rows = await db
     .select({ id: leadOffers.id, leadId: leadOffers.leadId })
     .from(leadOffers)
-    .where(and(...conds));
+    .where(and(eq(leadOffers.agentId, agentId), eq(leadOffers.status, targetStatus)));
 
-  if (rows.length === 1) return { ok: true, offerId: rows[0].id, leadId: rows[0].leadId };
-
-  if (rows.length === 0) {
-    const suffix = code != null ? ` for #${code}` : '';
-    const message =
-      kind === 'status'
-        ? `No active lead found${suffix}.`
-        : `No open lead offer found${suffix}.`;
-    return { ok: false, message };
+  if (code != null) {
+    const matched = rows.filter((r) => r.leadId === code);
+    if (matched.length === 1) {
+      return { ok: true, offerId: matched[0].id, leadId: matched[0].leadId, codeIgnored: false };
+    }
+    if (codeExplicit) {
+      return {
+        ok: false,
+        message:
+          kind === 'status'
+            ? `No active lead found for #${code}.`
+            : `No open lead offer found for #${code}.`,
+      };
+    }
+    // Bare number, not one of theirs — treat it as message text, not a code.
   }
 
-  // More than one, and no code to disambiguate.
+  if (rows.length === 1) {
+    return { ok: true, offerId: rows[0].id, leadId: rows[0].leadId, codeIgnored: code != null };
+  }
+
+  if (rows.length === 0) {
+    return {
+      ok: false,
+      message: kind === 'status' ? 'No active lead found.' : 'No open lead offer found.',
+    };
+  }
+
+  // More than one, and no usable code to disambiguate. The example must be a
+  // command the parser actually accepts — this said "CONTACTED", which v4
+  // renamed to Connected and which parsed as unknown, so an agent following the
+  // prompt verbatim got silence and the owner got an alert email.
   const message =
     kind === 'status'
-      ? 'You have multiple active leads — reply e.g. CONTACTED <lead#>.'
+      ? 'You have multiple active leads — reply e.g. CONNECTED <lead#>.'
       : 'You have multiple open offers — reply e.g. YES <lead#>.';
   return { ok: false, message };
 }

@@ -8,7 +8,7 @@
  * clock, records backward moves (no points), and enforces origin-scoped Lost
  * reasons.
  */
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { db } from './db';
 import { leadOffers, leads, statusUpdates } from '../drizzle/schema';
 import { applyScore, claimLeadMilestone, fastEngagementDelta } from './scoring';
@@ -16,6 +16,8 @@ import { logLeadEvent } from './leadEvents';
 import { enqueueGoogleAdsConversion, type UpdateChannel } from './googleAdsOutbox';
 import {
   AGENT_SETTABLE_STATUSES_V4,
+  attemptCycleStart,
+  countAttemptsInCycle,
   isValidTransition,
   isBackwardMove,
   isValidLostReasonForOrigin,
@@ -68,7 +70,12 @@ export async function recordStatusUpdate(o: {
   }
 
   const leadRows = await db
-    .select({ status: leads.status, acceptedAt: leads.acceptedAt, contactedAt: leads.contactedAt })
+    .select({
+      status: leads.status,
+      acceptedAt: leads.acceptedAt,
+      contactedAt: leads.contactedAt,
+      reopenedAt: leads.reopenedAt,
+    })
     .from(leads)
     .where(eq(leads.id, offer.leadId))
     .limit(1);
@@ -81,15 +88,26 @@ export async function recordStatusUpdate(o: {
   }
 
   // Lost is reason-gated by the origin status (§6); Lost A2 needs ≥6 attempts.
+  //
+  // Attempts are counted for THIS OFFER and only inside the current working
+  // cycle. Counting by lead (as this did) carried attempts across a
+  // reassignment to a different agent; counting by offer alone still carried
+  // them across a reopen, because a resubmitted lead keeps its existing offer
+  // when the prior agent is still active. A reopened lead requires six fresh
+  // attempts — see attemptCycleStart.
+  //
+  // The rows are loaded and counted with the same pure helpers the lead page
+  // uses, so the reasons the UI offers and the reasons this accepts cannot
+  // drift apart.
   if (newStatus === 'lost') {
-    let attemptedCount = 0;
-    const attemptedRows = await db
-      .select({ n: sql<number>`count(*)::int` })
+    const priorUpdates = await db
+      .select({ newStatus: statusUpdates.newStatus, createdAt: statusUpdates.createdAt })
       .from(statusUpdates)
-      .where(
-        and(eq(statusUpdates.leadId, offer.leadId), eq(statusUpdates.newStatus, 'attempted_contact')),
-      );
-    attemptedCount = Number(attemptedRows[0]?.n ?? 0);
+      .where(eq(statusUpdates.leadOfferId, offer.id));
+    const attemptedCount = countAttemptsInCycle(
+      priorUpdates,
+      attemptCycleStart(offer.acceptedAt ?? leadRow?.acceptedAt ?? null, leadRow?.reopenedAt ?? null),
+    );
     if (!isValidLostReasonForOrigin(fromStatus, o.lostReason, attemptedCount)) {
       return { ok: false, reason: 'lost-reason-required' };
     }

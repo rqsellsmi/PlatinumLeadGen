@@ -87,6 +87,8 @@ export default async function AgentsPage() {
       conversionPct:
         accepted === 0 ? null : Math.round(((closedById.get(agent.id) ?? 0) / accepted) * 100),
       avgResponseMins: respById.get(agent.id) ?? null,
+      // Same rule as the Launch send's audience: active, no password yet.
+      needsSetup: agent.isActive && !agent.passwordHash,
     };
   });
 

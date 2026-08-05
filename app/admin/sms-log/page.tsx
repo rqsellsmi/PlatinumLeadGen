@@ -1,8 +1,9 @@
-import { desc, sql } from 'drizzle-orm';
+import { desc, eq, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { smsMessages, agents, offices } from '@/drizzle/schema';
 import { requireAdmin } from '@/components/admin/requireAdmin';
 import { toE164 } from '@/lib/sms';
+import { parseCommand } from '@/lib/smsCommands';
 
 export const dynamic = 'force-dynamic';
 
@@ -74,6 +75,39 @@ export default async function AdminSmsLogPage() {
     totalMessages = Number(c[0]?.n ?? 0);
   } catch (e) {
     msgError = e instanceof Error ? e.message : 'unknown';
+  }
+
+  // Wordings agents tried that the command parser did not recognize, grouped by
+  // the leading phrase. This is the feedback loop for lib/smsCommands.ts: a
+  // phrase showing up repeatedly here is one worth adding to STATUS_PHRASES.
+  // Grouped in the page rather than in SQL — a brokerage produces tens of these,
+  // not millions, and reusing the real parser keeps the grouping identical to
+  // the matching logic.
+  let unknownGroups: { phrase: string; count: number; lastSeen: Date | null; example: string }[] = [];
+  let unknownError = '';
+  try {
+    const rows = await db
+      .select({ body: smsMessages.body, createdAt: smsMessages.createdAt })
+      .from(smsMessages)
+      .where(eq(smsMessages.kind, 'inbound_unknown'))
+      .orderBy(desc(smsMessages.createdAt))
+      .limit(500);
+    const byPhrase = new Map<string, { count: number; lastSeen: Date | null; example: string }>();
+    for (const r of rows) {
+      const parsed = parseCommand(r.body);
+      const phrase =
+        (parsed.kind === 'unknown' ? parsed.phrase : '').trim() || '(no leading words)';
+      const cur = byPhrase.get(phrase);
+      if (cur) cur.count += 1;
+      // Rows arrive newest-first, so the first one seen is the latest example.
+      else byPhrase.set(phrase, { count: 1, lastSeen: r.createdAt, example: r.body });
+    }
+    unknownGroups = [...byPhrase.entries()]
+      .map(([phrase, v]) => ({ phrase, ...v }))
+      .sort((a, b) => b.count - a.count || a.phrase.localeCompare(b.phrase))
+      .slice(0, 20);
+  } catch (e) {
+    unknownError = e instanceof Error ? e.message : 'unknown';
   }
 
   function fmt(d: Date | null): string {
@@ -257,6 +291,53 @@ export default async function AdminSmsLogPage() {
               </tbody>
             </table>
           </div>
+        )}
+      </div>
+
+      {/* Unrecognized wordings */}
+      <div className="overflow-hidden rounded-card border border-line bg-white">
+        <div className="border-b border-line bg-[#FBFAF6] px-5 py-3 text-[11px] font-bold uppercase tracking-[0.06em] text-mute-light">
+          Unrecognized wordings from agents
+        </div>
+        {unknownError ? (
+          <p className="px-5 py-3 font-mono text-sm text-platinum-red">error: {unknownError}</p>
+        ) : unknownGroups.length === 0 ? (
+          <p className="px-5 py-4 text-sm text-mute">
+            Nothing yet — every agent text so far parsed into a command.
+          </p>
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="border-b border-line text-[11px] font-bold uppercase tracking-[0.06em] text-mute-light">
+                    <th className="px-5 py-2.5 text-left">Leading phrase</th>
+                    <th className="px-5 py-2.5 text-left">Times</th>
+                    <th className="px-5 py-2.5 text-left">Last seen (ET)</th>
+                    <th className="px-5 py-2.5 text-left">Latest message</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {unknownGroups.map((g) => (
+                    <tr key={g.phrase} className="border-b border-line-hair align-top last:border-0">
+                      <td className="px-5 py-2.5 font-mono font-bold text-charcoal">{g.phrase}</td>
+                      <td className="px-5 py-2.5 font-numeric text-charcoal">{g.count}</td>
+                      <td className="whitespace-nowrap px-5 py-2.5 text-mute-light">
+                        {fmt(g.lastSeen)}
+                      </td>
+                      <td className="max-w-xs px-5 py-2.5 text-charcoal">{g.example}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="border-t border-line-hair px-5 py-3 text-xs text-mute-light">
+              A phrase appearing repeatedly is one agents expect to work. Add it to{' '}
+              <span className="font-mono">STATUS_PHRASES</span> in{' '}
+              <span className="font-mono">lib/smsCommands.ts</span> and it starts parsing — no
+              migration needed.
+            </p>
+          </>
         )}
       </div>
 

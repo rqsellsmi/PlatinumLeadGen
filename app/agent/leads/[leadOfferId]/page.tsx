@@ -12,7 +12,7 @@ import PropertyDetails from '@/components/PropertyDetails';
 import { getPropertyRecord } from '@/lib/propertyRecords';
 import { StatusUpdateForm } from '@/components/agent/StatusUpdateForm';
 import { EditContactForm } from '@/components/agent/EditContactForm';
-import { lostReasonsForOrigin, leadStatusLabel } from '@/lib/leadLifecycle';
+import { leadStatusLabel, attemptCycleStart, countAttemptsInCycle } from '@/lib/leadLifecycle';
 
 export const dynamic = 'force-dynamic';
 
@@ -62,10 +62,16 @@ export default async function AgentLeadDetailPage({
   // about the home so the agent is fully briefed. Degrades to nothing on error.
   const propertyRecord = address ? await getPropertyRecord(address).catch(() => null) : null;
 
-  // Lost reasons are scoped to the lead's current stage (v4 §6); Lost A2 (no
-  // response after 6) unlocks once there are ≥6 Attempted-Contact logs.
-  const attemptedContactCount = history.filter((u) => u.newStatus === 'attempted_contact').length;
-  const lostReasons = lostReasonsForOrigin(lead.status, attemptedContactCount);
+  // Attempted-contact logs on THIS offer within the current working cycle — a
+  // reopened lead starts over (v4 §6). Handed to the form as a COUNT rather than
+  // a resolved reason list: the form advances its own stage the moment a save
+  // succeeds, and a list resolved here would describe the stage the lead was at
+  // before that. It derives the reasons with the same pure helper the server
+  // validates against, so what it offers is what recordStatusUpdate accepts.
+  const attemptedContactCount = countAttemptsInCycle(
+    history,
+    attemptCycleStart(offer.acceptedAt, lead.reopenedAt),
+  );
 
   return (
     <div className="space-y-6">
@@ -153,7 +159,7 @@ export default async function AgentLeadDetailPage({
               <StatusUpdateForm
                 leadOfferId={offer.id}
                 currentStatus={lead.status}
-                lostReasons={lostReasons}
+                attemptedContactCount={attemptedContactCount}
               />
             </div>
           </div>

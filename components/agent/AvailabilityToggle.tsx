@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Toggle } from '@/components/ui';
 
@@ -55,7 +56,11 @@ export default function AvailabilityToggle({ initial }: { initial: boolean }) {
         file. Message &amp; data rates may apply; reply STOP to any text to opt out.
       </p>
       {/* The commercial term. Deliberately the most prominent text in this
-          panel — it is what turning the switch on commits the agent to. */}
+          panel — it is what turning the switch on commits the agent to.
+          The link matters: this switch IS the acceptance, so the full terms
+          (how much, when, the two-deal window, desk fees) have to be reachable
+          from the point of agreement rather than only from a page the agent may
+          never have opened. */}
       <div className="mt-3 border-t border-white/10 pt-3">
         <p className="text-xs font-bold uppercase tracking-wide text-white">Referral terms</p>
         <p className="mt-1 text-xs leading-relaxed text-white/80">
@@ -63,6 +68,12 @@ export default function AvailabilityToggle({ initial }: { initial: boolean }) {
           <strong className="font-bold text-white">30% referral back to RE/MAX Platinum</strong>. By
           turning on your availability you are agreeing to this referral.
         </p>
+        <Link
+          href="/agent/help#availability"
+          className="mt-1.5 inline-block text-xs font-semibold text-white underline underline-offset-2 hover:text-mute-lighter"
+        >
+          Read the full referral terms
+        </Link>
       </div>
     </div>
   );

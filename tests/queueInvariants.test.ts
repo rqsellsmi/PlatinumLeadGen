@@ -136,11 +136,23 @@ describe('INVARIANT: a served slot moves to the back', () => {
 });
 
 describe('INVARIANT: an existing agent position is stable when others change', () => {
-  it('the top slot does not move when a new agent joins', () => {
+  it('a new entrant inserts BETWEEN existing agents, never reordering them', () => {
+    // Relaxed from "additions always land at the very back". A new entrant is
+    // now woven in after everyone has had one turn, so absolute indices shift
+    // by one — but the agents already in line keep their order and the front
+    // slot is untouched. Appending instead meant a newcomer waited the entire
+    // queue for a first lead and then took several in a row.
     const queue = [1, 2, 1];
     const withNewcomer = reconcileRotation(queue, [A(1, 40), A(2), A(3, 0, true, 999)]);
     expect(withNewcomer[0]).toBe(1);
-    expect(withNewcomer.slice(0, queue.length)).toEqual(queue);
+    expect(withNewcomer.filter((id) => id !== 3).slice(0, queue.length)).toEqual(queue);
+  });
+
+  it('a new entrant does not jump ahead of anyone waiting for a first turn', () => {
+    const queue = [1, 2, 3];
+    const withNewcomer = reconcileRotation(queue, [A(1), A(2), A(3), A(4, 0, true, 999)]);
+    // Everyone already in line is served before the newcomer's first slot.
+    expect(withNewcomer.indexOf(4)).toBe(3);
   });
 
   it('the top slot does not move when another agent gains a slot', () => {
