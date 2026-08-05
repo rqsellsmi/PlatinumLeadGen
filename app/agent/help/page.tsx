@@ -365,6 +365,14 @@ export default async function AgentHelpPage() {
             </p>
           </div>
         </div>
+        <Callout tone="blue" title="Pausing doesn't cost you your place" compact>
+          You keep your slots and your standing the whole time. If one of your
+          turns comes up while you&apos;re paused you simply forfeit{' '}
+          <strong>that turn</strong> — it passes to the next agent and yours
+          rotates around as normal. Pause for a day and if your turn never comes
+          up, it costs you nothing at all. Switching back on doesn&apos;t move you
+          forward either, so there&apos;s no advantage to toggling.
+        </Callout>
         <p className="text-xs text-mute-light">
           Toggle it any time from your dashboard or{' '}
           <span className="font-semibold">Settings</span>, where you also set your
