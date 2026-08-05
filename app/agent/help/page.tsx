@@ -188,7 +188,10 @@ export default async function AgentHelpPage() {
           </div>
           <p className="mt-2 text-xs text-mute-light">
             Top Performer is the top 10% of active agents by lifetime score; At
-            Risk is the bottom 10%.
+            Risk is the bottom 10%. These are <strong>relative</strong> — they
+            rank you against the other agents, not against a fixed target, so the
+            bands always stay filled no matter how well everyone is doing. On a
+            small team a single closing can move you several bands.
           </p>
         </div>
       </Section>
