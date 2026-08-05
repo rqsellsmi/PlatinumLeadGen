@@ -110,9 +110,10 @@ Migrations are hand-authored idempotent SQL in `drizzle/migrations/` and registe
 RentCast AVM `GET /avm/value`. Returns estimate + range (RentCast's own range, or **±8%** fallback — kept per addendum §K.2) + lat/lng. Every call is logged; a **40/50 monthly free-tier alert** email fires once when the 40th call of the month lands. **Every surface that shows a lead their own AVM value carries a "computer-generated estimate, not a formal appraisal" disclaimer** — the pre-contact ballpark range (both the `HeroValuation` modal and the city `ValuationForm` bar) and the post-contact revealed estimate on the `/thank-you` Full Valuation page.
 
 ### 4.2 Routing (`lib/routing.ts`, `lib/queue.ts`, `lib/autoOffer.ts`)
-- **Slot weight** = `max(1, min(5, 1 + floor(score/15)))` (1–5 slots).
-- **Rotation** = each eligible agent's slots, **interleaved** (each slot placed at fractional position `(k+0.5)/slotCount`, merged and sorted) so an agent's turns are spread through the list — a newly-activated agent weaves in rather than clustering at the end. A persisted custom order (`agent_queue`) is honored.
-- **Reconciled in place, never auto-rebuilt** (`reconcileRotation`): on a roster/score change the live queue is preserved — existing slots keep their order (and move-to-back progress), new agents / score-increase slots are woven in evenly, and removed-agent / score-decrease slots drop out. The only from-scratch rebuild is the admin's explicit "Rebuild" button.
+- **Slot weight** = `1 + floor(sqrt(max(scoreRolling365, 0) / 10))`, **uncapped** (`slotCountForScore`). Thresholds 0→1, 10→2, 40→3, 90→4, 160→5, 250→6. (The old `max(1, min(5, 1 + floor(score/15)))` 1–5 formula documented here was superseded by Scoring v2 — see §4.3.)
+- **Queue membership** (P0.8b / D7) = active **and** `queueJoinedAt IS NOT NULL`, i.e. the agent has turned their own availability on at least once. Membership is deliberately NOT filtered by *current* availability: a paused agent keeps their slots and their place, and the skip happens at send time in `recommendAgents`. Reconciling on availability is exactly what let a pause/resume cycle act as a queue reset. Since migration 0045 the queue starts empty, so **the order of first opt-in is the order of the line**.
+- **Rotation** = each member's slots. A from-scratch build (`buildRotationList`, the admin "Rebuild" button only) interleaves by fractional position `(k+0.5)/slotCount`. In production the live queue is **reconciled in place, never auto-rebuilt** (`reconcileRotation`) so order and move-to-back progress survive roster/score changes. A persisted custom order (`agent_queue`) is honored.
+- **How additions land** (§12): existing slots keep their relative order and score-decrease extras drop out (latest occurrences first). Additions split two ways — a **new entrant** (no slots currently in the line) is **woven in** after every existing member has had one turn, first slot at that point and the rest spread evenly through the remainder; extra slots from a **score increase** are **appended at the back** in join order. The distinction: an entrant has never had a turn, so appending all of them meant waiting the entire queue for a first lead and then receiving several in a row (the +50 head start buys three slots, and all three landed together); an agent whose score just rose is already receiving turns, and score is what agents can influence, so a newly earned slot should start at the back. An admin-deactivated agent who is later reactivated returns as an entrant — `isActive` is admin-controlled, so it is not a gaming vector. A pause/resume produces **no** additions at all (`desired` and `kept` are both unchanged), so the D7 anti-gaming property is untouched.
 - **Move-to-back queue**: the list is self-ordering, **front = next** (`pointer` is vestigial, always persisted as 0). Serving a lead moves the **one served slot to the back**; slots skipped for distance **stay at the front** so those agents are reconsidered first next lead (a distance skip never costs an agent their turn). This intentionally means the order is not stable across leads.
 - **Per-agent proximity** (`agents.proximityAnchor`/`locationCity`/`proximityRadiusMiles`): each agent picks the **anchor** their acceptance distance is measured from — their **office** or a **custom city** (entered by name, geocoded to lat/lng) — and their own **radius** (miles; null → the brokerage default `notification_settings.proximityRadiusMiles`, 20). Set in the agent portal (`/agent/settings`) or the admin agent editor.
 - **Proximity-first**: an agent joins the proximity pool when the lead is within *that agent's own* radius of *their* anchor (haversine). Scan the queue from the front and serve the first pool member. **Outside-area handling:** if the lead has coordinates and at least one agent is geocoded but the lead is within *no* agent's radius, `recommendAgents` returns `outcome: 'outside-area'` (agent `null`) and `autoOfferLead` leaves the lead **unassigned**, emailing the admin the lead details (`leadOutsideAreaEmail`) so they handle it directly — it is deliberately NOT dumped on a far agent. The global-queue fallback (serve the front slot) now applies only when proximity is *unevaluable*: no lead coords, or no agent geocoded.
@@ -448,12 +449,13 @@ the unique index to exist.
 
 ---
 
-## 12. Same-stage updates + SMS command grammar (2026-08-05)
+## 12. Same-stage updates, queue entry, SMS command grammar (2026-08-05)
 
 Found while auditing the agent-facing surfaces against the code to write the
-launch guide. Three defects with one root cause in the lifecycle, plus two in the
-SMS parser. No migration — `sms_messages.kind` is a `varchar(30)`, not an enum.
-Typecheck clean, build clean, **361 tests** (was 322).
+launch guide. Three defects with one root cause in the lifecycle, one in queue
+reconciliation, plus two in the SMS parser. No migration — `sms_messages.kind` is
+a `varchar(30)`, not an enum. Typecheck clean, build clean, **365 tests**
+(was 322).
 
 **Root cause: no self-transitions.** `ALLOWED_TRANSITIONS` had no stage that
 transitioned to itself, and `update_deadline` is only ever written by a status
@@ -484,6 +486,30 @@ guarded by `UNIQUE(lead_id, milestone)`. `new`/`reopened` get NO self-transition
 (a lead could otherwise be parked with the clock reset and no contact ever
 attempted); `closed`/`lost` stay terminal, `closed` critically so because Closed
 Won (+25) is the one award with no once-only guard.
+
+**A new agent's slots were dumped at the very back, clustered.**
+`reconcileRotation` ended `[...kept, ...additions]`, so every addition landed
+after the entire existing queue. With Rebecca/Bob/Joe holding 8 slots and Amy
+activating for the first time, the result was
+`R,B,J,R,B,J,R,J,A,A,A` — Amy waited **8 turns** for her first lead and then
+received **three consecutive** leads, because the +50 head start buys 3 slots and
+all 3 landed together. Bad for her and bad for the sellers. (The in-portal help
+page also promised the opposite: "real standing in the rotation instead of at the
+very back.")
+
+Additions now split by kind. A **new entrant** — no slots currently in the line —
+is woven in after every existing member has had one turn, first slot at that
+point and the remaining slots spread evenly through what follows, giving
+`R,B,J,A,R,B,J,A,R,J,A`. Extra slots from a **score increase** still append at
+the back. Rationale and the reactivation case are in §4.2.
+
+This relaxes one P0.8b invariant — additions no longer land strictly at the back,
+so existing agents' absolute indices shift by one when someone joins. Their
+relative order is never changed and the front slot never moves; the test now
+asserts that stronger property instead (`tests/queueInvariants.test.ts`). The
+**anti-gaming invariant is untouched**: a pause/resume yields no additions, so
+reconcile returns the identical list. Idempotency, slot conservation,
+no-invented-ids and membership-unaffected-by-availability all hold unchanged.
 
 **SMS: the lead code now delimits the phrase, not the reverse** (`lib/smsCommands.ts`).
 The parser matched a phrase from a fixed list and assumed the next token was the
@@ -518,7 +544,9 @@ stays plain `inbound`), and `/admin/sms-log` gained an **Unrecognized wordings**
 panel grouping them by leading phrase with counts, latest example and last-seen.
 A phrase recurring there is one to add to `STATUS_PHRASES` — no migration needed.
 
-Files: `lib/leadLifecycle.ts`, `components/agent/StatusUpdateForm.tsx`,
-`lib/smsCommands.ts`, `app/api/webhooks/telnyx/route.ts`,
-`app/admin/sms-log/page.tsx`, `app/agent/help/page.tsx`, plus
-`tests/leadLifecycle.test.ts` and `tests/smsCommands.test.ts`.
+Files: `lib/leadLifecycle.ts`, `lib/routing.ts`,
+`components/agent/StatusUpdateForm.tsx`, `lib/smsCommands.ts`,
+`app/api/webhooks/telnyx/route.ts`, `app/admin/sms-log/page.tsx`,
+`app/agent/help/page.tsx`, plus `tests/leadLifecycle.test.ts`,
+`tests/smsCommands.test.ts`, `tests/routing.test.ts` and
+`tests/queueInvariants.test.ts`.

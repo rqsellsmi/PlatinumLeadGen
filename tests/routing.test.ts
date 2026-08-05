@@ -63,7 +63,13 @@ describe('buildRotationList', () => {
 });
 
 describe('reconcileRotation', () => {
-  const A = (id: number, score: number): RoutingAgent => ({ id, lat: 0, lng: 0, score });
+  const A = (id: number, score: number, joinedAtMs?: number): RoutingAgent => ({
+    id,
+    lat: 0,
+    lng: 0,
+    score,
+    joinedAtMs,
+  });
 
   it('no change returns the same order', () => {
     const current = [1, 1, 2, 1];
@@ -71,14 +77,40 @@ describe('reconcileRotation', () => {
     expect(reconcileRotation(current, available)).toEqual(current);
   });
 
-  it('APPENDS a new member behind the existing line (D7)', () => {
-    // This reverses the pre-D7 contract, which wove a newcomer into the middle.
-    // Under D7 a newcomer must never displace someone already waiting: they
-    // join the back of the line and climb it by being served.
+  it('weaves a new entrant in after everyone has had one turn', () => {
+    // A newcomer waits a LAP, not the whole queue. Appending them at the very
+    // back meant an agent joining an 8-slot queue waited 8 turns for their
+    // first lead — and then, because the +50 head start buys three slots, got
+    // three consecutive leads.
     const current = [1, 1, 1];
     const members = [A(1, 40), A(2, 0)]; // agent 2 has just joined (1 slot)
     const next = reconcileRotation(current, members);
-    expect(next).toEqual([1, 1, 1, 2]);
+    expect(next).toEqual([1, 2, 1, 1]);
+  });
+
+  it('spreads a multi-slot entrant instead of clustering them', () => {
+    // The real launch case: Rebecca(1)/Bob(2)/Joe(3) are in rotation and Amy(4)
+    // activates for the first time, taking the +50 head start (3 slots).
+    const current = [1, 2, 3, 1, 2, 3, 1, 3];
+    const members = [A(1, 40, 100), A(2, 10, 200), A(3, 40, 300), A(4, 50, 999)];
+    expect(reconcileRotation(current, members)).toEqual([1, 2, 3, 4, 1, 2, 3, 4, 1, 3, 4]);
+  });
+
+  it('a new entrant never reorders the agents already in line', () => {
+    const current = [1, 2, 3, 1, 2, 3, 1, 3];
+    const members = [A(1, 40, 100), A(2, 10, 200), A(3, 40, 300), A(4, 50, 999)];
+    const next = reconcileRotation(current, members);
+    expect(next.filter((id) => id !== 4)).toEqual(current);
+    expect(next[0]).toBe(current[0]);
+  });
+
+  it('APPENDS extra slots from a score increase at the back', () => {
+    // Distinct from an entrant: this agent is already receiving turns, and
+    // score is what agents can influence, so a newly earned slot starts at the
+    // back and is climbed by being served.
+    const current = [1, 2];
+    const members = [A(1, 0), A(2, 40)]; // agent 2 rises 0 -> 40 (1 -> 3 slots)
+    expect(reconcileRotation(current, members)).toEqual([1, 2, 2, 2]);
   });
 
   it('orders multiple additions by join time, then id', () => {

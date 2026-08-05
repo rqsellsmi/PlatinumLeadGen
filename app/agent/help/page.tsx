@@ -95,10 +95,13 @@ export default async function AgentHelpPage() {
 
         <Callout tone="blue" title="New-agent head start">
           The first time you switch yourself <strong>Available</strong>, you get a
-          one-time <strong>+50 Queue Score</strong> so you start with real
-          standing in the rotation instead of at the very back. It only affects
-          your queue slots (not the leaderboards or your tier) and fades away over
-          the following year.
+          one-time <strong>+50 Queue Score</strong> — enough for{' '}
+          <strong>3 slots</strong> instead of 1, so you get three turns per lap
+          from day one. Your first turn comes once everyone already in the
+          rotation has had one, and your three slots are spread through the line
+          rather than bunched together. The credit only affects your queue slots
+          (not the leaderboards or your tier) and fades away over the following
+          year.
         </Callout>
       </Section>
 

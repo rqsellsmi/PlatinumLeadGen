@@ -88,6 +88,56 @@ export function buildRotationList(agents: RoutingAgent[]): number[] {
 }
 
 /**
+ * Weave a NEW ENTRANT's slots into an existing line.
+ *
+ * Their first slot goes in once every agent already in the line has had one
+ * turn — so a newcomer waits a lap, not the whole queue — and the remaining
+ * slots are spread evenly through what follows rather than clustered.
+ *
+ * Appending them all at the back instead (the previous behaviour) was doubly
+ * wrong: an agent joining a queue of 8 slots waited 8 turns for their first
+ * lead and then received three in a row, because the +50 head start buys three
+ * slots and all three landed together.
+ *
+ * Everything before the insertion point is untouched, and the existing ids keep
+ * their relative order throughout — a newcomer only ever inserts BETWEEN
+ * existing agents, never reorders them.
+ */
+function weaveEntrant(line: number[], id: number, count: number): number[] {
+  if (count <= 0) return line;
+  if (line.length === 0) return new Array<number>(count).fill(id);
+
+  // f = the index by which every agent already in the line has appeared once.
+  const distinct = new Set(line);
+  const seen = new Set<number>();
+  let f = line.length;
+  for (let i = 0; i < line.length; i++) {
+    seen.add(line[i]);
+    if (seen.size === distinct.size) {
+      f = i + 1;
+      break;
+    }
+  }
+
+  const head = line.slice(0, f);
+  const tail = line.slice(f);
+  const out = [...head, id];
+
+  // The remaining slots split the tail into (count - 1) near-equal chunks, with
+  // one slot after each — evenly spread rather than bunched.
+  const chunks = count - 1;
+  if (chunks <= 0) return [...out, ...tail];
+
+  let idx = 0;
+  for (let c = 0; c < chunks; c++) {
+    const size = Math.ceil((tail.length - idx) / (chunks - c));
+    out.push(...tail.slice(idx, idx + size), id);
+    idx += size;
+  }
+  return [...out, ...tail.slice(idx)];
+}
+
+/**
  * Reconcile an existing queue with the current MEMBER set without rebuilding
  * from scratch — preserving the live order (and move-to-back progress).
  *
@@ -98,11 +148,28 @@ export function buildRotationList(agents: RoutingAgent[]): number[] {
  * exactly what let a pause/resume cycle act as a queue reset.
  *
  * Existing slots keep their relative order. Extra slots from a score decrease
- * are dropped (latest occurrences first). Additions — a new member, or extra
- * slots from a score increase — are APPENDED BEHIND the existing line, ordered
- * by join time then id, rather than woven into the middle. That is what
- * guarantees an agent's position never moves because someone else joined or
- * gained a slot.
+ * are dropped (latest occurrences first). Additions are handled in two ways,
+ * and the distinction is the point:
+ *
+ *   NEW ENTRANT (no slots currently in the line) — woven in after every existing
+ *     member has had one turn (see `weaveEntrant`). They have never had a turn,
+ *     so making them wait the entire queue for their first lead ever is neither
+ *     fair to them nor good for the sellers, who would then get three
+ *     consecutive leads routed to the newest agent.
+ *   SCORE INCREASE (already holds slots) — APPENDED at the back, in join order.
+ *     They are already receiving turns, and score is the thing agents can
+ *     influence, so a newly earned slot entering at the back is the right
+ *     incentive.
+ *
+ * An agent an admin deactivated and later reactivated loses their slots while
+ * off the roster and so returns as an entrant. That is deliberate: `isActive` is
+ * admin-controlled, not agent-controlled, so it is not a gaming vector, and a
+ * returning agent should not be punished with a full-queue wait.
+ *
+ * ANTI-GAMING (D7) IS UNAFFECTED. A pause/resume produces no additions at all —
+ * `desired` and `kept` are both unchanged, so this returns the identical list.
+ * That property comes from `queueJoinedAt` being set once and membership
+ * surviving pauses (lib/agentAvailability.ts), not from where additions land.
  */
 export function reconcileRotation(current: number[], members: RoutingAgent[]): number[] {
   const desired = new Map<number, number>();
@@ -120,20 +187,28 @@ export function reconcileRotation(current: number[], members: RoutingAgent[]): n
     }
   }
 
-  // Additions, in join order (earliest joiner first; unknown join time last,
-  // then by id for determinism). Appended, never interleaved.
-  const additions: number[] = [];
+  // Join order: earliest joiner first; unknown join time last, then by id for
+  // determinism.
   const byJoin = [...members].sort((a, b) => {
     const ja = a.joinedAtMs ?? Number.POSITIVE_INFINITY;
     const jb = b.joinedAtMs ?? Number.POSITIVE_INFINITY;
     return ja - jb || a.id - b.id;
   });
+
+  const entrants: { id: number; count: number }[] = [];
+  const growth: number[] = [];
   for (const a of byJoin) {
-    const add = (desired.get(a.id) ?? 0) - (keptCount.get(a.id) ?? 0);
-    for (let k = 0; k < add; k++) additions.push(a.id);
+    const held = keptCount.get(a.id) ?? 0;
+    const add = (desired.get(a.id) ?? 0) - held;
+    if (add <= 0) continue;
+    if (held === 0) entrants.push({ id: a.id, count: add });
+    else for (let k = 0; k < add; k++) growth.push(a.id);
   }
 
-  return additions.length > 0 ? [...kept, ...additions] : kept;
+  let line = kept;
+  for (const e of entrants) line = weaveEntrant(line, e.id, e.count);
+
+  return growth.length > 0 ? [...line, ...growth] : line;
 }
 
 export interface RecommendParams {
