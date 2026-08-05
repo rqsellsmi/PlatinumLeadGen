@@ -97,6 +97,16 @@ export default async function AgentHelpPage() {
           </FactCard>
         </div>
 
+        <Callout tone="amber" title="You join the line by turning yourself Available">
+          Until you flip that switch for the first time you are{' '}
+          <strong>not in the rotation at all</strong> — no leads are offered to
+          you. Turning it on is what puts you in line, and{' '}
+          <strong>the order people turn it on is the order of the line</strong>.
+          Someone who activates today sits ahead of someone who activates next
+          week. Nothing else moves you up, so if you intend to take leads, do this
+          first.
+        </Callout>
+
         <Callout tone="blue" title="New-agent head start">
           The first time you switch yourself <strong>Available</strong>, you get a
           one-time <strong>+50 Queue Score</strong> — enough for{' '}
@@ -120,7 +130,7 @@ export default async function AgentHelpPage() {
             name="Queue Score"
             window="Last 365 days"
             drives="How many queue slots (turns) you get"
-            note="This is the one that decides how often leads reach you. Points age out after a year, so recent activity matters most."
+            note="This is the one that decides how often leads reach you. Points age out after a year, so recent activity matters most — including your +50 head start, which drops off about a year after you activate."
             hero
           />
           <ScoreCard
@@ -140,6 +150,18 @@ export default async function AgentHelpPage() {
             drives="The YTD leaderboard"
           />
         </div>
+        <Callout tone="blue" title="What these look like when you start" compact>
+          Your <strong>Queue Score is 50</strong> the moment you go Available —
+          that&apos;s the head start, and it&apos;s worth 3 slots. <strong>This
+          Month</strong> and <strong>Year to Date</strong> both start at{' '}
+          <strong>0</strong>; the head start deliberately doesn&apos;t touch them,
+          so nobody starts a leaderboard ahead of anyone else. Your{' '}
+          <strong>Tier</strong> compares lifetime scores, and every agent begins
+          from the same baseline — so until points are earned the whole roster
+          sits mid-pack at <strong>Good Standing</strong>. That&apos;s a starting
+          position, not a grade.
+        </Callout>
+
         <div className="mt-3 rounded-card border border-line bg-white p-4">
           <p className="text-sm font-bold text-charcoal">Tiers, best to worst</p>
           <div className="mt-2 flex flex-wrap gap-2">
