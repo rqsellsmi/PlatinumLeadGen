@@ -383,10 +383,49 @@ export default async function AgentHelpPage() {
             <strong className="font-bold">30% referral back to RE/MAX Platinum</strong>. By
             turning on your availability you are agreeing to this referral.
           </p>
-          <p className="mt-3 text-xs text-mute-lighter">
-            The terms are shown again next to the switch itself. We record the date you
-            first turn it on. Pausing later doesn&apos;t withdraw the agreement — it
-            applies to leads the system sends you.
+
+          <dl className="mt-4 space-y-3 border-t border-white/15 pt-4">
+            <Term label="How much">
+              <strong className="font-bold text-white">30% of the gross commission</strong> on
+              the deal.
+            </Term>
+            <Term label="When it's owed">
+              <strong className="font-bold text-white">At closing.</strong> A lead that never
+              closes owes nothing.
+            </Term>
+            <Term label="How many deals">
+              Up to <strong className="font-bold text-white">two per client</strong>. The first
+              deal always carries the referral. A second one does too — a listing then a
+              purchase, or a purchase then a listing —{' '}
+              <strong className="font-bold text-white">
+                only if it closes within one year of the first
+              </strong>
+              . Past two deals, or a second deal more than a year later, no referral is due.
+            </Term>
+            <Term label="Desk fees">
+              <strong className="font-bold text-white">No desk fee</strong> is taken out of a
+              deal that pays a referral. The referral amount does{' '}
+              <strong className="font-bold text-white">not</strong> count toward your desk fee
+              cap.
+            </Term>
+          </dl>
+
+          <div className="mt-4 rounded-lg bg-white/5 px-4 py-3">
+            <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-mute-lighter">
+              Example
+            </p>
+            <p className="mt-1 text-sm leading-relaxed text-white/85">
+              You list Sarah&apos;s home and it closes in March — that deal pays the referral.
+              She buys through you in September: within the year, so that one pays it too.
+              Had she instead bought two years later, only the March listing would have paid.
+            </p>
+          </div>
+
+          <p className="mt-4 text-xs text-mute-lighter">
+            The one-line term is shown again next to the switch itself. We record the date you
+            first turn it on. Pausing later doesn&apos;t withdraw the agreement — it applies to
+            leads the system sends you. Questions on how a specific deal is treated go to your
+            broker.
           </p>
         </div>
 
@@ -503,6 +542,18 @@ function ScoreCard({
         <span className="text-mute">Drives:</span> {drives}
       </p>
       {note ? <p className="mt-1.5 text-xs text-mute-light">{note}</p> : null}
+    </div>
+  );
+}
+
+/** A labelled term inside the dark referral block. */
+function Term({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="sm:flex sm:gap-4">
+      <dt className="shrink-0 text-xs font-bold uppercase tracking-[0.06em] text-mute-lighter sm:w-36 sm:pt-0.5">
+        {label}
+      </dt>
+      <dd className="mt-0.5 text-sm leading-relaxed text-white/85 sm:mt-0">{children}</dd>
     </div>
   );
 }
