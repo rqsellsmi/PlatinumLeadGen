@@ -2,43 +2,64 @@ import { describe, it, expect } from 'vitest';
 import { offerText, clientInfoText, updateReminderText, helpText, optOutAckText } from '../lib/smsTemplates';
 
 describe('offerText', () => {
-  it('includes code + city + estimate, no client name; plain YES/NO (no number)', () => {
-    const t = offerText({ leadId: 5739, city: 'Brighton', estimate: 412000, deadline: '4:12pm' });
+  const OFFER = {
+    leadId: 5739,
+    firstName: 'Sarah',
+    city: 'Brighton',
+    estimate: 412000,
+    timeframe: '3-6 months',
+    deadline: '4:12pm',
+  };
+
+  it('carries first name, city, estimate, timeframe and deadline', () => {
+    const t = offerText(OFFER);
     expect(t).toContain('#5739');
-    expect(t).toContain('Brighton');
+    expect(t).toContain('Sarah');
+    expect(t).toContain('in Brighton');
     expect(t).toContain('$412k');
+    expect(t).toContain('3-6 months');
+    expect(t).toContain('4:12pm');
     expect(t).toContain('Reply YES to accept');
     expect(t).toContain('NO to pass');
     // Accept/decline no longer instructs a lead number.
     expect(t).not.toContain('YES 5739');
     expect(t).not.toContain('NO 5739');
   });
-  it('falls back to the property address when city is empty', () => {
-    const t = offerText({
-      leadId: 7,
-      city: null,
-      address: '123 Main St, Brighton, MI 48116',
-      estimate: 462000,
-      deadline: '1:25pm',
-    });
-    expect(t).toContain('123 Main St, Brighton, MI 48116');
-    expect(t).toContain('$462k');
+
+  /**
+   * The offer goes out BEFORE the agent has taken the lead, so it must not let
+   * anyone contact the seller or find their house. This used to fall back to the
+   * full street address whenever city was empty.
+   */
+  it('has no way to express a street address', () => {
+    // The parameter is gone, so a caller cannot pass one even by mistake.
+    expect(Object.keys(OFFER)).not.toContain('address');
+    const t = offerText({ ...OFFER, city: null });
+    expect(t).not.toMatch(/\d+\s+\w+\s+(St|Ave|Rd|Ln|Dr|Blvd|Ct|Way)\b/i);
   });
-  it('prefers city over address when both are present', () => {
-    const t = offerText({ leadId: 8, city: 'Fenton', address: '9 Oak Ln, Fenton, MI', estimate: null, deadline: '5pm' });
-    expect(t).toContain('in Fenton');
-    expect(t).not.toContain('9 Oak Ln');
-  });
-  it('omits estimate when null', () => {
-    const t = offerText({ leadId: 1, city: 'Fenton', estimate: null, deadline: '5pm' });
-    expect(t).not.toContain('$');
-  });
-  it('omits location when city and address are both null', () => {
-    const t = offerText({ leadId: 42, city: null, address: null, estimate: 300000, deadline: '6pm' });
-    expect(t).toContain('#42');
+
+  it('omits location entirely rather than substituting anything else', () => {
+    const t = offerText({ ...OFFER, city: null, firstName: null });
+    expect(t).toContain('#5739');
+    expect(t).not.toContain('in ');
     expect(t).not.toContain('null');
     expect(t).not.toContain('undefined');
-    expect(t).not.toContain('in .');
+  });
+
+  it('omits estimate and timeframe when absent', () => {
+    const t = offerText({ ...OFFER, estimate: null, timeframe: null });
+    expect(t).not.toContain('$');
+    expect(t).not.toContain('Timeframe');
+    expect(t).toContain('in Brighton');
+  });
+
+  /**
+   * A single non-GSM-7 character (em dash, curly quote) flips the whole message
+   * to UCS-2, cutting the segment budget from 160 characters to 70.
+   */
+  it('stays inside the GSM-7 character set', () => {
+    const t = offerText(OFFER);
+    expect(t).toMatch(/^[\x20-\x7E]+$/);
   });
 });
 

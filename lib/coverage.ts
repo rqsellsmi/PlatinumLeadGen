@@ -114,6 +114,47 @@ const US_STATE_CODES = new Set([
 ]);
 
 /**
+ * Best-effort CITY extraction from a formatted address string.
+ *
+ * Exists so a lead offer can name a location without naming a house. The offer
+ * email and text are sent before the agent has accepted, so they must not carry
+ * anything that identifies or locates the seller — the street address is
+ * exactly that. `leads.property_city` is populated from Places on new leads
+ * (P0.4 / parsePlaceComponents), but legacy leads, webhook intake and
+ * admin-created leads may only have the formatted address, and an offer with no
+ * location at all is not enough for an agent to judge.
+ *
+ * Anchored on the state+ZIP pair rather than on comma position, so a unit
+ * number ("123 Main St #4, Brighton, MI 48116") or a country suffix does not
+ * shift which part is read as the city.
+ *
+ * SAFETY: a candidate containing a digit is rejected outright. That is what
+ * stops a house number leaking when the address has no city part at all
+ * ("123 Main St, MI 48116" must yield null, never "123 Main St").
+ */
+export function deriveCityFromAddress(address: string | null | undefined): string | null {
+  const s = (address ?? '').trim();
+  if (!s) return null;
+
+  const clean = (v: string): string | null => {
+    const c = v.trim().replace(/\s+/g, ' ');
+    if (!c) return null;
+    if (/\d/.test(c)) return null; // a street line, not a city
+    return c;
+  };
+
+  // "…, <City>, <ST> <ZIP>[-1234]…"
+  const withZip = s.match(/(?:^|,)\s*([^,]+?)\s*,\s*([A-Za-z]{2})\s+\d{5}(?:-\d{4})?\b/);
+  if (withZip && US_STATE_CODES.has(withZip[2].toUpperCase())) return clean(withZip[1]);
+
+  // "…, <City>, <ST>" or "…, <City>, <ST>, USA" — no ZIP present.
+  const noZip = s.match(/(?:^|,)\s*([^,]+?)\s*,\s*([A-Za-z]{2})\s*(?:,\s*USA)?\s*$/i);
+  if (noZip && US_STATE_CODES.has(noZip[2].toUpperCase())) return clean(noZip[1]);
+
+  return null;
+}
+
+/**
  * Best-effort state extraction from an address string.
  *
  * Handles the Google-formatted case ("123 Main St, Brighton, MI 48116, USA")

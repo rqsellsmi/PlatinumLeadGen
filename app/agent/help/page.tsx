@@ -77,12 +77,15 @@ export default async function AgentHelpPage() {
             = more turns (see below).
           </StepCard>
           <StepCard n={4} title="You get 3 hours to accept">
-            You&apos;re notified by email (and text, if enabled). Tap{' '}
+            You&apos;re notified by email (and text, if enabled). The offer
+            gives you their <strong>first name, city, estimated value and
+            timeframe</strong> — never a phone number, email or street address,
+            so nobody can reach the seller before the lead is claimed. Tap{' '}
             <strong>Accept</strong> and it claims the lead, signs you in, and
-            drops you straight on the lead page with the seller&apos;s details —
-            no password, no extra taps. By text, just reply{' '}
-            <strong>YES</strong>. If you don&apos;t respond within{' '}
-            <strong>3 hours</strong> it moves to the next agent.
+            drops you straight on the lead page with the full details — no
+            password, no extra taps. By text, just reply <strong>YES</strong>. If
+            you don&apos;t respond within <strong>3 hours</strong> it moves to
+            the next agent.
           </StepCard>
         </div>
 

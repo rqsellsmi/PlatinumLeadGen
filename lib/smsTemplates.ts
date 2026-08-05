@@ -14,21 +14,49 @@ function fullName(first: string | null, last: string | null): string {
   return [first, last].filter(Boolean).join(' ').trim();
 }
 
+/**
+ * The pre-acceptance offer. Carries enough to decide — who, roughly where, how
+ * much, how soon — and nothing that identifies or locates the seller.
+ *
+ * There is deliberately NO `address` parameter. This used to fall back to the
+ * full property address whenever `city` was empty, on the reasoning that the
+ * forms never captured a city; that stopped being true when Places address
+ * components were wired up (P0.4), and it meant an unaccepted offer text
+ * carried the seller's street address. Removing the parameter makes that
+ * structurally impossible rather than a rule someone has to remember — callers
+ * pass a city or nothing (see deriveCityFromAddress for the fallback).
+ *
+ * Phone and email never appear here. They go out on accept, in clientInfoText.
+ *
+ * Kept to plain ASCII: an em dash or a curly quote forces the whole message
+ * from GSM-7 into UCS-2, which cuts the per-segment budget from 160 characters
+ * to 70 and silently doubles or triples the cost of every offer we send.
+ */
 export function offerText(p: {
-  leadId: number; city: string | null; address?: string | null; estimate: number | null; deadline: string;
+  leadId: number;
+  firstName: string | null;
+  city: string | null;
+  estimate: number | null;
+  timeframe?: string | null;
+  deadline: string;
 }): string {
-  // Location: prefer a stored city, else fall back to the full property address
-  // (the valuation forms capture the address string but not a separate city, so
-  // city is usually empty). Agents decide by where the property is, so the
-  // offer must always carry a location when we have one.
-  const loc = (p.city && p.city.trim()) || (p.address && p.address.trim()) || '';
-  const where = loc ? ` in ${loc}` : '';
+  const name = (p.firstName ?? '').trim();
+  const loc = (p.city ?? '').trim();
+  const whoWhere = [name || null, loc ? `in ${loc}` : null].filter(Boolean).join(' ');
   const est = money(p.estimate);
-  const estBit = est ? ` Est. ${est}.` : '';
+  const tf = (p.timeframe ?? '').trim();
   // Accept/decline is inferred from the agent's single open offer, so a plain
   // YES / NO is enough — no lead number required (only status updates need one).
-  return `RE/MAX Platinum: new lead #${p.leadId}${where}.${estBit} ` +
-    `Reply YES to accept or NO to pass. Expires ${p.deadline}.`;
+  return [
+    `RE/MAX Platinum: new lead #${p.leadId}.`,
+    whoWhere ? `${whoWhere}.` : '',
+    est ? `Est. ${est}.` : '',
+    tf ? `Timeframe: ${tf}.` : '',
+    'Reply YES to accept or NO to pass.',
+    `Expires ${p.deadline}.`,
+  ]
+    .filter(Boolean)
+    .join(' ');
 }
 
 export function clientInfoText(p: {

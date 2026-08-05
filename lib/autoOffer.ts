@@ -22,7 +22,7 @@ import { sendClientInfoSms } from './clientInfoSms';
 import { offerText } from './smsTemplates';
 import { issueMagicLinkToken } from './agentMagicLink';
 import { logLeadEvent } from './leadEvents';
-import { decideCoverage } from './coverage';
+import { decideCoverage, deriveCityFromAddress } from './coverage';
 
 /** Format a price range for emails, e.g. "$398K–$442K". */
 function formatRange(low: number | null, high: number | null): string | null {
@@ -298,12 +298,24 @@ export async function dispatchOfferEmail(offerId: number): Promise<boolean> {
   // expired/superseded link lands on the request-a-new-link page (D6).
   const token = await issueMagicLinkToken(agent.id);
 
+  // WHAT AN UNACCEPTED OFFER MAY SAY: first name, city, estimate, timeframe,
+  // deadline. Never a phone number, an email address, or a street address — the
+  // agent has not taken the lead yet, so the offer must not let anyone contact
+  // the seller or find their house. Everything else goes out on accept
+  // (clientInfoText / agentAcceptanceEmail).
+  //
+  // City comes from Places on new leads (P0.4); derive it from the formatted
+  // address for legacy, webhook and admin-created leads, which may only have
+  // that. deriveCityFromAddress returns null rather than guessing, and refuses
+  // any candidate containing a digit, so a house number cannot leak through it.
+  const offerCity = lead.propertyCity?.trim() || deriveCityFromAddress(lead.propertyAddress);
+
   const base = siteUrl();
   const email = agentLeadOfferEmail({
     to: agent.email,
     agentName: `${agent.firstName} ${agent.lastName}`.trim(),
     leadFirstName: lead.firstName,
-    leadCity: lead.propertyCity,
+    leadCity: offerCity,
     leadType: lead.leadType,
     timeframe: lead.timeframe,
     valuationRange: formatRange(lead.priceRangeLow, lead.priceRangeHigh),
@@ -325,9 +337,10 @@ export async function dispatchOfferEmail(offerId: number): Promise<boolean> {
       leadId: lead.id,
       body: offerText({
         leadId: lead.id,
-        city: lead.propertyCity ?? null,
-        address: lead.propertyAddress ?? null,
+        firstName: lead.firstName ?? null,
+        city: offerCity,
         estimate: lead.estimatedValue ?? null,
+        timeframe: lead.timeframe ?? null,
         deadline: formatEtDeadline(deadline),
       }),
     });

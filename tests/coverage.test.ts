@@ -10,6 +10,7 @@ import {
   MAX_PROXIMITY_RADIUS_MILES,
   clampProximityRadius,
   isUnusuallyBroadRadius,
+  deriveCityFromAddress,
   normalizeStateCode,
   decideCoverage,
   deriveStateFromAddress,
@@ -142,5 +143,40 @@ describe('decideCoverage', () => {
       kind: 'unknown',
     });
     expect(decideCoverage({ propertyState: '', propertyAddress: '' })).toEqual({ kind: 'unknown' });
+  });
+});
+
+/**
+ * City-without-street, for lead offers. An unaccepted offer must not carry
+ * anything that locates the seller, but "no location at all" is not enough for
+ * an agent to judge whether to take the lead.
+ */
+describe('deriveCityFromAddress', () => {
+  it('pulls the city out of a Google-formatted address', () => {
+    expect(deriveCityFromAddress('123 Main St, Brighton, MI 48116, USA')).toBe('Brighton');
+    expect(deriveCityFromAddress('123 Main St, Brighton, MI 48116')).toBe('Brighton');
+  });
+
+  it('is not thrown off by a unit number or a multi-word city', () => {
+    expect(deriveCityFromAddress('123 Main St #4, Ann Arbor, MI 48104, USA')).toBe('Ann Arbor');
+    expect(deriveCityFromAddress('9 Oak Ln Apt 2B, Whitmore Lake, MI 48189')).toBe('Whitmore Lake');
+  });
+
+  it('handles an address with no ZIP', () => {
+    expect(deriveCityFromAddress('9 Oak Ln, Fenton, MI')).toBe('Fenton');
+    expect(deriveCityFromAddress('9 Oak Ln, Fenton, MI, USA')).toBe('Fenton');
+  });
+
+  it('NEVER returns anything containing a house number', () => {
+    // No city part at all — must yield null rather than the street line.
+    expect(deriveCityFromAddress('123 Main St, MI 48116')).toBeNull();
+    expect(deriveCityFromAddress('123 Main St, MI')).toBeNull();
+  });
+
+  it('returns null rather than guessing', () => {
+    expect(deriveCityFromAddress(null)).toBeNull();
+    expect(deriveCityFromAddress('')).toBeNull();
+    expect(deriveCityFromAddress('Brighton')).toBeNull();
+    expect(deriveCityFromAddress('123 Main St, Brighton, XX 48116')).toBeNull(); // not a real state
   });
 });
