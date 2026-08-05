@@ -1,5 +1,13 @@
 /**
- * Builds the printable agent guide (docs/RE-MAX-Platinum-Agent-Guide.docx).
+ * Builds the FIRST DRAFT of the printable agent guide.
+ *
+ * ⚠ THE SHIPPED GUIDE IS NO LONGER GENERATED FROM THIS FILE.
+ * docs/RE-MAX-Platinum-Agent-Guide.docx has since been hand-edited by the owner
+ * (wording throughout, plus a texting phone number), and later additions were
+ * applied to that .docx directly. This script writes to a *.generated.docx name
+ * so running it can never clobber the shipped document. Treat it as the record
+ * of the original structure, not as a regenerator: to change the live guide,
+ * edit the .docx.
  *
  *   npm i --no-save docx && node scripts/build-agent-guide.js
  *
@@ -665,7 +673,7 @@ const doc = new Document({
   ],
 });
 
-const out = path.join(__dirname, '..', 'docs', 'RE-MAX-Platinum-Agent-Guide.docx');
+const out = path.join(__dirname, '..', 'docs', 'RE-MAX-Platinum-Agent-Guide.generated.docx');
 Packer.toBuffer(doc).then((buf) => {
   fs.writeFileSync(out, buf);
   console.log('Wrote', out, `(${(buf.length / 1024).toFixed(0)} KB)`);
