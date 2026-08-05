@@ -17,6 +17,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { leadOffers, leads } from '@/drizzle/schema';
 import { applyAccept, applyDecline } from '@/lib/offerActions';
+import { buildAgentSessionCookie } from '@/lib/agentSession';
 import { checkPreset, clientIp } from '@/lib/rateLimit';
 
 export const runtime = 'nodejs';
@@ -53,18 +54,18 @@ function messagePage(title: string, message: string, status: number, ctaHref?: s
 
 /**
  * Accept without an extra click: this page auto-submits the POST, which accepts
- * the offer and nothing else. It does NOT create a portal session (D6 REVISED) —
- * a forwarded offer email must never hand someone the agent's view of every
- * seller's contact details. Rendering this page has NO side effects; the state
- * change only happens on the POST the browser fires via JS. Email scanners and
- * link-preview bots issue GETs and neither run JS nor submit forms, so they
- * still can't accept a lead by prefetching the URL (the whole reason a bare
- * GET-accept was removed). A <noscript> button covers the rare no-JS human. */
+ * the offer, signs the agent in, and redirects them to the lead. Rendering this
+ * page has NO side effects; the state change only happens on the POST the
+ * browser fires via JS. Email scanners and link-preview bots issue GETs and
+ * neither run JS nor submit forms, so they still can't accept a lead by
+ * prefetching the URL (the whole reason a bare GET-accept was removed) — which
+ * matters more now that the POST also mints a session. A <noscript> button
+ * covers the rare no-JS human. */
 function autoAcceptPage(token: string): NextResponse {
   return page(
     'Opening your lead',
     `<h1 style="margin:0 0 12px;font-size:22px;color:#1E3A5F;">Opening your lead…</h1>
-     <p style="font-size:15px;line-height:1.5;color:#475569;">One moment while we accept this lead for you.</p>
+     <p style="font-size:15px;line-height:1.5;color:#475569;">One moment while we accept this lead and open it for you.</p>
      <form id="accept-form" method="POST" action="/api/offer/${token}" style="margin-top:24px;">
        <input type="hidden" name="response" value="accept">
        <noscript>
@@ -77,14 +78,16 @@ function autoAcceptPage(token: string): NextResponse {
 }
 
 /** The confirmation page — the agent clicks a button that POSTs the action.
- *  Rendering this has NO side effects, so scanners hitting the GET are harmless. */
+ *  Rendering this has NO side effects, so scanners hitting the GET are harmless.
+ *  Only reached for DECLINE; accept auto-submits via autoAcceptPage, since an
+ *  accidental accept is cheap to undo and an accidental decline is not. */
 function confirmPage(token: string, response: 'accept' | 'decline', where: string): NextResponse {
   const isAccept = response === 'accept';
   const color = isAccept ? '#1E7F4F' : '#B00020';
   const verb = isAccept ? 'Accept' : 'Decline';
   const lead = where ? ` for the lead${where}` : '';
   const note = isAccept
-    ? 'Accepting assigns this lead to you. Sign in to the portal to see the seller’s contact details.'
+    ? 'Accepting assigns this lead to you and opens it in your portal.'
     : 'Declining reassigns this lead to another agent and applies a response penalty.';
   return page(
     `${verb} this lead`,
@@ -197,7 +200,13 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
 
     if (response === 'accept') {
       const r = await applyAccept(offer!.id);
-      if (r.reason === 'already-responded' || r.reason === 'not-found') {
+
+      // A repeat click (slow page, double tap) lands here. If the offer is
+      // still THIS agent's accepted offer, treat it exactly like the successful
+      // accept — it is their lead, and a second tap should open it rather than
+      // dead-end. Declined / expired / admin-reassigned offers must not, since
+      // the lead now belongs to someone else.
+      if (!r.ok && !(r.reason === 'already-responded' && offer!.status === 'accepted')) {
         return messagePage(
           'Already responded',
           'This lead offer has already been responded to. If you accepted it, open the agent portal to manage it.',
@@ -206,25 +215,32 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
         );
       }
 
-      // NO PORTAL SESSION IS GRANTED HERE (D6 REVISED, review #16/#67).
+      // ACCEPTING SIGNS THE AGENT IN AND OPENS THE LEAD (owner decision,
+      // 2026-08-05, revisiting D6 REVISED / review #16/#67).
       //
-      // This used to call setAgentSessionCookie, which made the offer email's
-      // Accept button a login link: a forwarded offer email both accepted the
-      // lead AND signed the recipient into the agent's portal, where every
-      // seller's name, phone, email and address is visible. That was the least
-      // guarded of the three session mint points — it never checked isActive
-      // and never checked an expiry on the agent.
+      // P0.8a removed the session here so a forwarded offer email could not
+      // hand over the agent's portal. It did not achieve that: dispatchOfferEmail
+      // mints a magic link and renders it in the SAME email ("Or manage your
+      // leads in the agent portal", lib/autoOffer.ts + lib/email.ts), so anyone
+      // holding the message could already sign in as that agent. All the split
+      // bought was a dead-end page for the legitimate agent — who then had to
+      // find the magic link further up the same email, or type a password.
       //
-      // The offer token now does exactly one thing: accept or decline THAT
-      // offer. A forwarded link can still accept a lead on the agent's behalf,
-      // which is a nuisance the agent can see and undo; it can no longer read
-      // anyone's seller records. To work the lead, the agent signs in normally.
-      return messagePage(
-        'Lead accepted',
-        'This lead is yours. Sign in to the agent portal to see the seller’s details and start working it.',
-        200,
-        `${siteUrl()}/agent/login`,
-      );
+      // Granting the session here therefore adds no exposure that the email did
+      // not already carry, and the owner has weighed forwarding as an acceptable
+      // risk for a small known roster. Two mitigations still bound it: magic
+      // links rotate on use and each offer email supersedes the last, so a
+      // forwarded link dies as soon as the agent uses their own — whoever clicks
+      // second gets a dead link, which is itself a signal.
+      //
+      // DECLINE deliberately does NOT sign anyone in: it needs no portal access
+      // to be useful, and by the time a mistaken decline is noticed the lead has
+      // already been reassigned.
+      const session = await buildAgentSessionCookie(offer!.agentId);
+      // 303 so the browser turns this POST into a GET of the lead page.
+      const res = NextResponse.redirect(`${siteUrl()}/agent/leads/${offer!.id}`, 303);
+      res.cookies.set(session.name, session.value, session.options);
+      return res;
     }
 
     return messagePage('Invalid request', 'Please use the Accept or Decline button from your lead offer email.', 400);

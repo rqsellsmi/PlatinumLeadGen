@@ -312,7 +312,9 @@ Test count went 189 → 307 across this work.
   Magic link hashed at rest, 14 days, rotates on use. Session-version revocation,
   bumped on reset/deactivation/sign-out-everywhere. Shared setup code replaced by
   per-agent single-use invites + the Launch button. Offer-accept no longer grants
-  a portal session.
+  a portal session. **(Superseded — see §12: the same email carries a magic link,
+  so the split protected nothing and accept now signs the agent in and opens the
+  lead.)**
 - **P0.8b — queue integrity** (D7 MODIFIED; migrations 0037/0038). Membership
   decoupled from availability, so a pause/resume cycle can no longer act as a
   queue reset. On-surface skip-to-back; join-order appends. 16 invariant tests
@@ -449,11 +451,12 @@ the unique index to exist.
 
 ---
 
-## 12. Same-stage updates, queue entry, SMS command grammar (2026-08-05)
+## 12. Same-stage updates, queue entry, offer accept, SMS grammar (2026-08-05)
 
 Found while auditing the agent-facing surfaces against the code to write the
 launch guide. Three defects with one root cause in the lifecycle, one in queue
-reconciliation, plus two in the SMS parser. No migration — `sms_messages.kind` is
+reconciliation, two in the SMS parser, plus one owner decision reversing a P0.8a
+change that turned out to protect nothing. No migration — `sms_messages.kind` is
 a `varchar(30)`, not an enum. Typecheck clean, build clean, **365 tests**
 (was 322).
 
@@ -511,6 +514,37 @@ asserts that stronger property instead (`tests/queueInvariants.test.ts`). The
 reconcile returns the identical list. Idempotency, slot conservation,
 no-invented-ids and membership-unaffected-by-availability all hold unchanged.
 
+**Accepting from the offer email signs the agent in and opens the lead**
+(owner decision, revisiting P0.8a / D6 REVISED / review #16/#67). P0.8a removed
+the session mint from the accept route so a forwarded offer email could not hand
+over the agent's portal. **It did not achieve that.** `dispatchOfferEmail` mints
+a magic link and renders it in the SAME email — "Or manage your leads in the
+agent portal" (`lib/autoOffer.ts:299,313` + `lib/email.ts:283`) — so anyone
+holding the message could already sign in as that agent and read every seller's
+contact details. The split bought no protection; it only dead-ended the
+legitimate agent, who then had to hunt for the magic link further up the same
+email or type a password. The owner has weighed forwarding as an acceptable risk
+for a small known roster.
+
+`POST /api/offer/[token]` with `response=accept` now mints the session and
+**303-redirects to `/agent/leads/<offerId>`** — the lead itself, not the list.
+A repeat click on an offer that is already *this agent's accepted* offer does the
+same rather than dead-ending; declined/expired/admin-reassigned offers still get
+the "already responded" page, since the lead belongs to someone else. **Decline
+deliberately does not sign anyone in** — it needs no portal access, and by the
+time a mistaken decline is noticed the lead has already been reassigned.
+
+Two mitigations still bound forwarding, unchanged: magic links **rotate on use**
+(`app/api/agent/login/route.ts:51`) and each offer email supersedes the last, so
+a forwarded link dies the moment the agent uses their own — whoever clicks second
+gets a dead link, which is itself a signal. The GET remains side-effect-free, so
+email scanners and link-preview bots still cannot accept a lead by prefetching;
+that property matters more now that the POST mints a session.
+`buildAgentSessionCookie` (`lib/agentSession.ts`) was split out of
+`setAgentSessionCookie` so a redirect response can carry the cookie directly
+instead of relying on the `next/headers` store being merged into a response it
+did not create.
+
 **SMS: the lead code now delimits the phrase, not the reverse** (`lib/smsCommands.ts`).
 The parser matched a phrase from a fixed list and assumed the next token was the
 code, so `ATTEMPTED CONTACT 53 left another message` matched only the word
@@ -544,9 +578,21 @@ stays plain `inbound`), and `/admin/sms-log` gained an **Unrecognized wordings**
 panel grouping them by leading phrase with counts, latest example and last-seen.
 A phrase recurring there is one to add to `STATUS_PHRASES` — no migration needed.
 
-Files: `lib/leadLifecycle.ts`, `lib/routing.ts`,
-`components/agent/StatusUpdateForm.tsx`, `lib/smsCommands.ts`,
-`app/api/webhooks/telnyx/route.ts`, `app/admin/sms-log/page.tsx`,
+**Agent-guide content added** (`app/agent/help/page.tsx`): the **full 30%
+referral terms** — 30% of gross commission, due at closing, up to two deals per
+client with the second only if it closes within one year of the first, no desk
+fee taken from a referred deal and the referral not counting toward the desk-fee
+cap, plus a worked example. The one-line term beside the availability toggle now
+links to it, since that switch IS the acceptance
+(`agents.availability_opted_in_at`). Also: how an agent joins the rotation at all
+(first opt-in order = line order), and what the four score tracks read on day one
+— worth stating because `score_lifetime` DEFAULTs to 50 while the +50 head start
+lands only on rolling-365, two unrelated 50s that invite confusion.
+
+Files: `lib/leadLifecycle.ts`, `lib/routing.ts`, `lib/agentSession.ts`,
+`components/agent/StatusUpdateForm.tsx`, `components/agent/AvailabilityToggle.tsx`,
+`lib/smsCommands.ts`, `app/api/webhooks/telnyx/route.ts`,
+`app/api/offer/[token]/route.ts`, `app/admin/sms-log/page.tsx`,
 `app/agent/help/page.tsx`, plus `tests/leadLifecycle.test.ts`,
 `tests/smsCommands.test.ts`, `tests/routing.test.ts` and
 `tests/queueInvariants.test.ts`.

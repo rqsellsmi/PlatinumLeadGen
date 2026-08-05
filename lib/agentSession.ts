@@ -58,13 +58,31 @@ export async function getCurrentAgent(): Promise<Agent | null> {
   return agent;
 }
 
+export interface AgentSessionCookie {
+  name: string;
+  value: string;
+  options: {
+    httpOnly: true;
+    secure: boolean;
+    sameSite: 'lax';
+    path: string;
+    maxAge: number;
+  };
+}
+
 /**
- * Set the signed agent session cookie (httpOnly, 7-day).
+ * Build the signed agent session cookie (httpOnly, 7-day) WITHOUT writing it.
+ *
+ * Split out from `setAgentSessionCookie` so a route that answers with a redirect
+ * can attach the cookie to that response directly (`res.cookies.set(...)`)
+ * rather than relying on the `next/headers` store being merged into a response
+ * it did not create. Same descriptor either way — there is one definition of
+ * what an agent session cookie looks like.
  *
  * Reads the agent's current session version so the cookie is minted against it;
  * a later bump then invalidates this cookie along with all the others.
  */
-export async function setAgentSessionCookie(agentId: number): Promise<void> {
+export async function buildAgentSessionCookie(agentId: number): Promise<AgentSessionCookie> {
   let sessionVersion = 0;
   try {
     const rows = await db
@@ -80,14 +98,24 @@ export async function setAgentSessionCookie(agentId: number): Promise<void> {
     console.error('[agentSession] could not read sessionVersion:', err);
   }
   const { value, maxAge } = createAgentSession(agentId, sessionVersion);
+  return {
+    name: AGENT_SESSION_COOKIE,
+    value,
+    options: {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      maxAge,
+    },
+  };
+}
+
+/** Set the signed agent session cookie (httpOnly, 7-day) on the current response. */
+export async function setAgentSessionCookie(agentId: number): Promise<void> {
+  const { name, value, options } = await buildAgentSessionCookie(agentId);
   const store = await cookies();
-  store.set(AGENT_SESSION_COOKIE, value, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    path: '/',
-    maxAge,
-  });
+  store.set(name, value, options);
 }
 
 /** Clear the agent session cookie (logout on this device). */
