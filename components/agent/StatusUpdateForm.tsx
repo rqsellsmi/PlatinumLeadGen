@@ -9,6 +9,16 @@ import { ALLOWED_TRANSITIONS, leadStatusLabel, v4LostReasonLabel } from '@/lib/l
  * Agent status/activity logger (Scoring v4). The status options are exactly the
  * moves allowed from the lead's current stage (ALLOWED_TRANSITIONS); the Lost
  * reason list is the origin-scoped set the server computed for this stage.
+ *
+ * The pre-selected option is `options[0]`, and ALLOWED_TRANSITIONS now lists each
+ * working stage FIRST in its own list — so the default is "no change, just
+ * logging an update". That is the common case (a periodic check-in on a lead
+ * that hasn't moved) and it should cost zero clicks: open the lead, optionally
+ * type a note, save.
+ *
+ * It also removes a real hazard. The default used to be the NEXT stage, so
+ * saving a note without touching the dropdown advanced the lead — from Signed
+ * that meant Closed Won, worth +25 and an outbound Google Ads conversion.
  */
 export function StatusUpdateForm({
   leadOfferId,
@@ -87,7 +97,7 @@ export function StatusUpdateForm({
         </p>
       ) : null}
       <div>
-        <Label htmlFor="newStatus">Move to</Label>
+        <Label htmlFor="newStatus">Stage</Label>
         <Select
           id="newStatus"
           name="newStatus"
@@ -96,10 +106,18 @@ export function StatusUpdateForm({
         >
           {options.map((s) => (
             <option key={s} value={s}>
-              {leadStatusLabel(s)}
+              {s === currentStatus
+                ? `${leadStatusLabel(s)} — no change (just logging an update)`
+                : leadStatusLabel(s)}
             </option>
           ))}
         </Select>
+        {newStatus === currentStatus ? (
+          <p className="mt-1 text-xs text-mute-light">
+            Leaves the lead where it is and resets the update clock. Add a note if you have
+            one — it&apos;s optional.
+          </p>
+        ) : null}
         {showBackHint ? (
           <p className="mt-1 text-xs text-mute-light">
             Moving back to Nurturing keeps the lead active (e.g. the appointment or deal fell

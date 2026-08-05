@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  ALLOWED_TRANSITIONS,
   isValidTransition,
   isBackwardMove,
   lostReasonsForOrigin,
@@ -43,6 +44,55 @@ describe('v4 status transitions', () => {
     expect(isBackwardMove('signed', 'nurturing')).toBe(true);
     expect(isBackwardMove('connected', 'nurturing')).toBe(false); // forward, not backward
     expect(isBackwardMove('nurturing', 'appointment_set')).toBe(false);
+  });
+});
+
+/**
+ * Self-transitions are what make "log an update without moving the lead"
+ * possible. Without them the only way to reset the update clock was to advance
+ * the lead, so a genuine long-term nurture took a recurring −2 for doing the job
+ * correctly, and the ≥6-attempt Lost reason could never be reached.
+ */
+describe('v4 same-stage check-ins', () => {
+  it('every working stage can be re-logged without moving the lead', () => {
+    for (const s of ['attempted_contact', 'connected', 'nurturing', 'appointment_set', 'signed']) {
+      expect(isValidTransition(s, s)).toBe(true);
+    }
+  });
+
+  it('a same-stage update is not a backward move', () => {
+    expect(isBackwardMove('nurturing', 'nurturing')).toBe(false);
+    expect(isBackwardMove('signed', 'signed')).toBe(false);
+  });
+
+  it('is the FIRST option, so the portal form defaults to "no change"', () => {
+    // StatusUpdateForm pre-selects options[0]; the old default was the NEXT
+    // stage, which meant saving a note without touching the dropdown advanced
+    // the lead — from Signed that fired Closed Won (+25).
+    for (const s of ['attempted_contact', 'connected', 'nurturing', 'appointment_set', 'signed']) {
+      expect(ALLOWED_TRANSITIONS[s][0]).toBe(s);
+    }
+  });
+
+  it('new and reopened have NO self-transition', () => {
+    // Otherwise a lead could be parked at New indefinitely, resetting the clock
+    // without any contact ever being attempted.
+    expect(isValidTransition('new', 'new')).toBe(false);
+    expect(isValidTransition('reopened', 'reopened')).toBe(false);
+  });
+
+  it('closed and lost stay terminal', () => {
+    // Closed Won (+25) is the one award with no once-only guard, so re-entry
+    // must remain impossible.
+    expect(isValidTransition('closed', 'closed')).toBe(false);
+    expect(isValidTransition('lost', 'lost')).toBe(false);
+  });
+
+  it('unlocks the ≥6-attempt Lost reason, which was previously unreachable', () => {
+    expect(isValidTransition('attempted_contact', 'attempted_contact')).toBe(true);
+    expect(lostReasonsForOrigin('attempted_contact', ATTEMPTED_CONTACTS_FOR_LOST)).toContain(
+      'no_response_after_6',
+    );
   });
 });
 

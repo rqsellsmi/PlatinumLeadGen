@@ -241,6 +241,11 @@ export default async function AgentHelpPage() {
               sub="Repeats each cycle until you log an update"
               delta="−2"
             />
+            <PointRow
+              label="Update with no stage change"
+              sub="Always free — checking in on a lead that hasn't moved never costs you"
+              delta="0"
+            />
           </PointGroup>
         </div>
 
@@ -255,7 +260,9 @@ export default async function AgentHelpPage() {
       <Section id="pipeline" kicker="Step 5" title="The lead pipeline">
         <p className="-mt-1 mb-1 max-w-2xl text-sm text-mute">
           As you work a lead, move it through these stages on the lead page. The
-          stage you set is what the system scores.
+          stage you set is what the system scores. You can also log an update
+          <em> without</em> changing the stage — that&apos;s the normal way to
+          check in on a lead that&apos;s sitting still.
         </p>
         <div className="rounded-card border border-line bg-white p-4">
           <div className="flex flex-wrap items-center gap-x-1.5 gap-y-2">
@@ -291,9 +298,19 @@ export default async function AgentHelpPage() {
       <Section id="clock" kicker="Step 6" title="The update clock">
         <p className="-mt-1 mb-1 max-w-2xl text-sm text-mute">
           One simple rule keeps leads from going cold: log an update before the
-          clock runs out. Any status change or note counts as an update and
-          resets it.
+          clock runs out. Open the lead, hit{' '}
+          <span className="font-semibold">Save update</span>, and the clock
+          resets.
         </p>
+        <Callout tone="blue" title="You don't have to move the lead" compact>
+          The stage box already defaults to{' '}
+          <strong>where the lead is now</strong>, so a check-in on a lead that
+          hasn&apos;t moved takes no clicks — add a note if you have one, or just
+          save. A seller you nurture for months only needs a periodic update, not
+          a fake stage change. By text, send the stage word on its own —{' '}
+          <span className="font-semibold">NURTURE 1234</span> — and it stays put
+          and counts.
+        </Callout>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <ClockCard when="24 hours" label="After you accept">
             Make first contact (or log an attempt) within a day.

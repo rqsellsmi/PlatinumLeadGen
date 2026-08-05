@@ -38,6 +38,28 @@ fell through, lead still active), manual and reason-free. `lost` is reachable
 from attempted_contact/connected/nurturing/appointment_set/signed (not New).
 Transitions enforced by `ALLOWED_TRANSITIONS` (`lib/leadLifecycle.ts`).
 
+**Same-stage check-ins.** Every working stage (`attempted_contact`, `connected`,
+`nurturing`, `appointment_set`, `signed`) also transitions to ITSELF, and is
+listed FIRST in its own option list. That is what lets an agent log an update
+without moving the lead — the clock (below) is reset by a status write, so before
+this the only way to satisfy it was to advance the lead. A long-term Nurturing
+seller therefore took a recurring −2 for being handled correctly, and the
+≥6-attempt Lost reason (A2) was unreachable because `attempted_contact` could
+only ever be entered once, from New.
+
+Being first in the list also makes "no change" the pre-selected option in
+`StatusUpdateForm` (which defaults to `options[0]`). The previous default was the
+NEXT stage, so saving a note without touching the dropdown advanced the lead —
+from `signed` that meant Closed Won, +25 plus an outbound Google Ads conversion.
+
+Re-logging the same stage cannot farm points: milestones are behind atomic
+`claimLeadMilestone` guards, the fast-engagement bonus behind
+`first_engagement_logged`, and Nurturing scores 0. `new`/`reopened` deliberately
+have NO self-transition (a lead could otherwise be parked indefinitely with the
+clock reset and no contact ever attempted), and `closed`/`lost` stay terminal —
+`closed` critically so, since Closed Won (+25) is the one award with no
+once-only guard.
+
 ## Point values (`SCORE_DELTAS` + helpers)
 
 Accept-speed (in `lib/offerActions.ts`):
@@ -83,12 +105,18 @@ the proximity radius; the slot count sets frequency among eligible agents.
 ## Unified update clock (`update_deadline`, cron `followup-check`)
 
 Replaces the old stale_48h/stale_7day/stalled_30day rules with one recurring
-check. On accept: `update_deadline = accept + 24h`. Any status change / logged
-update: `+7 days` (`+14 days` once Signed). Reaching Closed/Lost: `null` (stops).
-A status change **counts as an update** (no separate action). When overdue, the
+check. On accept: `update_deadline = accept + 24h`. Any status write: `+7 days`
+(`+14 days` once Signed). Reaching Closed/Lost: `null` (stops). When overdue, the
 cron applies a flat **−2** and re-arms the deadline (+7d / +14d Signed) so it
 recurs once per cycle. A pre-deadline **warning email** fires ~24h out. The 48h
 broker escalation, weekly agent reminder, and Thursday digest are unchanged.
+
+**Only a status write resets the clock** — `update_deadline` is written by
+`recordStatusUpdate`, `applyAccept`, `manualReassignLead` and the reopen path,
+and nowhere else. There is no note-only update path: `StatusUpdateForm` always
+posts a `newStatus`, and the API rejects a body without one. This is exactly why
+same-stage transitions exist (above) — re-logging the current stage IS the
+"just checking in" update, and it costs nothing.
 
 A lead can sit in Nurturing indefinitely with no forward points and never lose
 any, as long as an update lands every 7 days.

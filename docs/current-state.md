@@ -221,7 +221,7 @@ Small, mostly non-routing UX/data-quality changes layered on after Scoring v4:
 ## 8. Build, test, migrate
 - `npm run typecheck` · `npm test` (vitest; routing, offer window, IDX, and SMS/Telnyx unit suites) · `npm run build`.
 - `npm run db:migrate` applies journalled SQL migrations; `npm run seed` seeds launch cities.
-- Verified at build time (latest refinements-v1 gate): typecheck clean, build compiles, **161 tests pass across 18 files** (Scoring v4 brought it to 155 across 17; the agent lead-edit added `tests/agentLeadContact.test.ts`, 6 cases). Earlier baselines: 141 (refinements-v1 start), pre-v4 132.
+- Verified at build time (current gate): typecheck clean, build compiles, **361 tests pass across 33 files**. Baselines: 322 at the §11 P0 round-2 stop point, 307 after the §10 P0 remediation, 161 across 18 files at the refinements-v1 gate, 155 post-Scoring-v4, 141 refinements-v1 start, 132 pre-v4. The §12 lifecycle/SMS work added 39.
 
 ---
 
@@ -434,7 +434,6 @@ the unique index to exist.
   the proposed 8 for the real ranking.
 - Optional: **`TEST_LEAD_EMAIL_DOMAINS`** for production smoke tests (or just use
   an `@example.com` address / a `555-01xx` phone, which flag `is_test` built-in).
-
 ### Known residuals (accepted / deferred)
 - **Appointment idempotency is not a true transaction** — the neon http driver
   can't. The compensating-delete closes the common failure; a sustained DB outage
@@ -446,3 +445,80 @@ the unique index to exist.
 - **`full-setup.sql` / `seed.sql`** are a stale manual-bootstrap path (they
   predate the `appointment` lead type and other recent migrations). Regenerate
   separately someday; the migration chain + `scripts/seed.ts` are authoritative.
+
+---
+
+## 12. Same-stage updates + SMS command grammar (2026-08-05)
+
+Found while auditing the agent-facing surfaces against the code to write the
+launch guide. Three defects with one root cause in the lifecycle, plus two in the
+SMS parser. No migration — `sms_messages.kind` is a `varchar(30)`, not an enum.
+Typecheck clean, build clean, **361 tests** (was 322).
+
+**Root cause: no self-transitions.** `ALLOWED_TRANSITIONS` had no stage that
+transitioned to itself, and `update_deadline` is only ever written by a status
+write (`recordStatusUpdate` / `applyAccept` / `manualReassignLead` / the reopen
+path). There is no note-only update path — `StatusUpdateForm` always posts a
+`newStatus` and the API rejects a body without one. So the only way to satisfy
+the update clock was to ADVANCE the lead. Consequences, all now fixed by listing
+each working stage first in its own transition list:
+
+- **A long-term Nurturing lead was a −2/week treadmill.** `nurturing` could only
+  go to `appointment_set` or `lost`, so an agent nurturing a seller honestly for
+  six months paid roughly −52 for it. The in-portal help page compounded this by
+  claiming "any status change **or note** counts as an update," which was never
+  true.
+- **Lost reason A2 ("no response after 6 attempts") was unreachable.** It unlocks
+  at ≥6 `attempted_contact` status updates, but the stage could only ever be
+  entered once, from New. A seller who simply never responded had no honest Lost
+  reason available.
+- **The update form's default advanced the lead.** It pre-selects `options[0]`,
+  which was the NEXT stage — so saving a note without touching the dropdown moved
+  the lead. From `signed` that fired Closed Won: **+25 and an outbound Google Ads
+  "Closed Seller Listing" conversion.** The default is now "no change".
+
+Re-logging a stage cannot farm points — milestones sit behind atomic
+`claimLeadMilestone` guards, the fast-engagement bonus behind
+`first_engagement_logged`, Nurturing scores 0, and the Google Ads outbox is
+guarded by `UNIQUE(lead_id, milestone)`. `new`/`reopened` get NO self-transition
+(a lead could otherwise be parked with the clock reset and no contact ever
+attempted); `closed`/`lost` stay terminal, `closed` critically so because Closed
+Won (+25) is the one award with no once-only guard.
+
+**SMS: the lead code now delimits the phrase, not the reverse** (`lib/smsCommands.ts`).
+The parser matched a phrase from a fixed list and assumed the next token was the
+code, so `ATTEMPTED CONTACT 53 left another message` matched only the word
+`attempted`, failed `parseCode('contact')`, and swept the lead id into the notes
+— then `resolveOffer` fell back to the agent's single active lead and updated
+**that** one. The phrasing is exactly how the portal labels the stage, so it was
+the most natural thing an agent could type. Now: an explicit `#53` anywhere is
+definitive; a bare number is a code only when an EXACT known phrase precedes it
+(so `nurture still thinking 3 months` keeps the 3 in the notes); otherwise the
+longest known phrase prefix wins. The table gained the multi-word stage names and
+the aliases people actually say (`contacted`, `made contact`, `no answer`,
+`left voicemail`, `listing signed`).
+
+**SMS: a parsed code is only a candidate.** `resolveOffer` used to push it
+straight into SQL, so a wrong number simply matched nothing and fell through to
+the single-active-lead path. It now loads the agent's own offers first and checks
+the code against them: matches → act; explicit `#N` matching nothing → say so;
+bare number matching nothing → it was never a lead id, so it is folded back into
+the note text. Authorization is unchanged — only the sending agent's rows are
+ever loaded.
+
+**SMS: the disambiguation prompt taught a dead command.** It replied "reply e.g.
+**CONTACTED** &lt;lead#&gt;", but v4 renamed that stage to Connected and
+`contacted` was not in the phrase table, so an agent following the prompt
+verbatim got silence and the owner got an "unrecognized command" email. Fixed to
+`CONNECTED`, and `contacted` is now an accepted alias either way.
+
+**Admin feedback loop.** Unrecognized agent commands log as
+`kind: 'inbound_unknown'` (parse happens before the write; homeowner/LSA inbound
+stays plain `inbound`), and `/admin/sms-log` gained an **Unrecognized wordings**
+panel grouping them by leading phrase with counts, latest example and last-seen.
+A phrase recurring there is one to add to `STATUS_PHRASES` — no migration needed.
+
+Files: `lib/leadLifecycle.ts`, `components/agent/StatusUpdateForm.tsx`,
+`lib/smsCommands.ts`, `app/api/webhooks/telnyx/route.ts`,
+`app/admin/sms-log/page.tsx`, `app/agent/help/page.tsx`, plus
+`tests/leadLifecycle.test.ts` and `tests/smsCommands.test.ts`.

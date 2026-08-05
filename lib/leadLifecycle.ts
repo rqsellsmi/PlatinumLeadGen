@@ -94,18 +94,50 @@ export type AgentSettableStatusV4 = (typeof AGENT_SETTABLE_STATUSES_V4)[number];
  * Allowed forward/backward transitions per current status (v4 §3). `new` and
  * `reopened` share the same options; `reopened` behaves like New. Backward moves
  * to `nurturing` (from appointment_set / signed) are permitted and reason-free.
+ *
+ * SELF-TRANSITIONS. Every working stage lists ITSELF first, which is what makes
+ * "log an update without moving the lead" possible. Before this, the only way to
+ * reset the update clock (§5) was to advance the lead, so an agent genuinely
+ * nurturing a seller for months had no honest move available and took a
+ * recurring −2 for doing their job. Two consequences worth knowing:
+ *
+ *   1. Listing self FIRST makes it the pre-selected option in the portal's
+ *      update form (which defaults to `options[0]`). The default is now "no
+ *      change", so an agent who opens a lead to add a note and saves without
+ *      touching the dropdown no longer advances the lead by accident — which
+ *      previously could fire Closed Won (+25) from a Signed lead.
+ *   2. It also makes repeated Attempted Contact loggable, so the ≥6-attempt
+ *      threshold that unlocks Lost reason A2 ("no response after 6") is finally
+ *      reachable; it was dead before, since the stage could only ever be entered
+ *      once from New.
+ *
+ * Re-logging the same stage cannot farm points: every milestone award is behind
+ * an atomic `claimLeadMilestone` guard, the fast-engagement bonus is behind
+ * `first_engagement_logged`, and Nurturing scores 0. `closed` and `lost` stay
+ * terminal — `closed` deliberately so, because Closed Won (+25) is the one
+ * award with NO once-only guard (lib/statusUpdates.ts).
+ *
+ * `new` and `reopened` deliberately have NO self-transition: from those the only
+ * honest updates are Attempted Contact or Connected, and allowing new→new would
+ * let a lead be parked indefinitely, resetting the clock without any contact
+ * ever being made.
  */
 export const ALLOWED_TRANSITIONS: Record<string, readonly string[]> = {
   new: ['attempted_contact', 'connected'],
   reopened: ['attempted_contact', 'connected'],
-  attempted_contact: ['connected', 'lost'],
-  connected: ['nurturing', 'lost'],
-  nurturing: ['appointment_set', 'lost'],
-  appointment_set: ['signed', 'nurturing', 'lost'],
-  signed: ['closed', 'nurturing', 'lost'],
+  attempted_contact: ['attempted_contact', 'connected', 'lost'],
+  connected: ['connected', 'nurturing', 'lost'],
+  nurturing: ['nurturing', 'appointment_set', 'lost'],
+  appointment_set: ['appointment_set', 'signed', 'nurturing', 'lost'],
+  signed: ['signed', 'closed', 'nurturing', 'lost'],
   closed: [],
   lost: [],
 };
+
+/** Whether a move leaves the lead where it is — a check-in, not a stage change. */
+export function isSameStageUpdate(from: string, to: string): boolean {
+  return from === to;
+}
 
 export function isValidTransition(from: string, to: string): boolean {
   return (ALLOWED_TRANSITIONS[from] ?? []).includes(to);
