@@ -25,6 +25,13 @@ export interface AgentRow {
   conversionPct: number | null;
   /** avg accept latency in minutes; null = no data. */
   avgResponseMins: number | null;
+  /**
+   * True for an ACTIVE agent with no password yet — they cannot sign in, and
+   * need a setup invite (or a re-send, if the first one expired unused). Shown
+   * in the directory so the admin can spot them without opening each agent;
+   * the invite button itself lives on the agent page.
+   */
+  needsSetup: boolean;
 }
 
 const AVATAR_BG = ['bg-platinum-blue', 'bg-platinum-red', 'bg-charcoal', 'bg-brandpurple', 'bg-success'];
@@ -199,6 +206,7 @@ export default function AgentDirectory({ agents }: { agents: AgentRow[] }) {
                         {agent.isAvailable ? 'Available' : 'Paused'}
                       </Badge>
                     )}
+                    {agent.needsSetup && <Badge tone="danger">Needs setup</Badge>}
                   </div>
                 </div>
 
@@ -287,6 +295,7 @@ export default function AgentDirectory({ agents }: { agents: AgentRow[] }) {
                             {agent.isAvailable ? 'Available' : 'Paused'}
                           </Badge>
                         )}
+                        {agent.needsSetup && <Badge tone="danger">Needs setup</Badge>}
                       </div>
                     </td>
                     <td className="px-4 py-2.5 text-right font-numeric">

@@ -579,6 +579,25 @@ stays plain `inbound`), and `/admin/sms-log` gained an **Unrecognized wordings**
 panel grouping them by leading phrase with counts, latest example and last-seen.
 A phrase recurring there is one to add to `STATUS_PHRASES` — no migration needed.
 
+**Per-agent setup invites had no button.** `resendAgentInvite`
+(`app/admin/agents/actions.ts:79`) existed and was correct, but **nothing in the
+UI called it** — and `LaunchInvitesPanel` told the admin to "invite them
+individually from their agent page", pointing at a control that did not exist.
+The practical failure: the Launch send runs **once** and its links expire in
+**7 days**, so an agent who ignores the email for three weeks is locked out with
+no recovery path short of an admin typing a password for them.
+
+The agent page now has an **Account setup** card — invite status (never sent /
+sent + expiry / expired), a **Send a new setup invite** button, and the
+consequence stated plainly: a new invite supersedes the old one, so their
+previous link stops working. It renders three ways: an agent with a password is
+told to use Forgot-password instead (`sendAgentInvite` refuses to issue a
+redeemable credential for a live account); an inactive agent is told to activate
+first (it refuses those too); otherwise the button. Agents needing setup are
+flagged **Needs setup** in the directory (both tile and list views) so they're
+findable without opening each one, using the same `isActive && !passwordHash`
+rule as the Launch audience. The Launch panel's copy now matches reality.
+
 **Agent-guide content added** (`app/agent/help/page.tsx`). Three sections the
 page never had, all documentation of behaviour that was already correct:
 **Working leads by text** (§7) — the full reply vocabulary built from the real

@@ -10,8 +10,9 @@ import LocalTime from '@/components/LocalTime';
 import { tierFor } from '@/lib/scoreTiers';
 import { loadTierContext } from '@/lib/scoreTiersServer';
 import { updateAgent, setAgentPassword, adjustScore } from './actions';
-import { toggleAgentActive, toggleAgentAvailable } from '@/app/admin/agents/actions';
+import { toggleAgentActive, toggleAgentAvailable, resendAgentInvite } from '@/app/admin/agents/actions';
 import { MAX_PROXIMITY_RADIUS_MILES, isUnusuallyBroadRadius } from '@/lib/coverage';
+import { isTokenExpired } from '@/lib/agentPortalAuth';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,6 +36,9 @@ export default async function AgentDetailPage({ params }: { params: { id: string
   ]);
 
   const tier = tierFor(agent.scoreLifetime, await loadTierContext());
+  // A null expiry counts as expired (isTokenExpired fails closed), which is the
+  // right reading here too: no usable invite is outstanding.
+  const inviteLive = !isTokenExpired(agent.inviteExpiresAt);
 
   return (
     <div className="space-y-6">
@@ -197,6 +201,92 @@ export default async function AgentDetailPage({ params }: { params: { id: string
                 Pausing stops new lead offers but keeps the agent active. Deactivating removes them
                 from routing entirely.
               </p>
+            </CardBody>
+          </Card>
+
+          {/* Account setup — the per-agent invite the Launch panel points at.
+              The bulk Launch send runs once and its links expire in 7 days, so
+              the agent who ignores the email for three weeks needs a fresh one;
+              sendAgentInvite mints a new token and supersedes the old, which is
+              why re-sending is always safe. */}
+          <Card>
+            <CardHeader>
+              <h2 className="font-bold text-charcoal">Account setup</h2>
+            </CardHeader>
+            <CardBody className="space-y-3">
+              {agent.passwordHash ? (
+                <>
+                  <div className="flex items-center gap-2">
+                    <Badge tone="success">Set up</Badge>
+                    <span className="text-sm text-mute">This agent can sign in.</span>
+                  </div>
+                  <p className="text-xs text-mute-light">
+                    Setup invites are only for accounts with no password. If they&rsquo;re locked
+                    out, they can use <strong>Forgot your password</strong> on the sign-in page,
+                    or you can set one directly below.
+                  </p>
+                </>
+              ) : !agent.isActive ? (
+                <>
+                  <div className="flex items-center gap-2">
+                    <Badge tone="neutral">Inactive</Badge>
+                    <span className="text-sm text-mute">No password set.</span>
+                  </div>
+                  <p className="text-xs text-mute-light">
+                    Activate this agent before sending a setup invite — invites are not issued to
+                    inactive accounts.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge tone="warning">Needs setup</Badge>
+                    <span className="text-sm text-mute">
+                      {agent.inviteSentAt ? (
+                        <>
+                          Invite sent <LocalTime value={agent.inviteSentAt} dateOnly />
+                          {agent.inviteExpiresAt ? (
+                            inviteLive ? (
+                              <>
+                                {' '}
+                                · expires <LocalTime value={agent.inviteExpiresAt} dateOnly />
+                              </>
+                            ) : (
+                              <>
+                                {' '}
+                                ·{' '}
+                                <span className="font-semibold text-platinum-red">
+                                  expired
+                                </span>
+                              </>
+                            )
+                          ) : null}
+                        </>
+                      ) : (
+                        'No invite sent yet.'
+                      )}
+                    </span>
+                  </div>
+
+                  <form action={resendAgentInvite}>
+                    <input type="hidden" name="agentId" value={agent.id} />
+                    <Button type="submit" className="w-full">
+                      {agent.inviteSentAt ? 'Send a new setup invite' : 'Send setup invite'}
+                    </Button>
+                  </form>
+
+                  <p className="text-xs text-mute-light">
+                    Emails a personal, single-use link to{' '}
+                    <span className="font-semibold">{agent.email}</span>, good for 7 days. A new
+                    invite <strong>replaces</strong> any earlier one, so their old link stops
+                    working. If it doesn&rsquo;t arrive, check{' '}
+                    <Link href="/admin/email-log" className="font-semibold text-platinum-blue hover:underline">
+                      Email Log
+                    </Link>
+                    .
+                  </p>
+                </>
+              )}
             </CardBody>
           </Card>
 

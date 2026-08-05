@@ -36,9 +36,17 @@ export default function LaunchInvitesPanel({
         <p className="mt-1 text-sm text-mute">
           The one-time send ran on {sentAt.toLocaleDateString()}.{' '}
           {pendingCount > 0
-            ? `${pendingCount} active agent${pendingCount === 1 ? ' has' : 's have'} still not set a password — invite them individually from their agent page rather than re-running the bulk send.`
+            ? `${pendingCount} active agent${pendingCount === 1 ? ' has' : 's have'} still not set a password.`
             : 'Every active agent has set up their account.'}
         </p>
+        {pendingCount > 0 ? (
+          <p className="mt-2 text-sm text-mute">
+            They&apos;re flagged <strong>Needs setup</strong> below. Launch links expire after 7
+            days, so anyone who left the email unopened needs a fresh one — open their agent page
+            and use <strong>Send a new setup invite</strong>. Do that rather than re-running the
+            bulk send, which would re-email the whole roster.
+          </p>
+        ) : null}
       </div>
     );
   }
