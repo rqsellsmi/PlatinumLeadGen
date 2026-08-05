@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   ALLOWED_TRANSITIONS,
+  attemptCycleStart,
+  countAttemptsInCycle,
   isValidTransition,
   isBackwardMove,
   lostReasonsForOrigin,
@@ -93,6 +95,59 @@ describe('v4 same-stage check-ins', () => {
     expect(lostReasonsForOrigin('attempted_contact', ATTEMPTED_CONTACTS_FOR_LOST)).toContain(
       'no_response_after_6',
     );
+  });
+});
+
+/**
+ * Attempts count per OFFER and per WORKING CYCLE. Counting by lead carried them
+ * across a reassignment; counting by offer alone still carried them across a
+ * reopen, because a resubmitted lead keeps its existing offer when the prior
+ * agent is still active.
+ */
+describe('attempt counting window', () => {
+  const d = (iso: string) => new Date(iso);
+  const attempt = (iso: string) => ({ newStatus: 'attempted_contact', createdAt: d(iso) });
+
+  it('starts at accept when the lead has never been reopened', () => {
+    expect(attemptCycleStart(d('2026-01-10T00:00:00Z'), null)).toEqual(d('2026-01-10T00:00:00Z'));
+  });
+
+  it('starts at the reopen when that is later — the same offer, a new cycle', () => {
+    expect(attemptCycleStart(d('2026-01-10T00:00:00Z'), d('2026-03-01T00:00:00Z'))).toEqual(
+      d('2026-03-01T00:00:00Z'),
+    );
+  });
+
+  it('ignores a reopen that predates the current acceptance', () => {
+    // Reassigned after the reopen: the new agent's cycle starts at their accept.
+    expect(attemptCycleStart(d('2026-04-01T00:00:00Z'), d('2026-03-01T00:00:00Z'))).toEqual(
+      d('2026-04-01T00:00:00Z'),
+    );
+  });
+
+  it('counts only attempts inside the cycle', () => {
+    const updates = [
+      attempt('2026-01-11T00:00:00Z'), // previous cycle
+      attempt('2026-01-12T00:00:00Z'), // previous cycle
+      attempt('2026-03-02T00:00:00Z'),
+      attempt('2026-03-03T00:00:00Z'),
+      { newStatus: 'connected', createdAt: d('2026-03-04T00:00:00Z') }, // not an attempt
+    ];
+    expect(countAttemptsInCycle(updates, d('2026-03-01T00:00:00Z'))).toBe(2);
+  });
+
+  it('a reopened lead starts over, so six prior attempts do not unlock Lost A2', () => {
+    const before = Array.from({ length: 6 }, (_, i) =>
+      attempt(`2026-01-1${i}T00:00:00Z`),
+    );
+    const cycle = attemptCycleStart(d('2026-01-09T00:00:00Z'), d('2026-03-01T00:00:00Z'));
+    const n = countAttemptsInCycle(before, cycle);
+    expect(n).toBe(0);
+    expect(lostReasonsForOrigin('attempted_contact', n)).not.toContain('no_response_after_6');
+  });
+
+  it('with no boundary at all, every attempt counts', () => {
+    expect(countAttemptsInCycle([attempt('2020-01-01T00:00:00Z')], null)).toBe(1);
   });
 });
 

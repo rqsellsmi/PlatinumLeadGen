@@ -329,7 +329,9 @@ export default async function AgentHelpPage() {
           <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
             <MiniFact label="Lost" tone="red">
               Didn&apos;t work out. Pick the reason that fits — no points, no
-              penalty.
+              penalty. A brand-new lead has to be moved to{' '}
+              <strong>Attempted contact</strong> first; Lost opens up straight
+              after, with bad number / wrong number / email bounced as reasons.
             </MiniFact>
             <MiniFact label="Reopened" tone="blue">
               A past Lost seller comes back and resubmits. The lead reopens like

@@ -165,6 +165,52 @@ export const ALL_V4_LOST_REASONS = [
 export type V4LostReason = (typeof ALL_V4_LOST_REASONS)[number];
 
 /**
+ * When the lead's CURRENT working cycle began — the boundary for counting
+ * Attempted-Contact updates toward the ≥6 threshold that unlocks Lost A2.
+ *
+ * Neither "per lead" nor "per offer" is right on its own. Per lead carries
+ * attempts across a reassignment to a different agent. Per offer looks correct
+ * but is not: when a Lost lead is resubmitted and the prior agent is still
+ * active, `reopenLostLead` KEEPS the existing offer rather than creating a new
+ * one, so the attempts from the previous cycle stay attached to the same
+ * leadOfferId and the agent inherits them. A reopened lead should require six
+ * fresh attempts — the seller came back, and whatever was tried last time is
+ * not evidence about this time.
+ *
+ * The cycle therefore starts at the LATER of:
+ *   - the offer being accepted (a new agent, or a manual reassignment), and
+ *   - the lead being reopened (same agent, same offer, new cycle).
+ * Null means no boundary is known, in which case every attempt counts.
+ */
+export function attemptCycleStart(
+  acceptedAt: Date | null | undefined,
+  reopenedAt: Date | null | undefined,
+): Date | null {
+  if (acceptedAt && reopenedAt) {
+    return reopenedAt.getTime() > acceptedAt.getTime() ? reopenedAt : acceptedAt;
+  }
+  return reopenedAt ?? acceptedAt ?? null;
+}
+
+/**
+ * Count Attempted-Contact updates inside the current working cycle. Shared by
+ * the lead page (which filters rows it already loaded) and the server-side
+ * validation in recordStatusUpdate, so the reasons the UI offers and the
+ * reasons the server accepts are computed by the same code.
+ */
+export function countAttemptsInCycle(
+  updates: readonly { newStatus: string; createdAt: Date | string | null }[],
+  cycleStart: Date | null,
+): number {
+  return updates.filter((u) => {
+    if (u.newStatus !== 'attempted_contact') return false;
+    if (!cycleStart) return true;
+    if (!u.createdAt) return false;
+    return new Date(u.createdAt).getTime() >= cycleStart.getTime();
+  }).length;
+}
+
+/**
  * The Lost reasons available from a given origin status. Lost A2 (no response
  * after 6) only appears once the lead has ≥6 logged Attempted-Contact updates.
  * Returns [] for a status Lost isn't reachable from.

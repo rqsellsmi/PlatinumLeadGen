@@ -118,6 +118,16 @@ export function StatusUpdateForm({
             one — it&apos;s optional.
           </p>
         ) : null}
+        {/* Lost isn't reachable from New, so an agent who came here to close out a
+            dead contact was told a moment ago that it wasn't an option. Once
+            they've logged the attempt it quietly becomes one — say so, rather
+            than leaving it in a dropdown they've already closed. */}
+        {currentStatus === 'attempted_contact' && options.includes('lost') ? (
+          <p className="mt-1 text-xs text-mute-light">
+            If the number or email turned out to be bad, you can now mark this lead{' '}
+            <span className="font-semibold">Lost</span> and pick that as the reason.
+          </p>
+        ) : null}
         {showBackHint ? (
           <p className="mt-1 text-xs text-mute-light">
             Moving back to Nurturing keeps the lead active (e.g. the appointment or deal fell

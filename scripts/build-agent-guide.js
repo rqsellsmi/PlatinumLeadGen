@@ -407,6 +407,12 @@ children.push(
   SPACER(140),
   H2('Marking a lead Lost'),
   P('Lost is not a failure and carries no penalty — but it does need a reason, and the reasons offered depend on the stage the lead is in, so the record means something later.'),
+  SPACER(40),
+  CALLOUT(
+    'You cannot go straight from New to Lost',
+    'A brand-new lead has to be moved to Attempted contact first — then Lost becomes available, with Bad number, Wrong number and Email bounced as the reasons. That is two saves a few seconds apart, and it is deliberate: those reasons all describe something you found out by trying, so logging the attempt is just recording the call you made. You also earn the point for it.',
+  ),
+  SPACER(140),
   TABLE(
     ['From this stage', 'Reasons you can choose'],
     [
@@ -418,7 +424,7 @@ children.push(
     [2900, 6460],
   ),
   SPACER(160),
-  P([{ text: '“No response after 6 attempts” unlocks once you have logged six Attempted contact updates on that lead. Because a reason is required, Lost is the one thing you cannot set by text — open the lead to do it.', color: MUTE }], { size: 19 }),
+  P([{ text: '“No response after 6 attempts” unlocks once you have logged six Attempted contact updates on this lead in your current run at it. If a seller comes back after being marked Lost, the count starts over — six fresh attempts. Because a reason is always required, Lost is the one thing you cannot set by text; open the lead to do it.', color: MUTE }], { size: 19 }),
   H2('If a lead comes back'),
   P('If a seller you marked Lost submits again, the lead reopens and returns to you as if it were new, with the clock restarted. You keep any points you already earned on it.'),
   BREAK(),

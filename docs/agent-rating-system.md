@@ -127,9 +127,25 @@ any, as long as an update lands every 7 days.
 (`lostReasonsForOrigin`). All Lost transitions score **0** (no penalty, no
 clawback) and stop the clock.
 
+**Lost is NOT reachable from `new`/`reopened`** — the lead must reach
+`attempted_contact` (or `connected`) first, and `lostReasonsForOrigin` returns
+`[]` for those statuses. This is the anti-dumping gate: Lost carries no penalty,
+so without it the cheapest way to clear an unwanted lead is to bin it on arrival.
+The Lost A reasons all describe something learned by trying, so the extra step
+records the attempt that necessarily happened.
+
+**Attempt counting is per-offer AND per-cycle** (`attemptCycleStart` +
+`countAttemptsInCycle`, both pure and shared by the lead page and
+`recordStatusUpdate` so the offered and accepted reason lists cannot drift).
+Counting by lead carried attempts across a reassignment to a different agent.
+Counting by offer alone still carried them across a reopen, because
+`reopenLostLead` KEEPS the existing offer when the prior agent is still active —
+so the cycle starts at the later of the offer's `accepted_at` and the lead's
+`reopened_at`. A reopened lead requires six fresh attempts.
+
 | Origin | Reasons |
 | --- | --- |
-| Attempted Contact | bad number, wrong number, email bounced (+ "no response after 6" once ≥6 attempts) |
+| Attempted Contact | bad number, wrong number, email bounced (+ "no response after 6" once ≥6 attempts this cycle) |
 | Connected | already listed/sold, just looking, already have an agent |
 | Nurturing / Appointment Set | stopped responding, selected another agent, changed plans |
 | Signed | listing withdrawn, listing expired, terminated for another agent |

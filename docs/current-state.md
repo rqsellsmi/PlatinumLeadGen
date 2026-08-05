@@ -579,6 +579,26 @@ stays plain `inbound`), and `/admin/sms-log` gained an **Unrecognized wordings**
 panel grouping them by leading phrase with counts, latest example and last-seen.
 A phrase recurring there is one to add to `STATUS_PHRASES` — no migration needed.
 
+**Lost-attempt counting was per-lead; now per-offer AND per-cycle.** The lead
+page counted Attempted-Contact updates by `leadOfferId` while
+`recordStatusUpdate` counted by `leadId`, so the reasons offered and the reasons
+accepted could disagree. Neither was right on its own: per-lead carries attempts
+across a reassignment to a different agent, and per-offer *looks* right but still
+carries them across a reopen — `reopenLostLead` **keeps the existing offer** when
+the prior agent is still active (`app/api/leads/submit/route.ts`), so the old
+attempts stay on the same `leadOfferId`. Owner decision: a reopened lead requires
+six fresh attempts. The window now starts at the later of the offer's
+`accepted_at` and the lead's `reopened_at` (`attemptCycleStart`), and both call
+sites count through the same pure `countAttemptsInCycle`, so they cannot drift
+again. Note this threshold was **unreachable before §12's self-transitions** —
+`attempted_contact` could only ever be entered once — so nothing in production
+has depended on the old behaviour.
+
+Also signposted: **Lost is not reachable from `new`** (deliberate — see
+`docs/agent-rating-system.md`), so an agent closing out a dead contact must log
+Attempted contact first. The update form now says Lost has become available once
+they do, instead of leaving it in a dropdown they already closed.
+
 **Per-agent setup invites had no button.** `resendAgentInvite`
 (`app/admin/agents/actions.ts:79`) existed and was correct, but **nothing in the
 UI called it** — and `LaunchInvitesPanel` told the admin to "invite them

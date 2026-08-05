@@ -12,7 +12,12 @@ import PropertyDetails from '@/components/PropertyDetails';
 import { getPropertyRecord } from '@/lib/propertyRecords';
 import { StatusUpdateForm } from '@/components/agent/StatusUpdateForm';
 import { EditContactForm } from '@/components/agent/EditContactForm';
-import { lostReasonsForOrigin, leadStatusLabel } from '@/lib/leadLifecycle';
+import {
+  lostReasonsForOrigin,
+  leadStatusLabel,
+  attemptCycleStart,
+  countAttemptsInCycle,
+} from '@/lib/leadLifecycle';
 
 export const dynamic = 'force-dynamic';
 
@@ -63,8 +68,14 @@ export default async function AgentLeadDetailPage({
   const propertyRecord = address ? await getPropertyRecord(address).catch(() => null) : null;
 
   // Lost reasons are scoped to the lead's current stage (v4 §6); Lost A2 (no
-  // response after 6) unlocks once there are ≥6 Attempted-Contact logs.
-  const attemptedContactCount = history.filter((u) => u.newStatus === 'attempted_contact').length;
+  // response after 6) unlocks once there are ≥6 Attempted-Contact logs on THIS
+  // offer within the current working cycle — a reopened lead starts over. Same
+  // pure helpers the server validates with, so the list offered here is exactly
+  // the list recordStatusUpdate will accept.
+  const attemptedContactCount = countAttemptsInCycle(
+    history,
+    attemptCycleStart(offer.acceptedAt, lead.reopenedAt),
+  );
   const lostReasons = lostReasonsForOrigin(lead.status, attemptedContactCount);
 
   return (
