@@ -44,7 +44,10 @@ export default function MarketStatsBar({
           '—'
         ),
     },
-    { label: 'Homes Sold This Year', value: formatNumber(homesSold) },
+    // Trailing 365 days, not a calendar year — WINDOW_DAYS in lib/idxMetrics.ts.
+    // "This Year" read as year-to-date and contradicted the rest of the page,
+    // which says "last 12 months".
+    { label: 'Homes Sold — Last 12 Months', value: formatNumber(homesSold) },
     {
       label: '% Sold Above List Price',
       value:
