@@ -9,7 +9,11 @@ import { createAgent } from '../actions';
 export const dynamic = 'force-dynamic';
 
 /** /admin/agents/new — add an agent (reached from the "+ Add agent" button). */
-export default async function NewAgentPage() {
+export default async function NewAgentPage({
+  searchParams,
+}: {
+  searchParams: { error?: string; existingId?: string; existingActive?: string };
+}) {
   await requireAdmin();
   const officeList = await db
     .select()
@@ -26,6 +30,41 @@ export default async function NewAgentPage() {
         <h1 className="mt-1 text-2xl font-bold text-charcoal">Add agent</h1>
         <p className="text-sm text-mute">New agents can set their own password at /agent/set-password.</p>
       </div>
+
+      {/* A taken email is an ordinary outcome, not a fault. It used to surface
+          as an unhandled throw and Next's generic error page, which told the
+          admin nothing — and the existing record is usually the same person, so
+          the link matters more than the message. */}
+      {searchParams.error === 'duplicate' ? (
+        <div className="rounded-card border border-platinum-red/30 bg-danger-bg px-5 py-4">
+          <p className="text-sm font-bold text-platinum-red">That email is already on the roster</p>
+          <p className="mt-1 text-sm text-mute">
+            An agent record already uses this email address
+            {searchParams.existingActive === '0' ? ' and is currently inactive' : ''}. Email is the
+            agent&rsquo;s sign-in identity, so it can only belong to one record.
+            {searchParams.existingId ? (
+              <>
+                {' '}
+                <Link
+                  href={`/admin/agents/${searchParams.existingId}`}
+                  className="font-semibold text-platinum-blue hover:underline"
+                >
+                  Open that agent
+                </Link>{' '}
+                to check the name on it — it may be the same person under a different name, or an
+                old record to reactivate rather than re-add.
+              </>
+            ) : null}
+          </p>
+        </div>
+      ) : null}
+      {searchParams.error === 'missing' ? (
+        <div className="rounded-card border border-platinum-red/30 bg-danger-bg px-5 py-4">
+          <p className="text-sm font-bold text-platinum-red">
+            First name, last name and email are all required
+          </p>
+        </div>
+      ) : null}
 
       <Card>
         <CardHeader>

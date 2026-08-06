@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { eq } from 'drizzle-orm';
+import { eq, ilike } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { agents } from '@/drizzle/schema';
 import { requireAdmin } from '@/components/admin/requireAdmin';
@@ -17,25 +17,74 @@ function num(v: FormDataEntryValue | null): number | null {
   return Number.isNaN(n) ? null : n;
 }
 
+/** Postgres unique-violation. */
+function isUniqueViolation(err: unknown): boolean {
+  const code = (err as { code?: string; cause?: { code?: string } })?.code
+    ?? (err as { cause?: { code?: string } })?.cause?.code;
+  return code === '23505';
+}
+
+/**
+ * Add an agent.
+ *
+ * `agents.email` is uniquely indexed, and this used to let the constraint
+ * surface as an unhandled throw — which Next renders as the generic "Something
+ * went wrong" page, telling the admin nothing. The email being taken is a
+ * completely ordinary outcome, not a fault.
+ *
+ * It is also usually the SAME person: the directory filters to active agents by
+ * default, so a deactivated agent is invisible there and adding them looks like
+ * the right move. The check below is therefore case-insensitive (logins match
+ * with `ilike`, so two rows differing only in case would be ambiguous at
+ * sign-in) and reports whether the existing record is active, because
+ * reactivating is nearly always what was actually wanted.
+ *
+ * Errors come back as a redirect with a query string rather than a thrown
+ * error, so the page can render them beside the form without becoming a client
+ * component.
+ */
 export async function createAgent(formData: FormData) {
   await requireAdmin();
   const firstName = String(formData.get('firstName') ?? '').trim();
   const lastName = String(formData.get('lastName') ?? '').trim();
   const email = String(formData.get('email') ?? '').trim();
   if (!firstName || !lastName || !email) {
-    throw new Error('First name, last name, and email are required');
+    redirect('/admin/agents/new?error=missing');
   }
   const rawPhone = String(formData.get('phone') ?? '').trim();
   const phone = rawPhone ? (toE164(rawPhone) ?? rawPhone) : null;
-  await db.insert(agents).values({
-    firstName,
-    lastName,
-    email,
-    phone,
-    officeId: num(formData.get('officeId')),
-    latitude: num(formData.get('lat')),
-    longitude: num(formData.get('lng')),
-  });
+
+  const existing = await db
+    .select({ id: agents.id, isActive: agents.isActive })
+    .from(agents)
+    .where(ilike(agents.email, email))
+    .limit(1);
+  if (existing[0]) {
+    redirect(
+      `/admin/agents/new?error=duplicate&existingId=${existing[0].id}` +
+        `&existingActive=${existing[0].isActive ? '1' : '0'}`,
+    );
+  }
+
+  // Backstop for the race between the check above and this insert. Kept
+  // separate from the redirect so NEXT_REDIRECT is never swallowed by a catch.
+  let raced = false;
+  try {
+    await db.insert(agents).values({
+      firstName,
+      lastName,
+      email,
+      phone,
+      officeId: num(formData.get('officeId')),
+      latitude: num(formData.get('lat')),
+      longitude: num(formData.get('lng')),
+    });
+  } catch (err) {
+    if (!isUniqueViolation(err)) throw err;
+    raced = true;
+  }
+  if (raced) redirect('/admin/agents/new?error=duplicate');
+
   revalidatePath('/admin/agents');
   redirect('/admin/agents');
 }
