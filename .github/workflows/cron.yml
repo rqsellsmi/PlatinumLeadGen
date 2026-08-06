@@ -1,16 +1,26 @@
 name: Scheduled jobs
 
-# Free alternative to frequent Vercel Cron (the Hobby plan only allows daily crons).
-# This workflow pings the time-sensitive cron endpoints every ~10 minutes so offers
-# dispatch, expire, and follow-ups process promptly without a Vercel Pro plan.
+# SUPERSEDED — these four endpoints now run from Upstash QStash. This workflow is
+# DISABLED in the Actions UI (Actions -> "Scheduled jobs" -> ... -> Disable) and kept
+# only as a documented fallback. See docs/cron-migration-qstash.md.
 #
-# Required repository secrets (Settings -> Secrets and variables -> Actions):
-#   DEPLOY_URL   e.g. https://your-project.vercel.app  (no trailing slash)
+# DO NOT RE-ENABLE while the QStash schedules are active. `expire-offers` has no
+# concurrency guard: it selects offers with status='offered' and then writes each one
+# with no status check on the update, so two schedulers firing seconds apart can both
+# read the same offer and double-apply the score penalty AND double-reassign the lead.
+#
+# Why it was superseded: this ran `*/10` (144 runs/day expected) but GitHub services
+# this repo's cron queue only every ~2-3 hours, so it actually fired ~13 times/day with
+# gaps of 52-198 min, and some runs were cancelled with no runner ever assigned. That
+# left `expire-offers` — which enforces the 3-hour acceptance window by sweep — up to
+# 5-6h late, parking leads on non-responding agents. Public repos are on the free
+# shared-runner pool, which GitHub throttles hardest. `idx-sync.yml` and
+# `scheduled-daily.yml` stay on Actions: the former needs a long-running host that no
+# HTTP scheduler can provide, and the latter's daily ticks all fire (just 2-3h late).
+#
+# Required repository secrets, if ever re-enabled (Settings -> Secrets and variables):
+#   DEPLOY_URL   e.g. https://remax-platinumonline.com  (no trailing slash)
 #   CRON_SECRET  the SAME value set as CRON_SECRET in your Vercel env vars
-#
-# Note: GitHub's scheduler is best-effort and can be delayed under load; ~10 min is
-# the practical floor. The weekly broker digest stays on Vercel Cron (vercel.json),
-# which the Hobby plan permits since it runs less than once per day.
 
 on:
   schedule:

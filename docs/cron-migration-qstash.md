@@ -1,7 +1,8 @@
 # Moving the frequent crons off GitHub Actions → QStash
 
-Status: **runbook, not yet executed.** Nothing in the app changes. `cron.yml`
-stays in the repo until the QStash schedules are confirmed working.
+Status: **done.** All four schedules are live in QStash and delivering. `cron.yml`
+is disabled in the Actions UI and kept in the repo as a documented fallback. No
+app code changed.
 
 ## Why
 
@@ -122,6 +123,28 @@ schedulers fire within the same few seconds, both can read the same offer before
 either writes, producing a double `applyScore()` penalty and a double
 `reassignLead()`. The odds are low but the window is real — run both only long
 enough to confirm QStash works.
+
+## What actually bit us during setup
+
+- **The console splits the forward-header prefix into its own locked column.** The
+  header row is `[Upstash-Forward (locked)] [custom header name] [value]`, and the
+  console supplies the joining `-` itself. Typing `-x-cron-secret` into the middle
+  column produces `Upstash-Forward--x-cron-secret`, which arrives at the route as a
+  header named `-x-cron-secret`. The middle column takes **`x-cron-secret`** with no
+  leading hyphen.
+- **A 401 is ambiguous on its own** — it can mean the forwarded header is wrong OR
+  that Vercel does not have the rotated secret. Disambiguate by running the GitHub
+  "Scheduled jobs" workflow manually: it sends `x-cron-secret` the old-fashioned way,
+  so a green run there plus a 401 in QStash isolates the fault to the QStash header.
+- **`DEPLOY_URL` is a GitHub-Actions-only variable.** It appears nowhere in `app/`,
+  `lib/`, `components/`, or `scripts/` — the app derives its own origin from
+  `SITE_URL` (`lib/siteUrl.ts`, which already defaults to the production domain). It
+  does not need to exist in Vercel, and `scheduled-daily.yml` still needs it in GitHub.
+- **QStash stores forwarded header values in plaintext** and displays them in the
+  console — it has to, in order to replay them on every call. Anyone with access to
+  the Upstash account can read `CRON_SECRET`. Keep 2FA on that account. QStash
+  signature verification would remove the shared secret entirely, at the cost of
+  changing all eight `/api/cron/*` routes.
 
 ## Neon side effect
 

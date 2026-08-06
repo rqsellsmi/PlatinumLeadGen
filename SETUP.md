@@ -144,28 +144,48 @@ Log in at **`/admin/login`** with `ADMIN_USERNAME` + your password, then:
 
 Every cron handler verifies the `x-cron-secret` header against `CRON_SECRET`.
 
-The **Vercel Hobby (free) plan only allows daily cron jobs**, so the time-sensitive
-jobs are driven by a **GitHub Actions workflow** (`.github/workflows/cron.yml`) that
-pings the endpoints every ~10 minutes, while Vercel Cron (`vercel.json`) runs each job
-once a day as a backstop. (If you upgrade to **Vercel Pro**, you can instead set the
-`vercel.json` schedules back to `*/5`, `*/10`, `*/30` and delete the workflow.)
+The **Vercel Hobby (free) plan only allows daily cron jobs**, and Vercel Cron cannot
+send a custom header anyway, so `vercel.json` has no crons at all. The jobs are split
+by cadence across two schedulers:
 
-| Path | GitHub Actions | Vercel Cron (backstop) | Job |
+**Frequent jobs → Upstash QStash.** GitHub services this repo's cron queue only every
+~2-3 hours, which left `expire-offers` (a 3-hour window enforced by sweep) up to 5-6h
+late. QStash forwards `Upstash-Forward-x-cron-secret` as `x-cron-secret`, so no route
+code changed. Full runbook: `docs/cron-migration-qstash.md`.
+
+**Daily/weekly jobs → GitHub Actions** (`.github/workflows/scheduled-daily.yml`).
+Their ticks all fire; being 2-3h late does not matter for cleanup and digest work.
+
+| Path | Scheduler | Cadence | Job |
 | --- | --- | --- | --- |
-| `/api/cron/dispatch-queued-offers` | every ~10 min | daily | Send offers queued outside the offer window once it reopens. |
-| `/api/cron/expire-offers` | every ~10 min | daily | Expire offers >3h unanswered, penalize, reassign. |
-| `/api/cron/followup-check` | every ~10 min | daily | 48h escalation alerts + weekly agent reminders. |
-| `/api/cron/broker-digest` | — | Thu 13:00 UTC (≈8am ET) | Weekly broker digest email (weekly is allowed on Hobby). |
+| `/api/cron/expire-offers` | QStash | `*/15 * * * *` | Expire offers >3h unanswered, penalize, reassign. |
+| `/api/cron/dispatch-queued-offers` | QStash | `*/15 * * * *` | Send offers queued outside the offer window once it reopens. |
+| `/api/cron/followup-check` | QStash | `0 * * * *` | 48h escalation alerts + weekly agent reminders. |
+| `/api/cron/google-ads-dispatch` | QStash | `0 * * * *` | Deliver pending Google Ads offline conversions. |
+| `/api/cron/cleanup-rate-limits` | Actions | 05:00 UTC daily | Prune expired rate-limit rows. |
+| `/api/cron/score-maintenance` | Actions | 08:00 UTC daily | Decay rolling-365, reset monthly/YTD at boundaries. |
+| `/api/cron/google-ads-dispatch` | Actions | 09:00 UTC daily | Reconciliation pass — re-drives due retryable errors. |
+| `/api/cron/broker-digest` | Actions | Thu 13:00 UTC (≈8am ET) | Weekly broker digest email. |
 
-**To enable the GitHub Actions scheduler**, add two repository secrets
+`.github/workflows/cron.yml` is the superseded frequent-job workflow. It is **disabled**
+in the Actions UI and kept only as a fallback — do not re-enable it while the QStash
+schedules are active, since `expire-offers` has no concurrency guard and two schedulers
+can double-apply a score penalty.
+
+**`scheduled-daily.yml` needs two repository secrets**
 (GitHub → Settings → Secrets and variables → Actions):
 
 | Secret | Value |
 | --- | --- |
-| `DEPLOY_URL` | Your deployed URL, e.g. `https://your-project.vercel.app` (no trailing slash) |
-| `CRON_SECRET` | The **same** value you set as `CRON_SECRET` in Vercel's env vars |
+| `DEPLOY_URL` | Your deployed URL, e.g. `https://remax-platinumonline.com` (no trailing slash). GitHub-Actions-only — the app itself derives its origin from `SITE_URL`, so this does **not** need to exist in Vercel. |
+| `CRON_SECRET` | The **same** value you set as `CRON_SECRET` in Vercel's env vars, and in the QStash schedules' forwarded header |
 
-The workflow also has a **"Run workflow"** button (manual trigger) on the repo's
+Rotating `CRON_SECRET` means updating it in **four** places — GitHub secrets, Vercel env
+vars, a Vercel **redeploy** (env changes do not reach a running deployment otherwise),
+and all four QStash schedules. It is write-only in both GitHub and Vercel, so it can
+never be read back; rotate rather than try to recover it.
+
+Both workflows have a **"Run workflow"** button (manual trigger) on the repo's
 **Actions** tab for testing.
 
 To test a cron locally:
