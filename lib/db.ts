@@ -26,13 +26,32 @@ function getDb(): NeonHttpDatabase<typeof schema> {
         'integration variable like POSTGRES_URL / STORAGE_URL).',
     );
   }
-  // `cache: 'no-store'` is load-bearing: the neon-http driver issues queries via
-  // fetch(), and Next.js's Data Cache will otherwise cache those responses during
-  // a Server Component render — serving STALE query results on pages even when the
-  // route is force-dynamic (the homepage "recent sales" froze on old data because
-  // of this; Route Handlers weren't affected, which is how we caught it). Forcing
-  // no-store makes every DB read hit the database.
-  const sql = neon(url, { fetchOptions: { cache: 'no-store' } });
+  // NO `cache: 'no-store'` here — deliberately. Each route's own config decides
+  // whether its reads are cached, which is what makes ISR possible at all.
+  //
+  // The neon-http driver issues queries via fetch(), so Next patches them. With no
+  // explicit cache option a query inherits the ROUTE's revalidate
+  // (next/dist/server/lib/patch-fetch.js — the "auto cache" branch):
+  //   force-dynamic route  → revalidate 0     → never cached (admin, agent, /api/*,
+  //                                             the homepage: always live)
+  //   ISR route            → revalidate N     → cached alongside the page, and both
+  //                                             refresh together (app/sell/[slug])
+  //
+  // This previously forced `no-store`, on the theory that the Data Cache was serving
+  // stale reads and had frozen the homepage's "recent sales". That turned out to be a
+  // SYNC problem, not a render-caching one. The cost of the workaround was severe and
+  // silent: `no-store` sets a fetch's own revalidate to 0, and Next lowers the route's
+  // revalidate to any smaller fetch value — so a single DB read dragged an entire ISR
+  // page back to per-request rendering. `export const revalidate` was simply ignored,
+  // with no warning. That is why a cold city page cost ~12.7s TTFB against a ~0.47s
+  // static floor.
+  //
+  // BEFORE ADDING A PAGE THAT READS THE DB: give it an explicit `dynamic` or
+  // `revalidate` export. A route with neither leaves the store's revalidate undefined,
+  // which the same branch reads as `false` — cache forever. Every current route is
+  // explicit, or does not touch the DB while rendering (privacy/terms render no
+  // header or footer; the root layout makes no queries).
+  const sql = neon(url);
   _db = drizzle(sql, { schema });
   return _db;
 }

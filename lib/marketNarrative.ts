@@ -145,14 +145,24 @@ async function generateWithAnthropic(city: string, r: CityMarketReport): Promise
 }
 
 /**
- * Get the market narrative for a city, cached and regenerated only when the
- * stats signature changes. Always returns a non-empty, dash-free string.
+ * READ PATH — safe to call while rendering a page. One indexed SELECT, never an
+ * API call, never a write.
+ *
+ * This used to be one function that generated on a cache miss, which put a live
+ * Anthropic call (9s abort, lib/marketNarrative.ts generateWithAnthropic) inside
+ * the request that renders a city page. The cache key is a signature of the stats,
+ * and the IDX sync rewrites those stats — so every sync armed the next visitor to
+ * pay the full model round trip, quite possibly Googlebot crawling overnight.
+ *
+ * Now generation happens in refreshMarketNarrative(), called by the sync after the
+ * metrics recompute. Rendering only ever reads. On a miss (new city, or stats moved
+ * and the sync has not regenerated yet) it returns the deterministic fallback, so
+ * the page is always complete and correct, just not yet model-written.
  */
 export async function getMarketNarrative(city: string, report: CityMarketReport): Promise<string> {
   const cityKey = city.trim().toLowerCase();
   const sig = signatureFor(report);
 
-  // Cache hit — same stats as last time.
   try {
     const rows = await db
       .select()
@@ -165,10 +175,39 @@ export async function getMarketNarrative(city: string, report: CityMarketReport)
     console.warn('[marketNarrative] cache read failed:', err);
   }
 
+  return fallbackNarrative(city, report);
+}
+
+/**
+ * WRITE PATH — never call this while rendering. Generates the narrative and stores
+ * it, so the read path finds a hit. Called by the IDX sync once per city after the
+ * stats change (lib/idxSync.ts), where a slow model call costs nobody anything.
+ *
+ * Returns true when it wrote, false when the cache was already current — so the
+ * caller can log how many cities actually needed regeneration.
+ */
+export async function refreshMarketNarrative(
+  city: string,
+  report: CityMarketReport,
+): Promise<boolean> {
+  const cityKey = city.trim().toLowerCase();
+  const sig = signatureFor(report);
+
+  try {
+    const rows = await db
+      .select()
+      .from(marketNarratives)
+      .where(eq(marketNarratives.cityKey, cityKey))
+      .limit(1);
+    const row = rows[0];
+    if (row?.narrative && row.signature === sig) return false; // already current
+  } catch (err) {
+    console.warn('[marketNarrative] cache read failed:', err);
+  }
+
   const generated = (await generateWithAnthropic(city, report)) ?? fallbackNarrative(city, report);
   const narrative = stripDashes(generated);
 
-  // Cache best-effort.
   try {
     await db
       .insert(marketNarratives)
@@ -179,7 +218,8 @@ export async function getMarketNarrative(city: string, report: CityMarketReport)
       });
   } catch (err) {
     console.warn('[marketNarrative] cache write failed:', err);
+    return false;
   }
 
-  return narrative;
+  return true;
 }

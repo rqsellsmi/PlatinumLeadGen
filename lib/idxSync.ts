@@ -87,6 +87,43 @@ export const SELECT_FIELDS = SELECT_FIELDS_ARR.join(',');
 export const MEDIA_EXPAND = 'Media($select=MediaURL,Order,MediaCategory)';
 
 /**
+ * Regenerate the AI market narrative for every active city whose stats moved.
+ *
+ * This is the WRITE half of lib/marketNarrative.ts. It lives here because the sync
+ * is what changes the stats the narrative describes, and because a model call that
+ * can take 9 seconds belongs in a background job rather than a page render — which
+ * is where it used to happen, on whichever visitor arrived first after a sync.
+ *
+ * Best-effort throughout: refreshMarketNarrative() falls back to the deterministic
+ * template on any API failure, a single city's error must not stop the others, and
+ * the whole pass must never fail the sync. Cities whose signature is unchanged are
+ * skipped without an API call.
+ */
+async function refreshMarketNarratives(): Promise<void> {
+  try {
+    const [{ getActiveLocations, locationMatchCities }, { getCityMarketReport }, { refreshMarketNarrative }] =
+      await Promise.all([import('./queries'), import('./idx'), import('./marketNarrative')]);
+
+    const locations = await getActiveLocations();
+    let refreshed = 0;
+    for (const location of locations) {
+      const city = locationMatchCities(location)[0] ?? '';
+      if (!city) continue;
+      try {
+        const report = await getCityMarketReport(city);
+        if (!report) continue;
+        if (await refreshMarketNarrative(city, report)) refreshed += 1;
+      } catch (err) {
+        console.error(`[idxSync] narrative refresh failed for ${city}:`, err);
+      }
+    }
+    console.error(`[idxSync] market narratives refreshed: ${refreshed}/${locations.length}`);
+  } catch (err) {
+    console.error('[idxSync] refreshMarketNarratives failed:', err);
+  }
+}
+
+/**
  * Ask the deployed app to drop its ISR cache for the public pages, after the
  * metrics recompute has rewritten the numbers those pages render.
  *
@@ -996,6 +1033,9 @@ export async function runIdxSync(
       try {
         const { updateMetricsFromIdx } = await import('./idxMetrics');
         await updateMetricsFromIdx();
+        // Regenerate narratives BEFORE revalidating, so the freshly-built pages
+        // pick up the new text instead of showing the fallback for a whole cycle.
+        await refreshMarketNarratives();
         // The public pages are ISR-cached, and this process cannot reach Next's
         // cache (it runs on a GitHub runner, not in the app), so ask the app to
         // drop them over HTTP. Best-effort by design: the hourly `revalidate`
