@@ -24,15 +24,19 @@ interface CityMarketStatsProps {
  * The city market card row.
  *
  * Three cards are WHOLE-CITY metrics; the fourth is our own production. Every
- * card carries a filled footer whether or not we win, so the cards stay the same
- * height and the row does not reflow depending on which metrics we happen to beat
- * this month. A red footer means our figure beat the market one above it; a
- * neutral footer just names the source.
+ * card ends in a bar of the same height, but it only carries text when our figure
+ * BEAT the market figure above it. Otherwise it is an empty spacer.
  *
- * The production card sits LAST because it is the one card that can never turn
- * red: it has no market counterpart to beat, being a count of our own deals
- * rather than a rate or an average. Keeping it at the end means the red footers
- * cluster on the left rather than leaving a gap mid-row.
+ * That emptiness is deliberate. The bar first read "{City} market · All recorded
+ * sales", which in a city where we win nothing printed three identical captions in
+ * a row, each wrapping onto two lines. The sentence under the row already says
+ * where the numbers come from, so repeating it per card was noise. Dropping the
+ * bar entirely instead would leave the winning cards taller than the rest and the
+ * row would jag, hence a spacer rather than nothing.
+ *
+ * The production card sits LAST because it can never win: it counts our own
+ * deals, so it has no market counterpart to beat. Keeping it at the end means red
+ * footers group to the left rather than leaving a gap mid-row.
  *
  * "Better" is per-metric, not bigger-is-better: fewer days to sell wins, a higher
  * sale price and a higher above-list share win, and a tie is not a win.
@@ -48,15 +52,8 @@ export default function CityMarketStats({ cityName, market, ours }: CityMarketSt
   type Card = {
     value: React.ReactNode;
     label: string;
-    /** Filled red when we beat the market figure; neutral otherwise. */
-    footer: { left: string; right: string; delta: string | null; win: boolean };
-  };
-
-  const marketFooter = {
-    left: `${cityName} market`,
-    right: 'All recorded sales',
-    delta: null,
-    win: false,
+    /** null renders the spacer bar; a value fills it red. */
+    footer: { value: string; delta: string } | null;
   };
 
   const cards: Card[] = [
@@ -65,12 +62,10 @@ export default function CityMarketStats({ cityName, market, ours }: CityMarketSt
       label: 'Average sale price',
       footer: win(ours?.avgSalePrice ?? null, market.avgSalePrice, false)
         ? {
-            left: 'RE/MAX Platinum',
-            right: formatCurrency(ours!.avgSalePrice),
+            value: formatCurrency(ours!.avgSalePrice),
             delta: `▲ ${formatCurrency(ours!.avgSalePrice! - market.avgSalePrice!)}`,
-            win: true,
           }
-        : marketFooter,
+        : null,
     },
     {
       value:
@@ -85,13 +80,11 @@ export default function CityMarketStats({ cityName, market, ours }: CityMarketSt
       label: 'Average days to sell',
       footer: win(ours?.daysToSell ?? null, market.daysToSell, true)
         ? {
-            left: 'RE/MAX Platinum',
-            right: `${formatNumber(ours!.daysToSell)} days`,
+            value: `${formatNumber(ours!.daysToSell)} days`,
             // Down is the win here: fewer days on market.
-            delta: `▼ ${formatNumber(market.daysToSell! - ours!.daysToSell!)} days`,
-            win: true,
+            delta: `▼ ${formatNumber(market.daysToSell! - ours!.daysToSell!)}`,
           }
-        : marketFooter,
+        : null,
     },
     {
       value:
@@ -106,19 +99,16 @@ export default function CityMarketStats({ cityName, market, ours }: CityMarketSt
       label: 'Sold above list price',
       footer: win(ours?.percentAboveList ?? null, market.percentAboveList, false)
         ? {
-            left: 'RE/MAX Platinum',
-            right: `${ours!.percentAboveList}%`,
+            value: `${ours!.percentAboveList}%`,
             // POINTS, not percent: 39% vs 37% is a 2-point gap, not a 2% one.
             delta: `▲ ${ours!.percentAboveList! - market.percentAboveList!} pts`,
-            win: true,
           }
-        : marketFooter,
+        : null,
     },
     {
       value: formatNumber(ours?.homesSold ?? null),
       label: `Homes sold by us in ${cityName}`,
-      // Never red: there is no market counterpart to beat.
-      footer: { left: 'RE/MAX Platinum', right: 'Our closed sales', delta: null, win: false },
+      footer: null,
     },
   ];
 
@@ -144,31 +134,28 @@ export default function CityMarketStats({ cityName, market, ours }: CityMarketSt
                 </dd>
                 <dt className="mt-2 text-sm font-semibold text-white/90">{c.label}</dt>
               </div>
+              {/* Same height either way, so the row of cards stays level. */}
               <div
-                className={`flex items-center justify-between gap-2 px-4 py-2.5 ${
-                  c.footer.win ? 'bg-platinum-red text-white' : 'bg-white/[0.06] text-mute-lighter'
+                className={`flex min-h-[2.6rem] items-center justify-between gap-2 px-4 py-2 ${
+                  c.footer ? 'bg-platinum-red text-white' : 'bg-white/[0.06]'
                 }`}
               >
-                <span className="text-xs font-bold">{c.footer.left}</span>
-                <span className="flex items-center gap-1.5">
-                  <span
-                    className={
-                      c.footer.win
-                        ? 'font-numeric text-base font-bold leading-none'
-                        : 'text-xs font-semibold'
-                    }
-                  >
-                    {c.footer.right}
-                  </span>
-                  {/* White on red rather than green: green against this red is the
-                      hardest pairing to read for red-green colour blindness, and a
-                      white badge carries more contrast here anyway. */}
-                  {c.footer.delta ? (
-                    <span className="rounded bg-white px-1.5 py-0.5 font-numeric text-[11px] font-black leading-none text-platinum-red">
-                      {c.footer.delta}
+                {c.footer ? (
+                  <>
+                    <span className="whitespace-nowrap text-xs font-bold">Our sellers</span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="whitespace-nowrap font-numeric text-base font-bold leading-none">
+                        {c.footer.value}
+                      </span>
+                      {/* White on red rather than green: green against this red is
+                          the hardest pairing to read for red-green colour
+                          blindness, and white out-contrasts it here anyway. */}
+                      <span className="whitespace-nowrap rounded bg-white px-1.5 py-1 font-numeric text-[11px] font-black leading-none text-platinum-red">
+                        {c.footer.delta}
+                      </span>
                     </span>
-                  ) : null}
-                </span>
+                  </>
+                ) : null}
               </div>
             </div>
           ))}
@@ -176,7 +163,8 @@ export default function CityMarketStats({ cityName, market, ours }: CityMarketSt
 
         <p className="mt-6 text-sm text-mute-light">
           All figures cover the last 12 months. Market figures are every recorded {cityName} sale;
-          RE/MAX Platinum figures are our own closed transactions.
+          RE/MAX Platinum figures are our own closed transactions. A red bar marks where we beat the
+          market.
         </p>
       </div>
     </section>
