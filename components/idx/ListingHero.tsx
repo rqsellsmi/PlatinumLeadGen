@@ -1,10 +1,4 @@
-import Image from 'next/image';
-
-const FALLBACK_IMAGE =
-  'data:image/svg+xml;charset=utf-8,' +
-  encodeURIComponent(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800"><rect width="1200" height="800" fill="#232323"/><text x="50%" y="50%" fill="#F7F5EE" font-family="sans-serif" font-size="40" text-anchor="middle" dominant-baseline="middle">Photo unavailable</text></svg>`,
-  );
+import PropertyImage from '@/components/PropertyImage';
 
 /**
  * Listing detail hero — the primary photo with an overlaid status badge,
@@ -37,8 +31,8 @@ export default function ListingHero({
 }) {
   return (
     <div className="relative aspect-[3/2] w-full overflow-hidden rounded-xl bg-line-hair sm:aspect-[16/9]">
-      <Image
-        src={photoUrl || FALLBACK_IMAGE}
+      <PropertyImage
+        src={photoUrl}
         alt={alt}
         fill
         sizes="(max-width: 1024px) 100vw, 1024px"

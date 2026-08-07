@@ -163,8 +163,7 @@ export default function CityMarketStats({ cityName, market, ours }: CityMarketSt
 
         <p className="mt-6 text-sm text-mute-light">
           All figures cover the last 12 months. Market figures are every recorded {cityName} sale;
-          RE/MAX Platinum figures are our own closed transactions. A red bar marks where we beat the
-          market.
+          RE/MAX Platinum figures are our own closed transactions.
         </p>
       </div>
     </section>

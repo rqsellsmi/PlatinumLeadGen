@@ -1,13 +1,7 @@
-import Image from 'next/image';
+import PropertyImage from '@/components/PropertyImage';
 import Link from 'next/link';
 import type { HomeRecentSale } from '@/lib/queries';
 import { formatCurrency, formatMonthYear } from '@/lib/utils';
-
-const FALLBACK_IMAGE =
-  'data:image/svg+xml;charset=utf-8,' +
-  encodeURIComponent(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400"><rect width="600" height="400" fill="#232323"/><text x="50%" y="50%" fill="#F7F5EE" font-family="sans-serif" font-size="28" text-anchor="middle" dominant-baseline="middle">RE/MAX Platinum</text></svg>`,
-  );
 
 /** Aggregate recent-sales grid for the homepage. Renders nothing when empty. */
 export default function HomeRecentSales({ sales }: { sales: HomeRecentSale[] }) {
@@ -29,8 +23,8 @@ export default function HomeRecentSales({ sales }: { sales: HomeRecentSale[] }) 
             const inner = (
               <>
                 <div className="relative h-52 w-full bg-line-hair">
-                  <Image
-                    src={sale.photoUrl ?? FALLBACK_IMAGE}
+                  <PropertyImage
+                    src={sale.photoUrl}
                     alt={`Recently sold home at ${sale.address}`}
                     width={600}
                     height={400}
