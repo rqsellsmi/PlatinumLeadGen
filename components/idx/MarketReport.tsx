@@ -35,10 +35,10 @@ export default function MarketReport({
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-platinum-red">
-              The {cityName || report.city} Market · {report.periodLabel}
+              {cityName || report.city} · {report.periodLabel}
             </p>
             <h2 className="mt-1 text-3xl font-black uppercase tracking-tight text-charcoal sm:text-4xl">
-              Market Report
+              Quarterly Market Report
             </h2>
           </div>
           <Logo variant="blue" href={null} width={104} className="mt-1 shrink-0" />
@@ -77,10 +77,10 @@ export default function MarketReport({
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-platinum-red">
-            The {where} Market · {report.periodLabel}
+            {where} · {report.periodLabel}
           </p>
           <h2 className="mt-1 text-3xl font-black uppercase tracking-tight text-charcoal sm:text-4xl">
-            Market Report
+            Quarterly Market Report
           </h2>
         </div>
         <Logo variant="blue" href={null} width={104} className="mt-1 shrink-0" />

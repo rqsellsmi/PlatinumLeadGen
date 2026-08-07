@@ -49,17 +49,27 @@ export default function CityMarketStats({ cityName, market, ours }: CityMarketSt
     value: React.ReactNode;
     label: string;
     /** Filled red when we beat the market figure; neutral otherwise. */
-    footer: { left: string; right: string; win: boolean };
+    footer: { left: string; right: string; delta: string | null; win: boolean };
   };
 
-  const marketFooter = { left: `${cityName} market`, right: 'All recorded sales', win: false };
+  const marketFooter = {
+    left: `${cityName} market`,
+    right: 'All recorded sales',
+    delta: null,
+    win: false,
+  };
 
   const cards: Card[] = [
     {
       value: formatCurrency(market.avgSalePrice),
       label: 'Average sale price',
       footer: win(ours?.avgSalePrice ?? null, market.avgSalePrice, false)
-        ? { left: 'RE/MAX Platinum', right: formatCurrency(ours!.avgSalePrice), win: true }
+        ? {
+            left: 'RE/MAX Platinum',
+            right: formatCurrency(ours!.avgSalePrice),
+            delta: `▲ ${formatCurrency(ours!.avgSalePrice! - market.avgSalePrice!)}`,
+            win: true,
+          }
         : marketFooter,
     },
     {
@@ -77,6 +87,8 @@ export default function CityMarketStats({ cityName, market, ours }: CityMarketSt
         ? {
             left: 'RE/MAX Platinum',
             right: `${formatNumber(ours!.daysToSell)} days`,
+            // Down is the win here: fewer days on market.
+            delta: `▼ ${formatNumber(market.daysToSell! - ours!.daysToSell!)} days`,
             win: true,
           }
         : marketFooter,
@@ -93,14 +105,20 @@ export default function CityMarketStats({ cityName, market, ours }: CityMarketSt
         ),
       label: 'Sold above list price',
       footer: win(ours?.percentAboveList ?? null, market.percentAboveList, false)
-        ? { left: 'RE/MAX Platinum', right: `${ours!.percentAboveList}%`, win: true }
+        ? {
+            left: 'RE/MAX Platinum',
+            right: `${ours!.percentAboveList}%`,
+            // POINTS, not percent: 39% vs 37% is a 2-point gap, not a 2% one.
+            delta: `▲ ${ours!.percentAboveList! - market.percentAboveList!} pts`,
+            win: true,
+          }
         : marketFooter,
     },
     {
       value: formatNumber(ours?.homesSold ?? null),
       label: `Homes sold by us in ${cityName}`,
       // Never red: there is no market counterpart to beat.
-      footer: { left: 'RE/MAX Platinum', right: 'Our closed sales', win: false },
+      footer: { left: 'RE/MAX Platinum', right: 'Our closed sales', delta: null, win: false },
     },
   ];
 
@@ -127,13 +145,29 @@ export default function CityMarketStats({ cityName, market, ours }: CityMarketSt
                 <dt className="mt-2 text-sm font-semibold text-white/90">{c.label}</dt>
               </div>
               <div
-                className={`flex items-center justify-between gap-3 px-4 py-2.5 text-xs font-bold ${
+                className={`flex items-center justify-between gap-2 px-4 py-2.5 ${
                   c.footer.win ? 'bg-platinum-red text-white' : 'bg-white/[0.06] text-mute-lighter'
                 }`}
               >
-                <span>{c.footer.left}</span>
-                <span className={c.footer.win ? 'font-numeric' : 'font-semibold'}>
-                  {c.footer.right}
+                <span className="text-xs font-bold">{c.footer.left}</span>
+                <span className="flex items-center gap-1.5">
+                  <span
+                    className={
+                      c.footer.win
+                        ? 'font-numeric text-base font-bold leading-none'
+                        : 'text-xs font-semibold'
+                    }
+                  >
+                    {c.footer.right}
+                  </span>
+                  {/* White on red rather than green: green against this red is the
+                      hardest pairing to read for red-green colour blindness, and a
+                      white badge carries more contrast here anyway. */}
+                  {c.footer.delta ? (
+                    <span className="rounded bg-white px-1.5 py-0.5 font-numeric text-[11px] font-black leading-none text-platinum-red">
+                      {c.footer.delta}
+                    </span>
+                  ) : null}
                 </span>
               </div>
             </div>
