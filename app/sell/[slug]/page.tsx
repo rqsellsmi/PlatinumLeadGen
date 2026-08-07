@@ -14,7 +14,7 @@ import {
 import SiteHeader from '@/components/SiteHeader';
 import SiteFooter from '@/components/SiteFooter';
 import HeroSection from '@/components/city/HeroSection';
-import MarketStatsBar from '@/components/city/MarketStatsBar';
+import CityMarketStats from '@/components/city/CityMarketStats';
 import { MIN_LOCAL_PROOF } from '@/lib/idx';
 import RecentSales from '@/components/city/RecentSales';
 import MarketReport from '@/components/idx/MarketReport';
@@ -142,27 +142,24 @@ export default async function CityPage({ params }: { params: { slug: string } })
           reviewCount={reviewCount}
           familiesHelped={stats?.totalHomesSold ?? null}
         />
-        {/* Headline figures are the WHOLE Brighton market; the fourth tile is our
-            own production, hence its own label. Ours is added under a market tile
-            only where it beats the market — and only once we have enough local
-            deals for the comparison to mean anything. */}
-        <MarketStatsBar
-          avgSalePrice={market12mo?.avgSalePrice ?? null}
-          daysToSell={market12mo?.daysToSell ?? null}
-          homesSold={stats?.homesSold ?? null}
-          percentAboveList={market12mo?.percentAboveList ?? null}
-          homesSoldLabel={`Homes Sold by RE/MAX Platinum in ${cityName}`}
-          compare={
+        {/* The stat bar only — the Market Report section further down is separate
+            and untouched. Three cards are whole-city figures; the fourth is our
+            own production and can never win a comparison, so it sits last. `ours`
+            is withheld below MIN_LOCAL_PROOF so we never claim to beat a city
+            average off the back of a handful of sales. */}
+        <CityMarketStats
+          cityName={cityName}
+          market={market12mo}
+          ours={
             stats && (stats.homesSold ?? 0) >= MIN_LOCAL_PROOF
               ? {
-                  label: 'RE/MAX Platinum',
                   avgSalePrice: stats.avgSalePrice,
                   daysToSell: stats.daysToSell,
                   percentAboveList: stats.percentAboveList,
+                  homesSold: stats.homesSold,
                 }
               : null
           }
-          subtext={`All figures cover the last 12 months. Market figures are every recorded ${cityName} sale; RE/MAX Platinum figures are our own closed transactions.`}
         />
         <RecentSales sales={recentSales} cityName={cityName} />
         {hasMarketReport ? (
