@@ -14,8 +14,8 @@ import {
 import SiteHeader from '@/components/SiteHeader';
 import SiteFooter from '@/components/SiteFooter';
 import HeroSection from '@/components/city/HeroSection';
-import SocialProofBar from '@/components/city/SocialProofBar';
 import MarketStatsBar from '@/components/city/MarketStatsBar';
+import { MIN_LOCAL_PROOF } from '@/lib/idx';
 import RecentSales from '@/components/city/RecentSales';
 import MarketReport from '@/components/idx/MarketReport';
 import IdxCompliance from '@/components/idx/IdxCompliance';
@@ -93,6 +93,7 @@ export default async function CityPage({ params }: { params: { slug: string } })
     testimonials,
     neighborhoodLinks,
     trackingScripts,
+    market12mo,
     googleReviews,
     reviewRating,
     reviewCount,
@@ -130,16 +131,6 @@ export default async function CityPage({ params }: { params: { slug: string } })
       />
       <SiteHeader />
       <main>
-        {/* The sales count is stated ONCE, by MarketStatsBar's "Homes Sold —
-            Last 12 Months" tile. It used to appear four times on this page: a
-            hero chip, the social proof bar, that tile, and the tile's own
-            caption. All four are VERIFIED transactions (market_stats / IDX
-            office deals) — the figure once read location.socialProofCount, a
-            count of FORM SUBMISSIONS rendered as "N+ homes sold", which is how
-            this page came to claim "1+ homes sold" directly above its own
-            market section reporting 89 real sales (D2).
-            The hero's `familiesHelped` is a DIFFERENT number: all-time sides,
-            not the trailing 12 months. */}
         <HeroSection
           headline={headline}
           subheadline={subheadline}
@@ -151,18 +142,27 @@ export default async function CityPage({ params }: { params: { slug: string } })
           reviewCount={reviewCount}
           familiesHelped={stats?.totalHomesSold ?? null}
         />
-        <SocialProofBar
-          cityName={cityName}
-          homesSold={stats?.homesSold ?? null}
-          googleReviewRating={reviewRating}
-          googleReviewCount={reviewCount}
-          topTestimonial={testimonials.find((t) => t.isActive) ?? null}
-        />
+        {/* Headline figures are the WHOLE Brighton market; the fourth tile is our
+            own production, hence its own label. Ours is added under a market tile
+            only where it beats the market — and only once we have enough local
+            deals for the comparison to mean anything. */}
         <MarketStatsBar
-          avgSalePrice={stats?.avgSalePrice ?? null}
-          daysToSell={stats?.daysToSell ?? null}
+          avgSalePrice={market12mo?.avgSalePrice ?? null}
+          daysToSell={market12mo?.daysToSell ?? null}
           homesSold={stats?.homesSold ?? null}
-          percentAboveList={stats?.percentAboveList ?? null}
+          percentAboveList={market12mo?.percentAboveList ?? null}
+          homesSoldLabel={`Homes Sold by RE/MAX Platinum in ${cityName}`}
+          compare={
+            stats && (stats.homesSold ?? 0) >= MIN_LOCAL_PROOF
+              ? {
+                  label: 'RE/MAX Platinum',
+                  avgSalePrice: stats.avgSalePrice,
+                  daysToSell: stats.daysToSell,
+                  percentAboveList: stats.percentAboveList,
+                }
+              : null
+          }
+          subtext={`All figures cover the last 12 months. Market figures are every recorded ${cityName} sale; RE/MAX Platinum figures are our own closed transactions.`}
         />
         <RecentSales sales={recentSales} cityName={cityName} />
         {hasMarketReport ? (

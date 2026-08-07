@@ -27,7 +27,12 @@ import {
 } from '../drizzle/schema';
 import { parseOfficeKeys } from './idxSync';
 import { cityTileImage } from './cityImages';
-import { getCityMarketReport, type CityMarketReport } from './idx';
+import {
+  getCityMarketReport,
+  getCityMarketStats12mo,
+  type CityMarketReport,
+  type CityMarketStats12mo,
+} from './idx';
 import { getMarketNarrative } from './marketNarrative';
 
 export interface CityGoogleReview {
@@ -51,6 +56,13 @@ export interface CityPageData {
   /** Star rating for the hero/social-proof bar (linked office, else manual). */
   reviewRating: number | null;
   reviewCount: number | null;
+  /**
+   * WHOLE-CITY sale price / days-to-sell / above-list over the trailing 12
+   * months, for the headline stat bar. Distinct from `stats`, which is the SAME
+   * three metrics computed over RE/MAX Platinum's own deals only — the bar shows
+   * the market figures and adds ours beside them where ours are better.
+   */
+  market12mo: CityMarketStats12mo | null;
   /** IDX-derived market report for this city's Market Report section. */
   idxMarketReport: CityMarketReport | null;
   /** AI-written human summary for the Market Report (dash-free). */
@@ -187,6 +199,7 @@ export async function getCityPageData(slug: string): Promise<CityPageData | null
   let links: NeighborhoodLink[] = [];
   let scripts: TrackingScript[] = [];
   let idxMarketReport: CityMarketReport | null = null;
+  let market12mo: CityMarketStats12mo | null = null;
   let idxMarketNarrative: string | null = null;
   let reviews: { reviews: CityGoogleReview[]; rating: number | null; count: number | null } = {
     reviews: [],
@@ -194,7 +207,7 @@ export async function getCityPageData(slug: string): Promise<CityPageData | null
     count: location.googleReviewCount ?? null,
   };
   try {
-    [stats, sales, tms, links, scripts, reviews, idxMarketReport] = await Promise.all([
+    [stats, sales, tms, links, scripts, reviews, idxMarketReport, market12mo] = await Promise.all([
       getMarketStats(location.id),
       getCityRecentSales(locationMatchCities(location), 6),
       db
@@ -211,6 +224,9 @@ export async function getCityPageData(slug: string): Promise<CityPageData | null
       getLocationReviews(location),
       // Market Report keyed on the primary mailing city this page covers.
       getCityMarketReport(locationMatchCities(location)[0] ?? '').catch(() => null),
+      // Whole-city figures for the headline bar, over the same 12-month window
+      // and the same match-city list market_stats uses for our own deals.
+      getCityMarketStats12mo(locationMatchCities(location)).catch(() => null),
     ]);
   } catch (err) {
     console.warn('[queries] getCityPageData secondary fetch failed:', err);
@@ -229,6 +245,7 @@ export async function getCityPageData(slug: string): Promise<CityPageData | null
     testimonials: tms,
     neighborhoodLinks: links,
     trackingScripts: scripts,
+    market12mo,
     googleReviews: reviews.reviews,
     reviewRating: reviews.rating,
     reviewCount: reviews.count,

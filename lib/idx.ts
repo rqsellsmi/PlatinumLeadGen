@@ -506,13 +506,16 @@ export const MIN_SALES_FOR_STATS = 10;
 
 /**
  * Minimum RE/MAX Platinum transaction sides in a city before the page makes a
- * local-experience claim ("helped more than N families in Brighton").
+ * local-experience claim about it.
  *
  * Distinct from MIN_SALES_FOR_STATS, which asks whether the MARKET has enough
  * sales to describe. This asks whether WE have done enough business there to say
- * so. Same value today, different question. Shared by
- * components/city/HeroSection.tsx and components/city/SocialProofBar.tsx so the
- * two local-proof claims on one page cannot disagree about when to appear.
+ * so. Same value today, different question.
+ *
+ * Two callers, and both claims should appear or vanish together: the hero's
+ * "helped more than N families in {city}" line, and the stat bar's us-vs-market
+ * comparison, which would otherwise brag about beating a city average off the
+ * back of three sales.
  */
 export const MIN_LOCAL_PROOF = 10;
 
@@ -539,6 +542,73 @@ export async function getCitiesWithSufficientSales(): Promise<{ city: string; sa
     city: String(r.city).trim(),
     sales: Number(r.sales),
   }));
+}
+
+export interface CityMarketStats12mo {
+  avgSalePrice: number | null;
+  daysToSell: number | null;
+  percentAboveList: number | null;
+  /** Closed sales behind these figures — the whole city, not just our deals. */
+  sales: number;
+}
+
+/**
+ * WHOLE-MARKET stats for a city over the trailing 12 months.
+ *
+ * The city page's headline stat bar used to show market_stats, which
+ * updateMetricsFromIdx computes with `isOfficeListing = true` — i.e. RE/MAX
+ * Platinum's own closed deals. Nothing on the bar said so, so an average sale
+ * price that described our book of business read as Brighton's. Worse, the
+ * Market Report further down the same page computes genuine whole-city numbers,
+ * so the two could visibly disagree with no explanation.
+ *
+ * These are the market numbers for that bar. Our own figures stay in
+ * market_stats and are shown beside them as a comparison.
+ *
+ * The formulas deliberately MIRROR lib/idxMetrics.ts (mean sale price, mean
+ * days-on-market over positive values, share of sales closing above list) and use
+ * the same 365-day window, so the two sides are like-for-like. getCityMarketReport
+ * is NOT reused here: it is a 90-day window and reports a MEDIAN price, so
+ * comparing our mean against its median would be a different measure entirely.
+ *
+ * Takes the location's full match-city list, matching how market_stats attributes
+ * a deal to a location (matchSet() in lib/idxMetrics.ts).
+ */
+export async function getCityMarketStats12mo(cities: string[]): Promise<CityMarketStats12mo | null> {
+  const list = cities.map((c) => c.trim().toLowerCase()).filter(Boolean);
+  if (list.length === 0) return null;
+
+  const rows = await db.execute(sql`
+    WITH sales AS (
+      SELECT close_price, list_price, days_on_market
+      FROM idx_listings
+      WHERE standard_status = 'Closed'
+        AND LOWER(city) IN (${sql.join(
+          list.map((c) => sql`${c}`),
+          sql`, `,
+        )})
+        AND close_date >= now() - interval '365 days'
+        AND close_price IS NOT NULL
+        AND (property_type IS NULL OR (lower(property_type) NOT LIKE '%lease%' AND lower(property_type) NOT LIKE '%rent%'))
+    )
+    SELECT
+      avg(close_price) AS avg_price,
+      avg(days_on_market) FILTER (WHERE days_on_market IS NOT NULL AND days_on_market > 0) AS avg_dom,
+      count(*) FILTER (WHERE list_price IS NOT NULL AND list_price > 0 AND close_price > list_price)::float
+        / NULLIF(count(*) FILTER (WHERE list_price IS NOT NULL AND list_price > 0), 0) * 100 AS above_pct,
+      count(*)::int AS n
+    FROM sales
+  `);
+  const r = (rows.rows as Record<string, unknown>[])[0];
+  if (!r) return null;
+  const sales = Number(r.n ?? 0);
+  if (sales === 0) return null;
+  return {
+    avgSalePrice: toNum(r.avg_price) != null ? Math.round(toNum(r.avg_price) as number) : null,
+    daysToSell: toNum(r.avg_dom) != null ? Math.round(toNum(r.avg_dom) as number) : null,
+    percentAboveList: toNum(r.above_pct) != null ? Math.round(toNum(r.above_pct) as number) : null,
+    sales,
+  };
 }
 
 /** Full market-report dataset for a city (IDX Closed sales, leases excluded). */

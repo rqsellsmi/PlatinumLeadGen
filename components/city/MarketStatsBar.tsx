@@ -1,26 +1,48 @@
 import { formatCurrency, formatNumber } from '@/lib/utils';
 
+export interface StatComparison {
+  /** Whose figures these are, e.g. "RE/MAX Platinum". */
+  label: string;
+  avgSalePrice: number | null;
+  daysToSell: number | null;
+  percentAboveList: number | null;
+}
+
 interface MarketStatsBarProps {
   avgSalePrice: number | null;
   daysToSell: number | null;
   homesSold: number | null;
   percentAboveList: number | null;
-  /** Optional caption below the bar, e.g. "Based on N homes sold …". */
+  /** Label for the homes-sold tile. Defaults to the whole-market phrasing. */
+  homesSoldLabel?: string;
+  /**
+   * Our own figures for the same window, shown under a tile ONLY where they beat
+   * the headline number. Omit to render a plain bar (the homepage does).
+   */
+  compare?: StatComparison | null;
+  /** Caption below the bar — the place to state the window and the sources. */
   subtext?: string | null;
 }
 
 /**
- * Dark headline stat bar (design mockup §2): four big Barlow numbers on
- * charcoal, with the "% above list" figure accented in Platinum Red. Shared by
- * the city pages (per-location market_stats) and the homepage (brokerage-wide
- * home_page_metrics) so both show the same metrics. Renders nothing when there's
- * no meaningful data.
+ * Dark headline stat bar (design mockup §2): four big Barlow numbers on charcoal,
+ * with the "% above list" figure accented in Platinum Red.
+ *
+ * On city pages the three market metrics are WHOLE-CITY figures and the fourth is
+ * our own production, which is why the homes-sold tile takes its own label. The
+ * homepage passes brokerage-wide numbers with no comparison and renders as before.
+ *
+ * "Better" is per-metric, not a bigger-is-better sweep: a lower days-to-sell wins,
+ * a higher sale price and a higher above-list share win. A tie is not a win and
+ * shows nothing.
  */
 export default function MarketStatsBar({
   avgSalePrice,
   daysToSell,
   homesSold,
   percentAboveList,
+  homesSoldLabel = 'Homes Sold — Last 12 Months',
+  compare,
   subtext,
 }: MarketStatsBarProps) {
   const hasAny =
@@ -30,8 +52,24 @@ export default function MarketStatsBar({
     percentAboveList != null;
   if (!hasAny) return null;
 
-  const blocks: { label: string; value: React.ReactNode }[] = [
-    { label: 'Average Sale Price', value: formatCurrency(avgSalePrice) },
+  /** Ours, rendered only when it genuinely beats the market figure. */
+  const better = (
+    ours: number | null,
+    market: number | null,
+    lowerIsBetter: boolean,
+    format: (n: number) => string,
+  ): string | null => {
+    if (!compare || ours == null || market == null) return null;
+    const wins = lowerIsBetter ? ours < market : ours > market;
+    return wins ? `${compare.label}: ${format(ours)}` : null;
+  };
+
+  const blocks: { label: string; value: React.ReactNode; note: string | null }[] = [
+    {
+      label: 'Average Sale Price',
+      value: formatCurrency(avgSalePrice),
+      note: better(compare?.avgSalePrice ?? null, avgSalePrice, false, (n) => formatCurrency(n)),
+    },
     {
       label: 'Average Days to Sell',
       value:
@@ -43,11 +81,9 @@ export default function MarketStatsBar({
         ) : (
           '—'
         ),
+      note: better(compare?.daysToSell ?? null, daysToSell, true, (n) => `${formatNumber(n)} days`),
     },
-    // Trailing 365 days, not a calendar year — WINDOW_DAYS in lib/idxMetrics.ts.
-    // "This Year" read as year-to-date and contradicted the rest of the page,
-    // which says "last 12 months".
-    { label: 'Homes Sold — Last 12 Months', value: formatNumber(homesSold) },
+    { label: homesSoldLabel, value: formatNumber(homesSold), note: null },
     {
       label: '% Sold Above List Price',
       value:
@@ -59,6 +95,7 @@ export default function MarketStatsBar({
         ) : (
           '—'
         ),
+      note: better(compare?.percentAboveList ?? null, percentAboveList, false, (n) => `${n}%`),
     },
   ];
 
@@ -74,12 +111,13 @@ export default function MarketStatsBar({
               <dt className="mt-2 text-sm font-semibold tracking-wide text-mute-lighter">
                 {b.label}
               </dt>
+              {b.note ? (
+                <p className="mt-1.5 text-xs font-bold text-platinum-red">{b.note}</p>
+              ) : null}
             </div>
           ))}
         </dl>
-        {subtext ? (
-          <p className="mt-9 text-center text-sm text-mute-light">{subtext}</p>
-        ) : null}
+        {subtext ? <p className="mt-9 text-center text-sm text-mute-light">{subtext}</p> : null}
       </div>
     </section>
   );
