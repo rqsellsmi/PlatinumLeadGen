@@ -18,6 +18,7 @@
  */
 import { sql, getTableColumns, inArray, eq, max } from 'drizzle-orm';
 import { db } from './db';
+import { siteUrl } from './siteUrl';
 import { realcompProbe, realcompProbeBody, realcompProbeCount, realcompFetchPages } from './realcomp';
 import {
   idxListings,
@@ -84,6 +85,44 @@ export const SELECT_FIELDS = SELECT_FIELDS_ARR.join(',');
 // SLOWER on Realcomp (the server sorts+limits media per listing), so we always
 // pull the full set and gate STORAGE by status instead (see upsertRawListings).
 export const MEDIA_EXPAND = 'Media($select=MediaURL,Order,MediaCategory)';
+
+/**
+ * Ask the deployed app to drop its ISR cache for the public pages, after the
+ * metrics recompute has rewritten the numbers those pages render.
+ *
+ * Best-effort on purpose. This runs on a GitHub runner where a network hiccup or
+ * an unset secret must not fail a sync that already did its real work — the
+ * hourly `revalidate` in app/sell/[slug]/page.tsx bounds the staleness either way.
+ * Silently no-ops when REVALIDATE_SECRET is absent (e.g. local runs), so the sync
+ * behaves identically in environments that have no app to notify.
+ */
+async function revalidatePublicPages(): Promise<void> {
+  const secret = process.env.REVALIDATE_SECRET;
+  if (!secret) {
+    console.error('[idxSync] REVALIDATE_SECRET unset — skipping cache revalidation');
+    return;
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const res = await fetch(`${siteUrl()}/api/revalidate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-revalidate-secret': secret },
+      body: JSON.stringify({ all: true }),
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      console.error('[idxSync] revalidate failed:', res.status, await res.text().catch(() => ''));
+      return;
+    }
+    console.error('[idxSync] public pages revalidated');
+  } catch (err) {
+    console.error('[idxSync] revalidate call failed:', err);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 // Enum values are sent as quoted strings in the filter. If the live $metadata
 // shows StandardStatus as a namespaced enum requiring a different form, change
@@ -957,6 +996,12 @@ export async function runIdxSync(
       try {
         const { updateMetricsFromIdx } = await import('./idxMetrics');
         await updateMetricsFromIdx();
+        // The public pages are ISR-cached, and this process cannot reach Next's
+        // cache (it runs on a GitHub runner, not in the app), so ask the app to
+        // drop them over HTTP. Best-effort by design: the hourly `revalidate`
+        // window in app/sell/[slug]/page.tsx is the fallback, so a failure here
+        // costs freshness for up to an hour and must never fail the sync.
+        await revalidatePublicPages();
       } catch (err) {
         console.error('[idxSync] updateMetricsFromIdx failed:', err);
       }

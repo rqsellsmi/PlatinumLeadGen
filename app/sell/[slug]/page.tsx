@@ -30,8 +30,24 @@ import TrackingScripts from '@/components/city/TrackingScripts';
 import StickyCtaBar from '@/components/cro/StickyCtaBar';
 import ExitIntentOverlay from '@/components/cro/ExitIntentOverlay';
 
-// Render at request time so new/edited cities appear immediately.
-export const dynamic = 'force-dynamic';
+// ISR, not request-time rendering. This page was `force-dynamic` so that new or
+// edited cities appeared immediately; `dynamicParams` keeps that property (a city
+// added after the last build renders on first request, then serves from cache) and
+// the admin save actions already call `revalidatePath('/sell/[slug]', 'page')`, so
+// edits still publish instantly. See docs/city-page-isr.md.
+//
+// Why it changed: rendering per request made a COLD hit cost ~12.7s TTFB (measured)
+// against a ~0.47s static floor on this site, because the render pays a Vercel cold
+// start, a Neon resume from auto-suspend, three sequential DB waves (getLocationBySlug
+// → the Promise.all → getMarketNarrative) and, on a stats change, a live Anthropic
+// call that aborts at 9s. Under ISR that whole cost moves to a background refresh
+// where no visitor is waiting on it.
+//
+// The hourly window is the safety net for the one writer that CANNOT call
+// revalidatePath: the IDX sync runs as a standalone script on a GitHub runner, a
+// different process from this app, so it POSTs /api/revalidate instead.
+export const revalidate = 3600;
+export const dynamicParams = true;
 
 const SITE_URL = siteUrl();
 

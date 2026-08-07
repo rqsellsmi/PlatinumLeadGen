@@ -67,6 +67,11 @@ jobs:
           REALCOMP_AUTH_URL: ${{ secrets.REALCOMP_AUTH_URL }}
           REALCOMP_AUDIENCE: ${{ secrets.REALCOMP_AUDIENCE }}
           REALCOMP_OFFICE_KEYS: ${{ secrets.REALCOMP_OFFICE_KEYS }}
+          # The public pages are ISR-cached. After the metrics recompute the sync
+          # POSTs /api/revalidate so the new numbers publish immediately instead of
+          # waiting out the hourly window. Unset = the call no-ops (sync unaffected).
+          REVALIDATE_SECRET: ${{ secrets.REVALIDATE_SECRET }}
+          SITE_URL: ${{ secrets.SITE_URL }}
         run: |
           if [ -n "${{ inputs.since }}" ]; then
             npm run idx:sync:incremental -- --since "${{ inputs.since }}"
