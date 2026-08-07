@@ -1,0 +1,28 @@
+-- Per-city all-time transaction sides, alongside the existing 12-month count.
+--
+-- WHY. The city hero claims "RE/MAX Platinum has helped more than N families in
+-- {city}". That figure is meant to cover every year the IDX feed reaches, since
+-- the feed only goes back a few years and the number is already an undercount --
+-- hence "more than". The social proof bar directly beneath the hero makes a
+-- different claim, "N homes sold in {city} in the last 12 months", and that one
+-- is deliberately a trailing window.
+--
+-- Two claims on one page, two windows, so they need two columns. `homes_sold`
+-- keeps its meaning (trailing 12 months, written by windowOrAll() in
+-- lib/idxMetrics.ts) and this adds the all-time figure next to it. Deriving one
+-- from the other at render time is not possible -- the windowing happens during
+-- the metrics recompute, not in the query the page runs.
+--
+-- Both columns count transaction SIDES, not deals: a sale where we held the
+-- listing side and the buyer side counts 2, because it is two families.
+--
+-- Nullable with no backfill on purpose. updateMetricsFromIdx() populates it on
+-- the next sync, and until then the hero line simply does not render (the
+-- component requires a value at or above MIN_LOCAL_PROOF). No migration-time
+-- guess is better than the real recompute a few hours later.
+--
+-- Hand-authored -- never `drizzle-kit generate` (lessons-learned §1). The
+-- migrations folder has drifted from the schema, so generate goes interactive
+-- and offers to rename unrelated columns.
+
+ALTER TABLE "market_stats" ADD COLUMN IF NOT EXISTS "total_homes_sold" integer;

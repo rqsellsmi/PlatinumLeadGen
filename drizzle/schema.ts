@@ -292,6 +292,14 @@ export const marketStats = pgTable('market_stats', {
   avgSalePrice: integer('avg_sale_price'),
   daysToSell: integer('days_to_sell'),
   homesSold: integer('homes_sold'), // last 12 months
+  /**
+   * All-time transaction sides in this city, every year the feed covers — the
+   * figure behind "helped more than N families in {city}" in the city hero.
+   * Separate from homesSold, which is the trailing-12-month number the social
+   * proof bar under the hero shows. Two different claims, two columns, so
+   * neither has to be recomputed from the other at render time.
+   */
+  totalHomesSold: integer('total_homes_sold'),
   percentOfListPrice: integer('percent_of_list_price'), // e.g. 99 = 99% of asking
   percentAboveList: integer('percent_above_list'), // e.g. 34 = 34% sold above list
   updatedAt: timestamp('updated_at').notNull().defaultNow(),

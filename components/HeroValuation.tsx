@@ -105,6 +105,16 @@ export default function HeroValuation({
   // this browser.
   const [existingRecord, setExistingRecord] = React.useState<{ emailed: boolean } | null>(null);
   const [mapsReady, setMapsReady] = React.useState(false);
+  /**
+   * Whether the Google Maps JS SDK has been REQUESTED yet. It used to load on
+   * every page view at `afterInteractive` purely so the address box could
+   * autocomplete — a heavy third-party bundle fetched for every visitor,
+   * including the ones who never touch the field. Now the <Script> only mounts
+   * once someone actually focuses an address input, so the initial page load
+   * does not pay for it. The field is a plain text input until then and stays
+   * fully usable: autocomplete simply attaches a moment later.
+   */
+  const [wantMaps, setWantMaps] = React.useState(false);
   const [mounted, setMounted] = React.useState(false);
 
   // Portal target only exists in the browser.
@@ -373,7 +383,7 @@ export default function HeroValuation({
 
   return (
     <>
-      {mapsKey ? (
+      {mapsKey && wantMaps ? (
         <Script
           src={`https://maps.googleapis.com/maps/api/js?key=${mapsKey}&libraries=places`}
           strategy="afterInteractive"
@@ -401,6 +411,7 @@ export default function HeroValuation({
           <input
             ref={heroInputRef}
             value={address}
+            onFocus={() => setWantMaps(true)}
             onChange={(e) => {
               setAddress(e.target.value);
               setPlace((p) => ({ ...p, propertyAddress: e.target.value }));
@@ -474,6 +485,7 @@ export default function HeroValuation({
                 <Input
                   ref={modalInputRef}
                   value={address}
+                  onFocus={() => setWantMaps(true)}
                   onChange={(e) => {
                     setAddress(e.target.value);
                     setPlace((p) => ({ ...p, propertyAddress: e.target.value }));

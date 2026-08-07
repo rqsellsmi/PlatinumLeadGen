@@ -171,7 +171,12 @@ export async function updateMetricsFromIdx(): Promise<IdxMetricsResult> {
     const statsValues = {
       avgSalePrice: avgSalePrice(source),
       daysToSell: avgDaysToSell(source),
+      // Trailing window (what the social proof bar under the hero shows) …
       homesSold: totalSides(source),
+      // … and every year the feed reaches (what the hero's "helped more than N
+      // families" line shows). `matched`, not `source`: windowOrAll() has already
+      // narrowed source to the last 12 months.
+      totalHomesSold: totalSides(matched),
       percentOfListPrice: avgPercentOfList(source),
       percentAboveList: pctAboveList(source),
       updatedAt: new Date(),

@@ -145,7 +145,7 @@ export default async function CityPage({ params }: { params: { slug: string } })
           eyebrow={location.name}
           rating={reviewRating}
           reviewCount={reviewCount}
-          homesSold={stats?.homesSold ?? null}
+          familiesHelped={stats?.totalHomesSold ?? null}
         />
         <SocialProofBar
           cityName={cityName}

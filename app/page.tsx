@@ -51,7 +51,7 @@ export default async function HomePage() {
       <main>
         {/* Hero */}
         <section className="relative isolate flex min-h-[560px] items-center px-5 py-20 sm:px-8 lg:px-12">
-          <HeroBackdrop images={heroImages} alt="Michigan homes" />
+          <HeroBackdrop images={heroImages} alt="Michigan homes" seed="home" />
           <div
             aria-hidden
             className="absolute inset-0 -z-10 bg-gradient-to-r from-[rgba(20,20,24,0.78)] via-[rgba(20,20,24,0.55)] to-[rgba(20,20,24,0.3)]"
@@ -62,8 +62,11 @@ export default async function HomePage() {
                 Your home is here. So are we.
               </h1>
               <p className="mt-6 max-w-xl text-lg leading-relaxed text-white/90 sm:text-xl">
+                {/* "more than": stats.homesSold is all-time office sides, but the
+                    IDX feed only reaches back a few years, so the true figure is
+                    higher. State it as the floor it is. */}
                 {stats.homesSold
-                  ? `RE/MAX Platinum has helped ${formatNumber(stats.homesSold)} families sell across South East Michigan. `
+                  ? `RE/MAX Platinum has helped more than ${formatNumber(stats.homesSold)} families sell across South East Michigan. `
                   : 'RE/MAX Platinum helps families across South East Michigan sell for more. '}
                 Find out what your home is worth today — free, and with no obligation.
               </p>

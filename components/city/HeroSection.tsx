@@ -15,7 +15,8 @@ interface HeroSectionProps {
   /** Optional trust signals rendered under the address form. */
   rating?: number | null;
   reviewCount?: number | null;
-  homesSold?: number | null;
+  /** ALL-TIME office transaction sides in this city (market_stats.total_homes_sold). */
+  familiesHelped?: number | null;
 }
 
 /**
@@ -33,12 +34,12 @@ export default async function HeroSection({
   eyebrow,
   rating,
   reviewCount,
-  homesSold,
+  familiesHelped,
 }: HeroSectionProps) {
   const heroImages = await getHeroImages();
   return (
     <section className="relative isolate flex min-h-[560px] items-center px-5 py-16 sm:px-8 lg:min-h-[calc(86vh)] lg:px-12">
-      <HeroBackdrop images={heroImages} alt={`Homes for sale in ${cityName}`} />
+      <HeroBackdrop images={heroImages} alt={`Homes for sale in ${cityName}`} seed={locationSlug} />
       <div
         aria-hidden
         className="absolute inset-0 -z-10 bg-gradient-to-r from-[rgba(20,20,24,0.78)] via-[rgba(20,20,24,0.55)] to-[rgba(20,20,24,0.25)]"
@@ -53,24 +54,19 @@ export default async function HeroSection({
           <h1 className="text-4xl font-black leading-[1.02] tracking-tight text-white sm:text-6xl lg:text-7xl">
             {headline}
           </h1>
+          {/* One opening paragraph, same shape as the homepage: the local-proof
+              sentence leads, the page's own subheadline follows. `familiesHelped`
+              is the ALL-TIME side count (market_stats.total_homes_sold), not the
+              trailing-12-month figure the social proof bar below the hero uses —
+              two different claims, deliberately different windows. "more than"
+              because the IDX feed only reaches back a few years, so it is a floor.
+              Gated at MIN_LOCAL_PROOF so a thin city makes no claim at all. */}
           <p className="mt-5 max-w-xl text-lg leading-relaxed text-white/90 sm:text-xl">
+            {familiesHelped != null && familiesHelped >= MIN_LOCAL_PROOF
+              ? `RE/MAX Platinum has helped more than ${familiesHelped.toLocaleString()} families in ${cityName}. `
+              : ''}
             {subheadline}
           </p>
-          {/* Local proof, mirroring the homepage's "helped N families" opening but
-              scoped to this city. homesSold counts transaction SIDES (see
-              lib/idxMetrics.ts sidesFor), so it is a count of families we
-              represented, not of houses. Gated at MIN_LOCAL_PROOF for the same
-              reason SocialProofBar is: a thin city should make no claim rather
-              than a weak one. */}
-          {homesSold != null && homesSold >= MIN_LOCAL_PROOF ? (
-            <p className="mt-4 max-w-xl text-base font-semibold text-white sm:text-lg">
-              RE/MAX Platinum has helped more than{' '}
-              <span className="font-numeric text-platinum-red">
-                {homesSold.toLocaleString()}
-              </span>{' '}
-              families in {cityName}.
-            </p>
-          ) : null}
           <div className="mt-8">
             <HeroValuation
               locationSlug={locationSlug}
@@ -87,9 +83,6 @@ export default async function HeroSection({
                 {rating.toFixed(1)}
                 {reviewCount != null ? ` · ${reviewCount.toLocaleString()}+ reviews` : ''}
               </span>
-            ) : null}
-            {homesSold ? (
-              <span className="text-white/90">{homesSold.toLocaleString()}+ homes sold</span>
             ) : null}
             <span className="text-white/90">Free · No obligation</span>
             <a
