@@ -25,6 +25,7 @@ import {
   idxListingPhotos,
   idxSyncLog,
   idxBackfillCheckpoints,
+  marketNarratives,
   type NewIdxListing,
   type NewIdxListingPhoto,
 } from '../drizzle/schema';
@@ -99,25 +100,55 @@ export const MEDIA_EXPAND = 'Media($select=MediaURL,Order,MediaCategory)';
  * the whole pass must never fail the sync. Cities whose signature is unchanged are
  * skipped without an API call.
  */
+const NARRATIVE_REFRESH_INTERVAL_MS = 20 * 60 * 60 * 1000; // ~nightly
+const NARRATIVE_CONCURRENCY = 4;
+
 async function refreshMarketNarratives(): Promise<void> {
   try {
-    const [{ getActiveLocations, locationMatchCities }, { getCityMarketReport }, { refreshMarketNarrative }] =
-      await Promise.all([import('./queries'), import('./idx'), import('./marketNarrative')]);
+    const [{ getCitiesWithSufficientSales, getCityMarketReport }, { refreshMarketNarrative }] =
+      await Promise.all([import('./idx'), import('./marketNarrative')]);
 
-    const locations = await getActiveLocations();
-    let refreshed = 0;
-    for (const location of locations) {
-      const city = locationMatchCities(location)[0] ?? '';
-      if (!city) continue;
-      try {
-        const report = await getCityMarketReport(city);
-        if (!report) continue;
-        if (await refreshMarketNarrative(city, report)) refreshed += 1;
-      } catch (err) {
-        console.error(`[idxSync] narrative refresh failed for ${city}:`, err);
-      }
+    // ONCE A DAY, not once per sync. getCityMarketReport() costs two heavy
+    // aggregate queries per city, so running this across every qualifying city on
+    // each 2-3h sync would multiply Neon compute for stats that move slowly. The
+    // most recent narrative write doubles as the "last run" marker, so no extra
+    // state is needed.
+    const [latest] = await db
+      .select({ last: max(marketNarratives.updatedAt) })
+      .from(marketNarratives);
+    const last = latest?.last?.getTime() ?? 0;
+    if (Date.now() - last < NARRATIVE_REFRESH_INTERVAL_MS) {
+      console.error('[idxSync] market narratives refreshed recently — skipping');
+      return;
     }
-    console.error(`[idxSync] market narratives refreshed: ${refreshed}/${locations.length}`);
+
+    // Every city in the FEED that clears the sales floor, not just the active
+    // locations. Listing pages and the thank-you page render a market write-up for
+    // whatever city their property sits in, which need not be a city we publish a
+    // /sell page for.
+    const cities = await getCitiesWithSufficientSales();
+    console.error(`[idxSync] narrative refresh: ${cities.length} cities clear the sales floor`);
+
+    let refreshed = 0;
+    let failed = 0;
+    for (let i = 0; i < cities.length; i += NARRATIVE_CONCURRENCY) {
+      const batch = cities.slice(i, i + NARRATIVE_CONCURRENCY);
+      await Promise.all(
+        batch.map(async ({ city }) => {
+          try {
+            const report = await getCityMarketReport(city);
+            if (!report) return;
+            if (await refreshMarketNarrative(city, report)) refreshed += 1;
+          } catch (err) {
+            failed += 1;
+            console.error(`[idxSync] narrative refresh failed for ${city}:`, err);
+          }
+        }),
+      );
+    }
+    console.error(
+      `[idxSync] market narratives: ${refreshed} rewritten, ${failed} failed, ${cities.length} eligible`,
+    );
   } catch (err) {
     console.error('[idxSync] refreshMarketNarratives failed:', err);
   }

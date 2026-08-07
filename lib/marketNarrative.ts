@@ -10,7 +10,7 @@
 import { eq } from 'drizzle-orm';
 import { db } from './db';
 import { marketNarratives } from '../drizzle/schema';
-import type { CityMarketReport } from './idx';
+import { MIN_SALES_FOR_STATS, type CityMarketReport } from './idx';
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 
@@ -45,23 +45,52 @@ function marketType(moi: number | null): string | null {
   return "a buyer's market";
 }
 
+/** How demand actually looks at this inventory level. Same thresholds as marketType. */
+function demandClause(moi: number | null): string {
+  if (moi == null) return 'activity has been steady';
+  if (moi < 3) return 'well priced homes have moved quickly';
+  if (moi <= 6) return 'buyers and sellers have been on fairly even footing';
+  return 'buyers have had room to negotiate';
+}
+
+/**
+ * What a city below MIN_SALES_FOR_STATS gets instead of an analysis. States the
+ * real number and declines to draw a trend from it, rather than dressing four
+ * sales up as a market read.
+ */
+export function limitedDataNarrative(city: string, r: CityMarketReport): string {
+  const where = city || 'this area';
+  const n = r.homesSold90d;
+  const sales = n === 1 ? '1 home has' : `${n} homes have`;
+  return stripDashes(
+    `${sales} closed in ${where} in the last 90 days. That is too little recent activity to ` +
+      `report reliable price trends here, so we are not publishing a market read for this area ` +
+      `yet. For a picture of what is happening on a specific street or subdivision, ask us ` +
+      `directly and we will pull the comparable sales.`,
+  );
+}
+
 /** Deterministic, human-sounding fallback. No em dashes. */
 export function fallbackNarrative(city: string, r: CityMarketReport): string {
+  if (r.homesSold90d < MIN_SALES_FOR_STATS) return limitedDataNarrative(city, r);
   const where = city || 'this area';
   const parts: string[] = [];
   const mt = marketType(r.monthsOfInventory);
   if (mt) {
-    parts.push(`${where} stayed firmly ${mt} this quarter.`);
+    parts.push(`${where} is ${mt} right now.`);
   } else {
     parts.push(`Here is how the ${where} market is shaping up this quarter.`);
   }
 
   const supplyBits: string[] = [];
   if (r.monthsOfInventory != null) supplyBits.push(`about ${r.monthsOfInventory} months of supply`);
-  if (r.avgDaysOnMarket != null) supplyBits.push(`a median of roughly ${r.avgDaysOnMarket} days on market`);
+  if (r.avgDaysOnMarket != null) supplyBits.push(`homes averaging ${r.avgDaysOnMarket} days on market`);
   if (r.listToSaleRatio != null) supplyBits.push(`homes selling at ${r.listToSaleRatio}% of list price`);
   if (supplyBits.length) {
-    parts.push(`With ${supplyBits.join(', ')}, demand has stayed steady.`);
+    // Derived from months of inventory, not asserted. This previously read
+    // "demand has stayed steady" no matter what, which contradicted the very
+    // numbers in the same sentence on a slow market.
+    parts.push(`With ${supplyBits.join(', ')}, ${demandClause(r.monthsOfInventory)}.`);
   }
 
   const closers: string[] = [];
@@ -73,7 +102,10 @@ export function fallbackNarrative(city: string, r: CityMarketReport): string {
     closers.push(`the median sale price is ${dir} ${Math.abs(r.yoyChangePct)}% from a year ago`);
   }
   if (closers.length) {
-    parts.push(`${closers.join(', and ')}. Sellers who prepared and priced well routinely drew strong interest.`);
+    // Sentence-case the join: when the above-asking clause drops out (0% or null)
+    // this starts with "the median sale price…" mid-paragraph.
+    const sentence = closers.join(', and ');
+    parts.push(`${sentence.charAt(0).toUpperCase()}${sentence.slice(1)}.`);
   }
 
   return stripDashes(parts.join(' '));
@@ -205,7 +237,12 @@ export async function refreshMarketNarrative(
     console.warn('[marketNarrative] cache read failed:', err);
   }
 
-  const generated = (await generateWithAnthropic(city, report)) ?? fallbackNarrative(city, report);
+  // Below the floor there is nothing worth analysing: store the limited-data note
+  // and skip the API call entirely.
+  const generated =
+    report.homesSold90d < MIN_SALES_FOR_STATS
+      ? limitedDataNarrative(city, report)
+      : (await generateWithAnthropic(city, report)) ?? fallbackNarrative(city, report);
   const narrative = stripDashes(generated);
 
   try {

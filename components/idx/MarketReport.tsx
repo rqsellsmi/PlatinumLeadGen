@@ -1,4 +1,4 @@
-import type { CityMarketReport } from '@/lib/idx';
+import { MIN_SALES_FOR_STATS, type CityMarketReport } from '@/lib/idx';
 import { formatCompactCurrency } from '@/lib/utils';
 import Logo from '@/components/Logo';
 
@@ -24,6 +24,34 @@ export default function MarketReport({
     report.activeListings > 0 ||
     report.trailing.some((t) => t.median != null);
   if (!hasAny) return null;
+
+  // Below the sales floor the median, the year-over-year change and the trailing
+  // chart are all computed from a handful of sales (lib/idx.ts imposes no minimum),
+  // so publishing them would put precise-looking figures next to a note saying the
+  // data is too thin to trust. Show the note alone.
+  if (report.homesSold90d < MIN_SALES_FOR_STATS) {
+    return (
+      <section className="overflow-hidden rounded-card border border-line bg-white p-6 sm:p-8">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-platinum-red">
+              The {cityName || report.city} Market · {report.periodLabel}
+            </p>
+            <h2 className="mt-1 text-3xl font-black uppercase tracking-tight text-charcoal sm:text-4xl">
+              Market Report
+            </h2>
+          </div>
+          <Logo variant="blue" href={null} width={104} className="mt-1 shrink-0" />
+        </div>
+        <hr className="mt-4 border-charcoal/80" />
+        <p className="mt-5 max-w-xl text-[15px] leading-relaxed text-platinum-blue">{narrative}</p>
+        <p className="mt-6 text-[11px] leading-relaxed text-mute-lighter">
+          Source: Realcomp II MLS, {cityName || report.city} area. Prepared by RE/MAX Platinum ·{' '}
+          {report.periodLabel}.
+        </p>
+      </section>
+    );
+  }
 
   const where = cityName || report.city || 'your area';
   const yoy = report.yoyChangePct;

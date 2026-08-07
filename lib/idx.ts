@@ -489,6 +489,46 @@ function toNum(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * Minimum closed sales in the trailing 90 days before a city's stats are treated
+ * as publishable. Owner decision, matching the suppression floor MLS market
+ * reports commonly use.
+ *
+ * getCityMarketReport() imposes no floor of its own — it will happily return a
+ * "median sale price" derived from a single sale, and a year-over-year change
+ * from two. Below this count the figures are noise, so callers show the
+ * limited-data state (lib/marketNarrative.ts limitedDataNarrative,
+ * components/idx/MarketReport.tsx) rather than a confident write-up. Publishing
+ * an AI-written analysis of four sales would be worse than publishing nothing:
+ * it reads as authoritative precisely where the data cannot support it.
+ */
+export const MIN_SALES_FOR_STATS = 10;
+
+/**
+ * Cities whose trailing-90-day closed-sale count clears MIN_SALES_FOR_STATS.
+ * Drives the nightly narrative refresh, so it must apply the SAME status, date
+ * and lease filters as getCityMarketReport() — otherwise a city qualifies here
+ * and then reports a different homesSold90d on the page.
+ */
+export async function getCitiesWithSufficientSales(): Promise<{ city: string; sales: number }[]> {
+  const rows = await db.execute(sql`
+    SELECT city, count(*)::int AS sales
+    FROM idx_listings
+    WHERE standard_status = 'Closed'
+      AND city IS NOT NULL AND btrim(city) <> ''
+      AND close_date >= now() - interval '90 days'
+      AND close_price IS NOT NULL
+      AND (property_type IS NULL OR (lower(property_type) NOT LIKE '%lease%' AND lower(property_type) NOT LIKE '%rent%'))
+    GROUP BY city
+    HAVING count(*) >= ${MIN_SALES_FOR_STATS}
+    ORDER BY count(*) DESC
+  `);
+  return (rows.rows as { city: string; sales: number }[]).map((r) => ({
+    city: String(r.city).trim(),
+    sales: Number(r.sales),
+  }));
+}
+
 /** Full market-report dataset for a city (IDX Closed sales, leases excluded). */
 export async function getCityMarketReport(city: string): Promise<CityMarketReport | null> {
   if (!city.trim()) return null;
