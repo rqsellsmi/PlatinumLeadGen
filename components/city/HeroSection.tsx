@@ -1,6 +1,7 @@
 import HeroValuation from '@/components/HeroValuation';
 import HeroBackdrop from '@/components/HeroBackdrop';
 import { getHeroImages } from '@/lib/heroImages';
+import { MIN_LOCAL_PROOF } from '@/lib/idx';
 
 interface HeroSectionProps {
   headline: string;
@@ -55,6 +56,21 @@ export default async function HeroSection({
           <p className="mt-5 max-w-xl text-lg leading-relaxed text-white/90 sm:text-xl">
             {subheadline}
           </p>
+          {/* Local proof, mirroring the homepage's "helped N families" opening but
+              scoped to this city. homesSold counts transaction SIDES (see
+              lib/idxMetrics.ts sidesFor), so it is a count of families we
+              represented, not of houses. Gated at MIN_LOCAL_PROOF for the same
+              reason SocialProofBar is: a thin city should make no claim rather
+              than a weak one. */}
+          {homesSold != null && homesSold >= MIN_LOCAL_PROOF ? (
+            <p className="mt-4 max-w-xl text-base font-semibold text-white sm:text-lg">
+              RE/MAX Platinum has helped more than{' '}
+              <span className="font-numeric text-platinum-red">
+                {homesSold.toLocaleString()}
+              </span>{' '}
+              families in {cityName}.
+            </p>
+          ) : null}
           <div className="mt-8">
             <HeroValuation
               locationSlug={locationSlug}

@@ -1,4 +1,5 @@
 import type { Testimonial } from '@/drizzle/schema';
+import { MIN_LOCAL_PROOF } from '@/lib/idx';
 
 interface SocialProofBarProps {
   cityName: string;
@@ -26,7 +27,7 @@ export default function SocialProofBar({
   googleReviewCount,
   topTestimonial,
 }: SocialProofBarProps) {
-  if (homesSold == null || homesSold < 10) return null;
+  if (homesSold == null || homesSold < MIN_LOCAL_PROOF) return null;
 
   return (
     <section className="border-y border-line bg-white">

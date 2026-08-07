@@ -12,6 +12,7 @@
 import { and, eq, isNotNull } from 'drizzle-orm';
 import { db } from './db';
 import { idxListings, locations, marketStats, homePageMetrics } from '../drizzle/schema';
+import { parseOfficeKeys } from './idxSync';
 
 const WINDOW_DAYS = 365;
 
@@ -21,9 +22,37 @@ interface Row {
   salePrice: number | null;
   daysOnMarket: number | null;
   city: string | null;
+  /** 1 when we held one side of this deal, 2 when we held both. See sidesFor(). */
+  sides: number;
 }
 
 const round = (n: number) => Math.round(n);
+
+/**
+ * Transaction SIDES we represented on a deal: 1 for listing-only or buyer-only,
+ * 2 when we held both. Owner's counting rule for production figures.
+ *
+ * Each side is a distinct family we represented, which is what "homes sold" and
+ * "families helped" are meant to convey. Note this is a boolean per SIDE, not a
+ * count of matching fields: if both the list office AND the co-list office are
+ * ours that is still one listing side.
+ *
+ * Deliberately NOT applied to the averages and percentages below. A double-ended
+ * deal is still a single sale price and a single days-on-market observation;
+ * counting it twice would silently weight our own double-enders more heavily in
+ * every average on the page.
+ */
+function sidesFor(
+  row: { listOfficeKey: string | null; coListOfficeKey: string | null; buyerOfficeKey: string | null; coBuyerOfficeKey: string | null },
+  keys: Set<string>,
+): number {
+  const listingSide = [row.listOfficeKey, row.coListOfficeKey].some((k) => k != null && keys.has(k));
+  const buyerSide = [row.buyerOfficeKey, row.coBuyerOfficeKey].some((k) => k != null && keys.has(k));
+  return (listingSide ? 1 : 0) + (buyerSide ? 1 : 0);
+}
+
+/** Total sides across rows — the production count. */
+const totalSides = (rows: Row[]): number => rows.reduce((a, r) => a + r.sides, 0);
 
 function pct(v: number): number {
   return round(v);
@@ -67,20 +96,29 @@ function matchSet(loc: { name: string; matchCities: string | null }): Set<string
 
 export interface IdxMetricsResult {
   skipped: boolean;
+  /** Distinct closed deals we were on. */
   totalDeals: number;
+  /** Transaction sides across those deals — what the public counts show. */
+  totalSides: number;
   locationsUpdated: number;
 }
 
 /** Recompute home_page_metrics + market_stats from IDX office-closed deals. */
 export async function updateMetricsFromIdx(): Promise<IdxMetricsResult> {
-  // Both sides count as "ours" (§ intro). One row per deal (no double-count).
-  const rows: Row[] = await db
+  // One ROW per deal, but each row carries how many SIDES we represented, so the
+  // production counts can total sides while the averages stay per deal.
+  const keys = new Set(parseOfficeKeys());
+  const raw = await db
     .select({
       closeDate: idxListings.closeDate,
       listPrice: idxListings.listPrice,
       salePrice: idxListings.closePrice,
       daysOnMarket: idxListings.daysOnMarket,
       city: idxListings.city,
+      listOfficeKey: idxListings.listOfficeKey,
+      coListOfficeKey: idxListings.coListOfficeKey,
+      buyerOfficeKey: idxListings.buyerOfficeKey,
+      coBuyerOfficeKey: idxListings.coBuyerOfficeKey,
     })
     .from(idxListings)
     .where(
@@ -91,16 +129,24 @@ export async function updateMetricsFromIdx(): Promise<IdxMetricsResult> {
       ),
     );
 
+  // isOfficeListing was computed at upsert time against the office keys as they
+  // were THEN. If REALCOMP_OFFICE_KEYS has since changed, a row can be flagged
+  // ours yet resolve to 0 sides now; treat the live key set as authoritative and
+  // drop those rather than counting a deal we cannot attribute to a side.
+  const rows: Row[] = raw
+    .map((r) => ({ ...r, sides: sidesFor(r, keys) }))
+    .filter((r) => r.sides > 0);
+
   if (rows.length === 0) {
     // Feed not backfilled yet — leave existing (closings-derived) stats intact.
-    return { skipped: true, totalDeals: 0, locationsUpdated: 0 };
+    return { skipped: true, totalDeals: 0, totalSides: 0, locationsUpdated: 0 };
   }
 
   // -------- Homepage metrics (single row) --------
   const homeSource = windowOrAll(rows);
   const homeValues = {
-    totalHomesSold: rows.length,
-    homesSold: homeSource.length,
+    totalHomesSold: totalSides(rows),
+    homesSold: totalSides(homeSource),
     avgSalePrice: avgSalePrice(homeSource),
     avgDaysToSell: avgDaysToSell(homeSource),
     avgPercentOfList: avgPercentOfList(homeSource),
@@ -125,7 +171,7 @@ export async function updateMetricsFromIdx(): Promise<IdxMetricsResult> {
     const statsValues = {
       avgSalePrice: avgSalePrice(source),
       daysToSell: avgDaysToSell(source),
-      homesSold: source.length,
+      homesSold: totalSides(source),
       percentOfListPrice: avgPercentOfList(source),
       percentAboveList: pctAboveList(source),
       updatedAt: new Date(),
@@ -143,5 +189,5 @@ export async function updateMetricsFromIdx(): Promise<IdxMetricsResult> {
     locationsUpdated += 1;
   }
 
-  return { skipped: false, totalDeals: rows.length, locationsUpdated };
+  return { skipped: false, totalDeals: rows.length, totalSides: totalSides(rows), locationsUpdated };
 }

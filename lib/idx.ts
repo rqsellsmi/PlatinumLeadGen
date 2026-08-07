@@ -505,6 +505,18 @@ function toNum(v: unknown): number | null {
 export const MIN_SALES_FOR_STATS = 10;
 
 /**
+ * Minimum RE/MAX Platinum transaction sides in a city before the page makes a
+ * local-experience claim ("helped more than N families in Brighton").
+ *
+ * Distinct from MIN_SALES_FOR_STATS, which asks whether the MARKET has enough
+ * sales to describe. This asks whether WE have done enough business there to say
+ * so. Same value today, different question. Shared by
+ * components/city/HeroSection.tsx and components/city/SocialProofBar.tsx so the
+ * two local-proof claims on one page cannot disagree about when to appear.
+ */
+export const MIN_LOCAL_PROOF = 10;
+
+/**
  * Cities whose trailing-90-day closed-sale count clears MIN_SALES_FOR_STATS.
  * Drives the nightly narrative refresh, so it must apply the SAME status, date
  * and lease filters as getCityMarketReport() — otherwise a city qualifies here
