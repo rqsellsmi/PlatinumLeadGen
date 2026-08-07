@@ -51,7 +51,7 @@ export default async function HomePage() {
       <main>
         {/* Hero */}
         <section className="relative isolate flex min-h-[560px] items-center px-5 py-20 sm:px-8 lg:px-12">
-          <HeroBackdrop images={heroImages} alt="Michigan homes" seed="home" />
+          <HeroBackdrop images={heroImages} alt="Michigan homes" seed={String(Math.random())} />
           <div
             aria-hidden
             className="absolute inset-0 -z-10 bg-gradient-to-r from-[rgba(20,20,24,0.78)] via-[rgba(20,20,24,0.55)] to-[rgba(20,20,24,0.3)]"

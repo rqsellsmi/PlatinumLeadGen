@@ -1,5 +1,5 @@
 import HeroValuation from '@/components/HeroValuation';
-import HeroBackdrop from '@/components/HeroBackdrop';
+import HeroBackdrop, { rotatingSeed } from '@/components/HeroBackdrop';
 import { getHeroImages } from '@/lib/heroImages';
 import { MIN_LOCAL_PROOF } from '@/lib/idx';
 
@@ -39,7 +39,7 @@ export default async function HeroSection({
   const heroImages = await getHeroImages();
   return (
     <section className="relative isolate flex min-h-[560px] items-center px-5 py-16 sm:px-8 lg:min-h-[calc(86vh)] lg:px-12">
-      <HeroBackdrop images={heroImages} alt={`Homes for sale in ${cityName}`} seed={locationSlug} />
+      <HeroBackdrop images={heroImages} alt={`Homes for sale in ${cityName}`} seed={rotatingSeed(locationSlug)} />
       <div
         aria-hidden
         className="absolute inset-0 -z-10 bg-gradient-to-r from-[rgba(20,20,24,0.78)] via-[rgba(20,20,24,0.55)] to-[rgba(20,20,24,0.25)]"

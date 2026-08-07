@@ -12,11 +12,18 @@ import Image from 'next/image';
  * against the second download. On a hero photo that is a lot of wasted bytes on
  * every single view.
  *
- * Instead the index is derived from `seed` during render: stable for a given page,
- * different across pages, decided before a single byte is fetched. `priority` now
- * preloads the image that is actually shown. The cost is that a given city always
- * shows the same photo rather than varying per reload — worth it, and reload
- * variety was never visible to a first-time visitor anyway.
+ * Instead the index is derived from `seed` during render — decided before a single
+ * byte is fetched, so `priority` preloads the image actually shown.
+ *
+ * ROTATION still happens; the caller controls how often by what it puts in the
+ * seed. The ceiling is set by how often the page re-renders, not by this file:
+ *   - a force-dynamic page (the homepage) renders per request, so a random seed
+ *     gives a different photo on every single visit
+ *   - an ISR page (city pages) renders once per revalidation and every visitor in
+ *     that window is served the same cached HTML, so a time-bucketed seed rotates
+ *     the photo once per window
+ * Varying per-visitor on a CACHED page is the thing that is not possible without
+ * client-side JS, which is what caused the double download in the first place.
  *
  * No hooks, so this is a server component: it also drops out of the client bundle.
  */
@@ -31,6 +38,15 @@ function seedIndex(seed: string, length: number): number {
   return h % length;
 }
 
+/**
+ * Seed that changes every `everyMs`, so an ISR page picks a new photo each time it
+ * regenerates. Include `key` (e.g. the city slug) so different cities are not all
+ * showing the same photo at the same moment.
+ */
+export function rotatingSeed(key: string, everyMs = 60 * 60 * 1000): string {
+  return `${key}:${Math.floor(Date.now() / everyMs)}`;
+}
+
 export default function HeroBackdrop({
   images,
   alt = '',
@@ -38,7 +54,10 @@ export default function HeroBackdrop({
 }: {
   images: string[];
   alt?: string;
-  /** Picks which image this page shows. Use something page-stable, e.g. the slug. */
+  /**
+   * Picks which image this render shows. Vary it to rotate: a random value on a
+   * per-request page, or slug + time bucket on a cached one. See rotatingSeed().
+   */
   seed?: string;
 }) {
   const list = images.length ? images : ['/assets/hero-home.jpg'];
