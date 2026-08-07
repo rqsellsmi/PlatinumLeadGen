@@ -11,7 +11,6 @@ import {
   fillFaqStats,
   generateCityStructuredData,
 } from '@/lib/seo';
-import { formatNumber } from '@/lib/utils';
 import SiteHeader from '@/components/SiteHeader';
 import SiteFooter from '@/components/SiteFooter';
 import HeroSection from '@/components/city/HeroSection';
@@ -131,11 +130,16 @@ export default async function CityPage({ params }: { params: { slug: string } })
       />
       <SiteHeader />
       <main>
-        {/* `homesSold` on both bars below is VERIFIED transactions (market_stats
-            / IDX office deals). It used to read location.socialProofCount — a
+        {/* The sales count is stated ONCE, by MarketStatsBar's "Homes Sold —
+            Last 12 Months" tile. It used to appear four times on this page: a
+            hero chip, the social proof bar, that tile, and the tile's own
+            caption. All four are VERIFIED transactions (market_stats / IDX
+            office deals) — the figure once read location.socialProofCount, a
             count of FORM SUBMISSIONS rendered as "N+ homes sold", which is how
             this page came to claim "1+ homes sold" directly above its own
-            market section reporting 89 real sales (D2). */}
+            market section reporting 89 real sales (D2).
+            The hero's `familiesHelped` is a DIFFERENT number: all-time sides,
+            not the trailing 12 months. */}
         <HeroSection
           headline={headline}
           subheadline={subheadline}
@@ -159,11 +163,6 @@ export default async function CityPage({ params }: { params: { slug: string } })
           daysToSell={stats?.daysToSell ?? null}
           homesSold={stats?.homesSold ?? null}
           percentAboveList={stats?.percentAboveList ?? null}
-          subtext={
-            stats?.homesSold
-              ? `Based on ${formatNumber(stats.homesSold)} homes sold in ${cityName} over the last 12 months.`
-              : null
-          }
         />
         <RecentSales sales={recentSales} cityName={cityName} />
         {hasMarketReport ? (

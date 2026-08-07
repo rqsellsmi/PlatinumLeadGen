@@ -17,8 +17,14 @@ interface SocialProofBarProps {
 
 /**
  * Social proof bar (Section 4.3 #2). Every figure here must be backed by a real
- * outcome: verified sales and real Google review counts. Hidden below 10 sales
- * so a thin city page makes no claim at all rather than a weak one.
+ * outcome: real Google review counts and a real client quote.
+ *
+ * NO LONGER PRINTS THE SALES COUNT. MarketStatsBar, immediately below this, has a
+ * dedicated "Homes Sold — Last 12 Months" tile for exactly that number, so this
+ * bar was restating it a few pixels earlier. It still gates on `homesSold`
+ * though: the sales floor is what earns the right to make ANY local claim here,
+ * and a city we have barely worked should stay quiet rather than lead with a
+ * lone review star.
  */
 export default function SocialProofBar({
   cityName,
@@ -28,14 +34,12 @@ export default function SocialProofBar({
   topTestimonial,
 }: SocialProofBarProps) {
   if (homesSold == null || homesSold < MIN_LOCAL_PROOF) return null;
+  // Nothing left to say once the sales sentence moved to the stats bar.
+  if (googleReviewRating == null && !topTestimonial) return null;
 
   return (
     <section className="border-y border-line bg-white">
       <div className="mx-auto flex max-w-6xl flex-col items-center gap-3 px-4 py-5 text-center sm:flex-row sm:justify-center sm:gap-8">
-        <p className="text-sm font-bold text-charcoal">
-          <span className="font-numeric text-platinum-red">{homesSold.toLocaleString()}</span>{' '}
-          homes sold in {cityName} in the last 12 months.
-        </p>
         {googleReviewRating != null ? (
           <p className="flex items-center gap-1.5 text-sm font-semibold text-charcoal">
             <span className="text-warning" aria-hidden>
